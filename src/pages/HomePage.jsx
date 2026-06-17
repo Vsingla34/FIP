@@ -1,12 +1,30 @@
 import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { supabase } from '../lib/supabase.js';
+
+const FALLBACK = [
+  { id:'f1', name:'Adv. Gaurav Gupta', designation:'Advocate · High Court of Delhi', content:'FIP stands as a dynamic platform dedicated to empowering professionals. With its consistent focus on knowledge-sharing and expert-led sessions, FIP has become a vital force in enriching professional growth and fostering a strong community committed to excellence.', rating:5 },
+  { id:'f2', name:'CA Sadhna Sharma', designation:'Chartered Accountant · MBA (IIMA)', content:'Being part of FIP has been an enriching experience. FIP stands out as a vibrant platform that brings together finance and legal professionals from diverse backgrounds, fostering a community of continuous learning and collaboration.', rating:5 },
+];
 
 export default function HomePage() {
   const { openModal, startCheckout } = useApp();
   const navigate = useNavigate();
+  const [testimonials, setTestimonials] = useState(FALLBACK);
+
+  useEffect(() => {
+    supabase
+      .from('testimonials')
+      .select('id, name, designation, profession, content, rating')
+      .eq('status', 'approved')
+      .order('reviewed_at', { ascending: false })
+      .then(({ data }) => { if (data && data.length > 0) setTestimonials(data); });
+  }, []);
 
   return (
     <>
+      {/* HERO */}
       <section id="hero">
         <div className="hero-grid">
           <div className="hero-left">
@@ -55,6 +73,7 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* STATS RIBBON */}
       <div className="stats-ribbon">
         <div className="stats-ribbon-inner">
           <div className="stat-item"><span className="stat-n">200+</span><div className="stat-l">Webinars Held</div></div>
@@ -66,6 +85,7 @@ export default function HomePage() {
         </div>
       </div>
 
+      {/* 3 C's */}
       <section className="section section-alt">
         <div className="container">
           <div className="section-header">
@@ -74,25 +94,14 @@ export default function HomePage() {
             <p className="section-sub">Every programme, event and resource at FIP is shaped by three principles that define why we exist.</p>
           </div>
           <div className="three-c-grid">
-            <div className="c-card c1">
-              <div className="c-icon ci-blue"><i className="fa-solid fa-network-wired"></i></div>
-              <h3>Connect</h3>
-              <p>Build meaningful relationships with 3,000+ CAs, CSs, CMAs, and Advocates. Expand your professional circle through events, forums, and WhatsApp communities.</p>
-            </div>
-            <div className="c-card c2">
-              <div className="c-icon ci-orange"><i className="fa-solid fa-people-group"></i></div>
-              <h3>Collaborate</h3>
-              <p>Partner on industry initiatives, co-author insights, and develop solutions. FIP bridges practitioners across disciplines to drive the profession forward.</p>
-            </div>
-            <div className="c-card c3">
-              <div className="c-icon ci-green"><i className="fa-solid fa-trophy"></i></div>
-              <h3>Conquer</h3>
-              <p>Stay ahead with expert-led certificate courses, ICAI CPE-eligible webinars, and real-time regulatory updates tailored for practising professionals.</p>
-            </div>
+            <div className="c-card c1"><div className="c-icon ci-blue"><i className="fa-solid fa-network-wired"></i></div><h3>Connect</h3><p>Build meaningful relationships with 3,000+ CAs, CSs, CMAs, and Advocates. Expand your professional circle through events, forums, and WhatsApp communities.</p></div>
+            <div className="c-card c2"><div className="c-icon ci-orange"><i className="fa-solid fa-people-group"></i></div><h3>Collaborate</h3><p>Partner on industry initiatives, co-author insights, and develop solutions. FIP bridges practitioners across disciplines to drive the profession forward.</p></div>
+            <div className="c-card c3"><div className="c-icon ci-green"><i className="fa-solid fa-trophy"></i></div><h3>Conquer</h3><p>Stay ahead with expert-led certificate courses, ICAI CPE-eligible webinars, and real-time regulatory updates tailored for practising professionals.</p></div>
           </div>
         </div>
       </section>
 
+      {/* COURSES */}
       <section className="section">
         <div className="container">
           <div className="shflex">
@@ -110,18 +119,15 @@ export default function HomePage() {
               { bg:'ct-orange', emoji:'📊', tag:null, tagLabel:null, cat:'Direct Tax', title:'Income Tax Search & Seizure — Practical Guide', instr:'Senior Practitioners', sessions:'5 Sessions', level:'Advanced', price:'₹1,499', free:false },
             ].map((c,i) => (
               <div className="course-card" key={i} onClick={() => openModal('enroll')}>
-                <div className={`course-thumb ${c.bg}`}>
-                  <span>{c.emoji}</span>
-                  {c.tag && <span className={`course-tag ${c.tag}`}>{c.tagLabel}</span>}
-                </div>
+                <div className={`course-thumb ${c.bg}`}><span>{c.emoji}</span>{c.tag&&<span className={`course-tag ${c.tag}`}>{c.tagLabel}</span>}</div>
                 <div className="course-body">
                   <div className="course-cat">{c.cat}</div>
                   <div className="course-title">{c.title}</div>
                   <div className="course-instr"><i className="fa-solid fa-user-tie" style={{fontSize:'10px',color:'var(--text-light)'}}></i> {c.instr}</div>
                   <div className="course-meta"><span><i className="fa-regular fa-clock"></i> {c.sessions}</span><span><i className="fa-solid fa-signal"></i> {c.level}</span></div>
                   <div className="course-footer">
-                    {c.free ? <span className="course-price-free">{c.price}</span> : <span className="course-price">{c.price}</span>}
-                    <button className="c-enroll-btn" onClick={e => { e.stopPropagation(); openModal('enroll'); }}>Enroll Now</button>
+                    {c.free?<span className="course-price-free">{c.price}</span>:<span className="course-price">{c.price}</span>}
+                    <button className="c-enroll-btn" onClick={e=>{e.stopPropagation();openModal('enroll');}}>Enroll Now</button>
                   </div>
                 </div>
               </div>
@@ -130,6 +136,7 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* EVENTS DARK */}
       <div className="events-dark">
         <div className="container">
           <div className="shflex">
@@ -141,28 +148,14 @@ export default function HomePage() {
             <Link to="/events" className="btn btn-outline-white">All Events <i className="fa-solid fa-arrow-right"></i></Link>
           </div>
           <div className="event-grid">
-            <div className="ev-dark" onClick={() => openModal('rsvp')}>
-              <div className="ev-date"><i className="fa-regular fa-calendar"></i> Jan 11, 2026</div>
-              <div className="ev-title">Rashtrapati Bhawan Visit</div>
-              <div className="ev-desc">Exclusive guided visit to the President's residence. RSVP by Jan 2, 7 PM with your name, designation &amp; ID proof.</div>
-              <div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div>
-            </div>
-            <div className="ev-dark" onClick={() => openModal('rsvp')}>
-              <div className="ev-date"><i className="fa-regular fa-calendar"></i> Every Sunday</div>
-              <div className="ev-title">Chartered Walk &amp; Talk</div>
-              <div className="ev-desc">Morning walks at India Gate, War Memorial &amp; Firoz Shah Road. Networking meets wellness — free for all members.</div>
-              <div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">Open to all</span></div>
-            </div>
-            <div className="ev-dark">
-              <div className="ev-date"><i className="fa-regular fa-calendar"></i> Coming Soon</div>
-              <div className="ev-title">GST Conclave 2026</div>
-              <div className="ev-desc">Following Le Meridien's success, the next GST Conclave brings 500+ professionals for a full-day indirect tax summit.</div>
-              <div className="ev-footer"><span className="ev-type evt-virtual">Notify Me</span><span className="ev-seats">500+ capacity</span></div>
-            </div>
+            <div className="ev-dark" onClick={()=>openModal('rsvp')}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Jan 11, 2026</div><div className="ev-title">Rashtrapati Bhawan Visit</div><div className="ev-desc">Exclusive guided visit to the President's residence. RSVP by Jan 2, 7 PM with your name, designation &amp; ID proof.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div></div>
+            <div className="ev-dark" onClick={()=>openModal('rsvp')}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Every Sunday</div><div className="ev-title">Chartered Walk &amp; Talk</div><div className="ev-desc">Morning walks at India Gate, War Memorial &amp; Firoz Shah Road. Networking meets wellness — free for all members.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">Open to all</span></div></div>
+            <div className="ev-dark"><div className="ev-date"><i className="fa-regular fa-calendar"></i> Coming Soon</div><div className="ev-title">GST Conclave 2026</div><div className="ev-desc">Following Le Meridien's success, the next GST Conclave brings 500+ professionals for a full-day indirect tax summit.</div><div className="ev-footer"><span className="ev-type evt-virtual">Notify Me</span><span className="ev-seats">500+ capacity</span></div></div>
           </div>
         </div>
       </div>
 
+      {/* FEATURES */}
       <section className="section section-alt">
         <div className="container">
           <div className="section-header">
@@ -172,17 +165,17 @@ export default function HomePage() {
           </div>
           <div className="features-grid">
             {[
-              { icon:'fa-gauge-high', cls:'fi-blue', title:'Member Dashboard', desc:'Track CPE hours, enrolled courses, event RSVPs, and membership status in one personalised view.', tag:null },
-              { icon:'fa-calendar-check', cls:'fi-orange', title:'Event Calendar & RSVP', desc:'Browse all FIP events, RSVP with one click, and get automatic WhatsApp & email reminders.', tag:'New' },
-              { icon:'fa-comments', cls:'fi-teal', title:'Community Forum', desc:'Post questions, share regulatory updates, and discuss case studies with 3,000+ community members.', tag:'New' },
-              { icon:'fa-certificate', cls:'fi-purple', title:'CPE Credit Tracking', desc:'Auto-log ICAI CPE hours from FIP webinars and courses. Download e-certificates instantly.', tag:'New' },
-              { icon:'fa-book-open', cls:'fi-red', title:'Resource Library', desc:'Searchable archive of all FIP session recordings, decks, case studies, and circulars.', tag:'New' },
-              { icon:'fa-briefcase', cls:'fi-green', title:'Job & Opportunity Board', desc:'Exclusive listings from FIP member firms — jobs, freelance briefs, and collaboration opportunities.', tag:'New' },
+              { icon:'fa-gauge-high',    cls:'fi-blue',   title:'Member Dashboard',        desc:'Track CPE hours, enrolled courses, event RSVPs, and membership status in one personalised view.', tag:null },
+              { icon:'fa-calendar-check',cls:'fi-orange', title:'Event Calendar & RSVP',   desc:'Browse all FIP events, RSVP with one click, and get automatic WhatsApp & email reminders.', tag:'New' },
+              { icon:'fa-comments',      cls:'fi-teal',   title:'Community Forum',          desc:'Post questions, share regulatory updates, and discuss case studies with 3,000+ community members.', tag:'New' },
+              { icon:'fa-certificate',   cls:'fi-purple', title:'CPE Credit Tracking',      desc:'Auto-log ICAI CPE hours from FIP webinars and courses. Download e-certificates instantly.', tag:'New' },
+              { icon:'fa-book-open',     cls:'fi-red',    title:'Resource Library',          desc:'Searchable archive of all FIP session recordings, decks, case studies, and circulars.', tag:'New' },
+              { icon:'fa-briefcase',     cls:'fi-green',  title:'Job & Opportunity Board',  desc:'Exclusive listings from FIP member firms — jobs, freelance briefs, and collaboration opportunities.', tag:'New' },
             ].map((f,i) => (
               <div className="feat-card" key={i}>
                 <div className={`feat-icon ${f.cls}`}><i className={`fa-solid ${f.icon}`}></i></div>
                 <div>
-                  <div className="feat-title">{f.title}{f.tag && <span className="tag-new">{f.tag}</span>}</div>
+                  <div className="feat-title">{f.title}{f.tag&&<span className="tag-new">{f.tag}</span>}</div>
                   <div className="feat-desc">{f.desc}</div>
                 </div>
               </div>
@@ -191,32 +184,48 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── TESTIMONIALS — live from Supabase ── */}
       <section className="section">
         <div className="container">
           <div className="section-header">
             <span className="eyebrow">Member Voices</span>
             <h2 className="section-heading">What Our <span>Members Say</span></h2>
+            <p className="section-sub">Real experiences from FIP professionals across India.</p>
           </div>
+
           <div className="testi-grid">
-            <div className="testi-card">
-              <div className="testi-stars">★★★★★</div>
-              <span className="testi-qmark">"</span>
-              <p className="testi-text">FIP stands as a dynamic platform dedicated to empowering professionals across disciplines. With its consistent focus on knowledge-sharing, expert-led sessions, and unwavering support, FIP has become a vital force in enriching professional growth and fostering a strong, informed community committed to excellence.</p>
-              <div className="testi-author"><div className="testi-av">GG</div><div><div className="testi-name">Adv. Gaurav Gupta</div><div className="testi-role">Advocate · High Court of Delhi</div></div></div>
-            </div>
-            <div className="testi-card">
-              <div className="testi-stars">★★★★★</div>
-              <span className="testi-qmark">"</span>
-              <p className="testi-text">Being part of FIP has been an enriching experience. FIP stands out as a vibrant platform that brings together finance and legal professionals from diverse backgrounds, fostering a community of continuous learning and collaboration.</p>
-              <div className="testi-author"><div className="testi-av">SS</div><div><div className="testi-name">CA Sadhna Sharma</div><div className="testi-role">Chartered Accountant · MBA (IIMA)</div></div></div>
-            </div>
+            {testimonials.map((t, i) => {
+              const initials = (t.name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase()||'?';
+              const stars    = '★'.repeat(t.rating||5) + '☆'.repeat(5-(t.rating||5));
+              return (
+                <div className="testi-card" key={t.id||i}>
+                  <div className="testi-stars">{stars}</div>
+                  <span className="testi-qmark">"</span>
+                  <p className="testi-text">{t.content}</p>
+                  <div className="testi-author">
+                    <div className="testi-av">{initials}</div>
+                    <div>
+                      <div className="testi-name">{t.name}</div>
+                      <div className="testi-role">
+                        {t.designation}
+                        {t.profession && <span style={{color:'var(--orange)',marginLeft:'6px',fontSize:'11px',fontWeight:600}}>· {t.profession}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
+
           <div style={{textAlign:'center',marginTop:'28px'}}>
-            <button className="btn btn-outline-blue" onClick={() => openModal('testimonial')}><i className="fa-solid fa-pen"></i> Submit Your Testimonial</button>
+            <button className="btn btn-outline-blue" onClick={() => openModal('testimonial')}>
+              <i className="fa-solid fa-pen"></i> Share Your Experience
+            </button>
           </div>
         </div>
       </section>
 
+      {/* CTA */}
       <div className="cta-band">
         <div className="container">
           <div className="cta-inner">
