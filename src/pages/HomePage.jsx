@@ -3,6 +3,70 @@ import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
 
+/* ── Count-up stat: animates from 0 to target when scrolled into view ── */
+function CountUpStat({ value, label }) {
+  const ref = useRef(null);
+  const [display, setDisplay] = useState(formatStat(0, value));
+  const hasAnimated = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !hasAnimated.current) {
+          hasAnimated.current = true;
+          animateCount(value, setDisplay);
+        }
+      },
+      { threshold: 0.4 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [value]);
+
+  return (
+    <div className="stat-item" ref={ref}>
+      <span className="stat-n">{display}</span>
+      <div className="stat-l">{label}</div>
+    </div>
+  );
+}
+
+/* parse a string like "₹10L+" or "3,000+" into { prefix, number, suffix } */
+function parseStatValue(raw) {
+  const match = raw.match(/^([^\d]*)([\d,]+)(.*)$/);
+  if (!match) return { prefix: '', number: 0, suffix: raw };
+  const [, prefix, numStr, suffix] = match;
+  return { prefix, number: parseInt(numStr.replace(/,/g, ''), 10), suffix };
+}
+
+function formatStat(current, raw) {
+  const { prefix, number, suffix } = parseStatValue(raw);
+  const n = Math.round(current);
+  const formatted = number >= 1000 ? n.toLocaleString('en-IN') : n.toString();
+  return `${prefix}${formatted}${suffix}`;
+}
+
+function animateCount(raw, setDisplay) {
+  const { number } = parseStatValue(raw);
+  const duration = 1400; // ms
+  const startTime = performance.now();
+
+  function tick(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    // ease-out cubic
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = eased * number;
+    setDisplay(formatStat(current, raw));
+    if (progress < 1) requestAnimationFrame(tick);
+    else setDisplay(formatStat(number, raw)); // snap to exact final value
+  }
+  requestAnimationFrame(tick);
+}
+
 const FALLBACK = [
   { id:'f1', name:'Adv. Gaurav Gupta', designation:'Advocate · High Court of Delhi', content:'FIP stands as a dynamic platform dedicated to empowering professionals. With its consistent focus on knowledge-sharing and expert-led sessions, FIP has become a vital force in enriching professional growth and fostering a strong community committed to excellence.', rating:5 },
   { id:'f2', name:'CA Sadhna Sharma', designation:'Chartered Accountant · MBA (IIMA)', content:'Being part of FIP has been an enriching experience. FIP stands out as a vibrant platform that brings together finance and legal professionals from diverse backgrounds, fostering a community of continuous learning and collaboration.', rating:5 },
@@ -261,12 +325,6 @@ export default function HomePage() {
                   </button>
                   <Link to="/about" className="btn btn-outline-white btn-lg">Our Story <i className="fa-solid fa-arrow-right"></i></Link>
                 </div>
-                <div className="hero-stats">
-                  <div><span className="hero-stat-num">3,000+</span><div className="hero-stat-lbl">Members</div></div>
-                  <div><span className="hero-stat-num">200+</span><div className="hero-stat-lbl">Webinars</div></div>
-                  <div><span className="hero-stat-num">50+</span><div className="hero-stat-lbl">Events</div></div>
-                  <div><span className="hero-stat-num">₹10L+</span><div className="hero-stat-lbl">Sponsorship</div></div>
-                </div>
               </div>
               <div className="hero-right">
                 <div className="hero-dashboard">
@@ -283,14 +341,6 @@ export default function HomePage() {
                     <div className="db-card-label"><i className="fa-solid fa-graduation-cap"></i>&nbsp; Featured Course</div>
                     <div className="db-card-title">Mastering GST Litigation — Sankalp 2026</div>
                     <div className="db-card-meta">Enrolling Now &nbsp;·&nbsp; ₹999 &nbsp;·&nbsp; 6 Sessions</div>
-                  </div>
-                  <div className="db-card">
-                    <div className="db-card-label"><i className="fa-solid fa-chart-bar"></i>&nbsp; Community Stats</div>
-                    <div className="db-stat-row">
-                      <div className="db-stat"><div className="db-stat-n">3K+</div><div className="db-stat-l">Members</div></div>
-                      <div className="db-stat"><div className="db-stat-n">200+</div><div className="db-stat-l">Webinars</div></div>
-                      <div className="db-stat"><div className="db-stat-n">50+</div><div className="db-stat-l">Events</div></div>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -354,15 +404,15 @@ export default function HomePage() {
 
       </div>
 
-      {/* STATS RIBBON */}
+      {/* STATS RIBBON — animated count-up when scrolled into view */}
       <div className="stats-ribbon">
         <div className="stats-ribbon-inner">
-          <div className="stat-item"><span className="stat-n">200+</span><div className="stat-l">Webinars Held</div></div>
-          <div className="stat-item"><span className="stat-n">50+</span><div className="stat-l">Physical Meets</div></div>
-          <div className="stat-item"><span className="stat-n">₹10L+</span><div className="stat-l">Sponsorship</div></div>
-          <div className="stat-item"><span className="stat-n">3,000+</span><div className="stat-l">Professionals</div></div>
-          <div className="stat-item"><span className="stat-n">100+</span><div className="stat-l">Expert Speakers</div></div>
-          <div className="stat-item"><span className="stat-n">15+</span><div className="stat-l">Certificate Courses</div></div>
+          <CountUpStat value="200+"    label="Webinars Held" />
+          <CountUpStat value="50+"     label="Physical Meets" />
+          <CountUpStat value="₹10L+"   label="Sponsorship" />
+          <CountUpStat value="3,000+"  label="Professionals" />
+          <CountUpStat value="100+"    label="Expert Speakers" />
+          <CountUpStat value="15+"     label="Certificate Courses" />
         </div>
       </div>
 

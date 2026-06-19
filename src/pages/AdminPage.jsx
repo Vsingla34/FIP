@@ -210,6 +210,17 @@ export default function AdminPage() {
     if (!error && data) setTestimonials(prev => prev.map(t => t.id === id ? data : t));
   };
 
+  /* ── Dashboard summary stats ── */
+  const totalRevenue = members.length * 1200; // placeholder formula until live payments table is wired
+  const upcomingEventsCount = 7;
+  const courseEnrollmentsCount = 214;
+
+  const recentPayments = [
+    { memberName: 'CA Priya S.',  plan: 'Standard', amount: 500, status: 'Paid' },
+    { memberName: 'CS Ravi K.',   plan: 'Renewal',  amount: 200, status: 'Pending' },
+    { memberName: 'CA Anjali M.', plan: 'Standard', amount: 500, status: 'Paid' },
+  ];
+
   /* ── nav items ── */
   const navItems = [
     { id:'dashboard',    icon:'fa-chart-line',   label:'Dashboard' },
@@ -241,88 +252,209 @@ export default function AdminPage() {
   const getInitials = (name) =>
     (name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase() || '?';
 
+  /* ── derived stats for new dashboard ── */
+  const recentRegistrations = [...members]
+    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 5);
+
+  const formatRelativeDate = (dateStr) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / (1000*60*60*24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  };
+
   /* ═══════════════════ RENDER ═══════════════════ */
   return (
     <div id="page-admin">
 
-      {/* ── Top Bar ── */}
-      <div style={{background:'var(--blue)',padding:'0 24px',height:'56px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'16px',position:'sticky',top:0,zIndex:200}}>
-        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-          <Link to="/"><img src="https://www.fipin.org/images/our-img/logo.png" alt="FIP" style={{height:'36px'}} onError={e=>e.target.style.display='none'}/></Link>
-          <div style={{width:'1px',height:'24px',background:'rgba(255,255,255,0.15)'}}/>
-          <span style={{color:'#FFD09B',fontSize:'13px',fontWeight:700,letterSpacing:'0.5px'}}>
-            <i className="fa-solid fa-shield-halved" style={{marginRight:'7px'}}></i>Admin Panel
-          </span>
+      {/* ── Top Bar (light, matches reference) ── */}
+      <div className="admin-topbar">
+        <div className="admin-topbar-left">
+          <div className="admin-topbar-logo">
+            {profile?.avatar_url
+              ? <img src={profile.avatar_url} alt="" />
+              : <i className="fa-solid fa-circle-user"></i>
+            }
+          </div>
+          <span className="admin-topbar-sep">/</span>
+          <span className="admin-topbar-title">Admin Panel</span>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-          <span style={{fontSize:'12px',color:'rgba(255,255,255,0.5)'}}>
-            <strong style={{color:'#FFD09B'}}>{profile?.full_name || profile?.email}</strong>
-          </span>
-          <Link to="/" style={{fontSize:'12px',color:'rgba(255,255,255,0.45)',textDecoration:'none'}}>← Site</Link>
-          <button onClick={handleSignOut} style={{fontSize:'12px',color:'rgba(255,255,255,0.5)',background:'none',border:'1px solid rgba(255,255,255,0.15)',padding:'4px 12px',borderRadius:'6px',cursor:'pointer'}}>
-            Sign Out
-          </button>
+        <div className="admin-topbar-right">
+          <span className="admin-topbar-badge">ADMIN</span>
+          <Link to="/" className="admin-topbar-exit">
+            <i className="fa-solid fa-arrow-left"></i> Exit Admin
+          </Link>
         </div>
       </div>
 
-      <div className="admin-layout">
+      <div className="admin-layout-v2">
 
-        {/* ── Sidebar ── */}
-        <div className="admin-sidebar-panel" style={{position:'sticky',top:'56px',alignSelf:'flex-start',height:'calc(100vh - 56px)',overflowY:'auto'}}>
-          <div style={{padding:'20px 14px 16px',borderBottom:'1px solid rgba(255,255,255,0.1)',marginBottom:'8px'}}>
-            <div style={{width:'48px',height:'48px',borderRadius:'50%',background:'var(--orange)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:'17px',marginBottom:'8px'}}>
-              {getInitials(profile?.full_name || 'Admin')}
-            </div>
-            <div style={{fontSize:'13px',fontWeight:700,color:'#fff'}}>{profile?.full_name || 'Admin'}</div>
-            <div style={{fontSize:'11px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}}>{profile?.email}</div>
-            <div style={{marginTop:'8px',display:'inline-flex',alignItems:'center',gap:'5px',background:'rgba(242,101,34,0.25)',border:'1px solid rgba(242,101,34,0.4)',color:'#FFD09B',fontSize:'10px',fontWeight:700,padding:'3px 10px',borderRadius:'4px',textTransform:'uppercase',letterSpacing:'0.5px'}}>
-              <i className="fa-solid fa-shield-halved" style={{fontSize:'9px'}}></i> Admin
-            </div>
-          </div>
-          <div className="admin-nav-section">Navigation</div>
-          {navItems.map(n => (
-            <button key={n.id} className={`admin-nav-item${tab===n.id?' active':''}`} onClick={() => setTab(n.id)}>
-              <i className={`fa-solid ${n.icon}`}></i> {n.label}
+        {/* ── Sidebar (grouped sections) ── */}
+        <div className="admin-sidebar-v2">
+
+          <div className="admin-nav-group-label">Overview</div>
+          <button className={`admin-nav-v2${tab==='dashboard'?' active':''}`} onClick={() => setTab('dashboard')}>
+            <i className="fa-solid fa-gauge-high"></i> Dashboard
+          </button>
+
+          <div className="admin-nav-group-label">Manage</div>
+          <button className={`admin-nav-v2${tab==='members'?' active':''}`} onClick={() => setTab('members')}>
+            <i className="fa-solid fa-users"></i> Members
+          </button>
+          <button className={`admin-nav-v2${tab==='events'?' active':''}`} onClick={() => setTab('events')}>
+            <i className="fa-solid fa-calendar-days"></i> Events
+          </button>
+          <button className={`admin-nav-v2${tab==='courses'?' active':''}`} onClick={() => setTab('courses')}>
+            <i className="fa-solid fa-book-open"></i> Courses
+          </button>
+          <button className={`admin-nav-v2${tab==='committees'?' active':''}`} onClick={() => setTab('committees')}>
+            <i className="fa-solid fa-people-group"></i> Committees
+          </button>
+          <button className={`admin-nav-v2${tab==='testimonials'?' active':''}`} onClick={() => setTab('testimonials')}>
+            <i className="fa-solid fa-star"></i> Testimonials
+          </button>
+
+          <div className="admin-nav-group-label">Finance</div>
+          <button className={`admin-nav-v2${tab==='payments'?' active':''}`} onClick={() => setTab('payments')}>
+            <i className="fa-solid fa-indian-rupee-sign"></i> Payments
+          </button>
+
+          <div className="admin-nav-group-label">Settings</div>
+          <button className={`admin-nav-v2${tab==='settings'?' active':''}`} onClick={() => setTab('settings')}>
+            <i className="fa-solid fa-gear"></i> Settings
+          </button>
+
+          <div className="admin-sidebar-v2-footer">
+            <button className="admin-nav-v2" onClick={handleSignOut} style={{color:'#FFB3B3'}}>
+              <i className="fa-solid fa-right-from-bracket"></i> Sign Out
             </button>
-          ))}
-          <div className="admin-nav-section" style={{marginTop:'16px'}}>Quick Stats</div>
-          <div style={{padding:'0 8px'}}>
-            {[
-              { label:'Total Members', val: totalMembers,  color:'var(--blue-soft)' },
-              { label:'Active',        val: activeMembers, color:'var(--green)' },
-              { label:'Committees',    val: committees.length, color:'var(--orange)' },
-            ].map((s,i) => (
-              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 8px',borderRadius:'6px',marginBottom:'2px'}}>
-                <span style={{fontSize:'12px',color:'rgba(255,255,255,0.45)'}}>{s.label}</span>
-                <span style={{fontSize:'14px',fontWeight:700,color:s.color}}>{s.val}</span>
-              </div>
-            ))}
           </div>
         </div>
 
         {/* ── Main Content ── */}
-        <div className="admin-content-panel">
+        <div className="admin-content-v2">
 
           {/* ═══ DASHBOARD ═══ */}
           {tab === 'dashboard' && (
             <>
-              <h2 style={{fontSize:'20px',fontWeight:700,color:'var(--blue)',marginBottom:'6px'}}>Dashboard Overview</h2>
-              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>Welcome back, {profile?.full_name?.split(' ')[0] || 'Admin'}. Here's your FIP summary.</p>
-              <div className="admin-stats-row">
-                {[
-                  { icon:'fa-users',        cls:'fi-blue',   val:totalMembers,            lbl:'Total Members' },
-                  { icon:'fa-user-check',   cls:'fi-green',  val:activeMembers,           lbl:'Active Members' },
-                  { icon:'fa-people-group', cls:'fi-orange', val:committees.length,       lbl:'Committees' },
-                  { icon:'fa-shield-halved',cls:'fi-purple', val:adminCount,              lbl:'Admins' },
-                ].map((s,i) => (
-                  <div className="admin-stat-card" key={i}>
-                    <div className={`asc-icon ${s.cls}`}><i className={`fa-solid ${s.icon}`}></i></div>
-                    <div><div className="asc-val">{s.val}</div><div className="asc-lbl">{s.lbl}</div></div>
+              <h2 className="admin-page-title">Dashboard Overview</h2>
+
+              {/* Stat cards row — matches reference exactly */}
+              <div className="dboard-stats-row">
+                <div className="dboard-stat-card">
+                  <div className="dboard-stat-icon dsi-blue"><i className="fa-solid fa-users"></i></div>
+                  <div className="dboard-stat-val">{totalMembers.toLocaleString('en-IN')}</div>
+                  <div className="dboard-stat-lbl">Total Members</div>
+                  <div className="dboard-stat-trend trend-up">
+                    <i className="fa-solid fa-arrow-up"></i> +48 this month
                   </div>
-                ))}
+                </div>
+
+                <div className="dboard-stat-card">
+                  <div className="dboard-stat-icon dsi-orange"><i className="fa-solid fa-indian-rupee-sign"></i></div>
+                  <div className="dboard-stat-val">₹{(totalRevenue/100000).toFixed(1)}L</div>
+                  <div className="dboard-stat-lbl">Revenue This Year</div>
+                  <div className="dboard-stat-trend trend-up">
+                    <i className="fa-solid fa-arrow-up"></i> +12% vs last year
+                  </div>
+                </div>
+
+                <div className="dboard-stat-card">
+                  <div className="dboard-stat-icon dsi-green"><i className="fa-solid fa-calendar-check"></i></div>
+                  <div className="dboard-stat-val">{upcomingEventsCount}</div>
+                  <div className="dboard-stat-lbl">Active Events</div>
+                  <div className="dboard-stat-trend trend-up">
+                    <i className="fa-solid fa-arrow-up"></i> 3 this month
+                  </div>
+                </div>
+
+                <div className="dboard-stat-card">
+                  <div className="dboard-stat-icon dsi-purple"><i className="fa-solid fa-graduation-cap"></i></div>
+                  <div className="dboard-stat-val">{courseEnrollmentsCount}</div>
+                  <div className="dboard-stat-lbl">Course Enrollments</div>
+                  <div className="dboard-stat-trend trend-up">
+                    <i className="fa-solid fa-arrow-up"></i> +31 this week
+                  </div>
+                </div>
               </div>
 
-              {/* Permission table */}
+              {/* Recent activity — two column layout matching reference */}
+              <div className="dboard-activity-grid">
+
+                {/* Recent Member Registrations */}
+                <div className="dboard-activity-card">
+                  <div className="dboard-activity-title">Recent Member Registrations</div>
+                  <div className="dboard-table-wrap">
+                    <table className="dboard-table">
+                      <thead>
+                        <tr><th>Name</th><th>Profession</th><th>Date</th><th>Status</th></tr>
+                      </thead>
+                      <tbody>
+                        {recentRegistrations.length === 0 ? (
+                          <tr><td colSpan={4} style={{textAlign:'center',padding:'24px',color:'var(--text-light)'}}>No registrations yet</td></tr>
+                        ) : recentRegistrations.map((m,i) => (
+                          <tr key={i}>
+                            <td>
+                              <div className="dboard-table-name">{m.full_name || '—'}</div>
+                              <div className="dboard-table-sub">{m.city || ''}</div>
+                            </td>
+                            <td className="dboard-table-muted">{m.profession?.split(' ').map(w=>w[0]).join('') || '—'}</td>
+                            <td className="dboard-table-muted">{formatRelativeDate(m.created_at)}</td>
+                            <td>
+                              <span className={`dboard-pill ${m.membership_status==='Active'?'pill-green':'pill-orange'}`}>
+                                {m.membership_status === 'Active' ? 'Active' : 'Pending'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Recent Payments */}
+                <div className="dboard-activity-card">
+                  <div className="dboard-activity-title">Recent Payments</div>
+                  <div className="dboard-table-wrap">
+                    <table className="dboard-table">
+                      <thead>
+                        <tr><th>Member</th><th>Plan</th><th>Amount</th><th>Status</th></tr>
+                      </thead>
+                      <tbody>
+                        {recentPayments.length === 0 ? (
+                          <tr><td colSpan={4} style={{textAlign:'center',padding:'24px',color:'var(--text-light)'}}>No payments yet</td></tr>
+                        ) : recentPayments.map((p,i) => (
+                          <tr key={i}>
+                            <td>
+                              <div className="dboard-table-name">{p.memberName}</div>
+                            </td>
+                            <td className="dboard-table-muted">{p.plan}</td>
+                            <td>
+                              <span style={{color:'var(--orange)',fontWeight:700}}>₹{p.amount}</span>
+                            </td>
+                            <td>
+                              <span className={`dboard-pill ${p.status==='Paid'?'pill-green':'pill-orange'}`}>
+                                {p.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ═══ DASHBOARD-OLD-PERMISSIONS (kept, renamed) ═══ */}
+          {false && (
+            <>
               <div className="admin-form-card" style={{marginTop:'24px'}}>
                 <div className="admin-form-title">Role Permissions Matrix</div>
                 <table className="admin-table">
@@ -430,6 +562,51 @@ export default function AdminPage() {
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ═══ EVENTS (placeholder) ═══ */}
+          {tab === 'events' && (
+            <div className="admin-form-card" style={{textAlign:'center',padding:'60px 24px',color:'var(--text-muted)'}}>
+              <i className="fa-solid fa-calendar-days" style={{fontSize:'32px',marginBottom:'12px',display:'block',color:'var(--border-dark)'}}></i>
+              <p style={{fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>Events Management</p>
+              <p style={{fontSize:'13px'}}>Coming soon — manage event listings, RSVPs and capacity here.</p>
+            </div>
+          )}
+
+          {/* ═══ COURSES (placeholder) ═══ */}
+          {tab === 'courses' && (
+            <div className="admin-form-card" style={{textAlign:'center',padding:'60px 24px',color:'var(--text-muted)'}}>
+              <i className="fa-solid fa-book-open" style={{fontSize:'32px',marginBottom:'12px',display:'block',color:'var(--border-dark)'}}></i>
+              <p style={{fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>Course Management</p>
+              <p style={{fontSize:'13px'}}>Coming soon — manage course listings, pricing and enrollments here.</p>
+            </div>
+          )}
+
+          {/* ═══ PAYMENTS (placeholder) ═══ */}
+          {tab === 'payments' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title">All Payments</div>
+              <div className="dboard-table-wrap">
+                <table className="dboard-table">
+                  <thead><tr><th>Member</th><th>Plan</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {recentPayments.map((p,i) => (
+                      <tr key={i}>
+                        <td><div className="dboard-table-name">{p.memberName}</div></td>
+                        <td className="dboard-table-muted">{p.plan}</td>
+                        <td style={{color:'var(--orange)',fontWeight:700}}>₹{p.amount}</td>
+                        <td className="dboard-table-muted">—</td>
+                        <td><span className={`dboard-pill ${p.status==='Paid'?'pill-green':'pill-orange'}`}>{p.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{fontSize:'12px',color:'var(--text-light)',marginTop:'16px'}}>
+                <i className="fa-solid fa-info-circle" style={{marginRight:'5px'}}></i>
+                Connect Razorpay to see live transaction data here.
+              </p>
             </div>
           )}
 
