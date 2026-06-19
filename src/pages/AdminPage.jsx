@@ -210,6 +210,112 @@ export default function AdminPage() {
     if (!error && data) setTestimonials(prev => prev.map(t => t.id === id ? data : t));
   };
 
+  /* ── jobs state ── */
+  const [jobs,           setJobs]          = useState([]);
+  const [jobsLoading,    setJobsLoading]   = useState(false);
+  const [jobModal,       setJobModal]      = useState(null); // 'new' | job object being edited | null
+  const [jobForm, setJobForm] = useState({
+    title:'', company:'', location:'', job_type:'Full-time', category:'',
+    description:'', requirements:'', salary_min:'', salary_max:'', salary_period:'yearly', contact_email:'',
+  });
+  const [viewingJobId,   setViewingJobId]  = useState(null); // job whose applications are shown
+  const [applications,   setApplications]  = useState([]);
+  const [appsLoading,    setAppsLoading]   = useState(false);
+  const [appCounts,      setAppCounts]     = useState({});  // job_id -> count
+
+  useEffect(() => {
+    if (tab !== 'jobs') return;
+    setJobsLoading(true);
+    Promise.all([
+      supabase.rpc('admin_get_all_jobs'),
+      supabase.rpc('admin_get_applications_summary'),
+    ]).then(([jobsRes, summaryRes]) => {
+      if (!jobsRes.error) setJobs(jobsRes.data || []);
+      if (!summaryRes.error) {
+        const counts = {};
+        (summaryRes.data || []).forEach(r => { counts[r.job_id] = r.application_count; });
+        setAppCounts(counts);
+      }
+    }).finally(() => setJobsLoading(false));
+  }, [tab]);
+
+  const openNewJob = () => {
+    setJobForm({ title:'', company:'', location:'', job_type:'Full-time', category:'', description:'', requirements:'', salary_min:'', salary_max:'', salary_period:'yearly', contact_email:'' });
+    setJobModal('new');
+  };
+
+  const openEditJob = (job) => {
+    setJobForm({
+      title: job.title, company: job.company, location: job.location, job_type: job.job_type,
+      category: job.category || '', description: job.description, requirements: job.requirements || '',
+      salary_min: job.salary_min || '', salary_max: job.salary_max || '',
+      salary_period: job.salary_period || 'yearly', contact_email: job.contact_email || '',
+    });
+    setJobModal(job);
+  };
+
+  const saveJob = async () => {
+    if (!jobForm.title.trim() || !jobForm.company.trim() || !jobForm.location.trim() || !jobForm.description.trim()) return;
+
+    const payload = {
+      p_title: jobForm.title.trim(),
+      p_company: jobForm.company.trim(),
+      p_location: jobForm.location.trim(),
+      p_job_type: jobForm.job_type,
+      p_category: jobForm.category.trim() || null,
+      p_description: jobForm.description.trim(),
+      p_requirements: jobForm.requirements.trim() || null,
+      p_salary_min: jobForm.salary_min ? Number(jobForm.salary_min) : null,
+      p_salary_max: jobForm.salary_max ? Number(jobForm.salary_max) : null,
+      p_salary_period: jobForm.salary_period,
+      p_contact_email: jobForm.contact_email.trim() || null,
+    };
+
+    if (jobModal === 'new') {
+      const { data, error } = await supabase.rpc('admin_create_job', payload);
+      if (!error && data) setJobs(prev => [data, ...prev]);
+    } else {
+      const { data, error } = await supabase.rpc('admin_update_job', { ...payload, p_job_id: jobModal.id, p_status: jobModal.status });
+      if (!error && data) setJobs(prev => prev.map(j => j.id === data.id ? data : j));
+    }
+    setJobModal(null);
+  };
+
+  const toggleJobStatus = async (job) => {
+    const newStatus = job.status === 'active' ? 'closed' : 'active';
+    const { data, error } = await supabase.rpc('admin_update_job', {
+      p_job_id: job.id, p_title: job.title, p_company: job.company, p_location: job.location,
+      p_job_type: job.job_type, p_category: job.category, p_description: job.description,
+      p_requirements: job.requirements, p_salary_min: job.salary_min, p_salary_max: job.salary_max,
+      p_salary_period: job.salary_period, p_contact_email: job.contact_email, p_status: newStatus,
+    });
+    if (!error && data) setJobs(prev => prev.map(j => j.id === data.id ? data : j));
+  };
+
+  const deleteJob = async (jobId) => {
+    if (!window.confirm('Delete this job posting and all its applications? This cannot be undone.')) return;
+    const { error } = await supabase.rpc('admin_delete_job', { p_job_id: jobId });
+    if (!error) {
+      setJobs(prev => prev.filter(j => j.id !== jobId));
+      if (viewingJobId === jobId) setViewingJobId(null);
+    }
+  };
+
+  const viewApplications = async (jobId) => {
+    setViewingJobId(jobId);
+    setAppsLoading(true);
+    const { data, error } = await supabase.rpc('admin_get_job_applications', { p_job_id: jobId });
+    if (!error) setApplications(data || []);
+    setAppsLoading(false);
+  };
+
+  const reviewApplication = async (applicationId, newStatus) => {
+    const { data, error } = await supabase.rpc('admin_review_application', { p_application_id: applicationId, p_status: newStatus });
+    if (!error && data) {
+      setApplications(prev => prev.map(a => a.application_id === applicationId ? { ...a, status: newStatus } : a));
+    }
+  };
+
   /* ── Dashboard summary stats ── */
   const totalRevenue = members.length * 1200; // placeholder formula until live payments table is wired
   const upcomingEventsCount = 7;
@@ -317,6 +423,9 @@ export default function AdminPage() {
           </button>
           <button className={`admin-nav-v2${tab==='testimonials'?' active':''}`} onClick={() => setTab('testimonials')}>
             <i className="fa-solid fa-star"></i> Testimonials
+          </button>
+          <button className={`admin-nav-v2${tab==='jobs'?' active':''}`} onClick={() => setTab('jobs')}>
+            <i className="fa-solid fa-briefcase"></i> Jobs
           </button>
 
           <div className="admin-nav-group-label">Finance</div>
@@ -859,6 +968,148 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* ═══ JOBS ═══ */}
+          {tab === 'jobs' && !viewingJobId && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+                <span>Job Postings <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({jobs.length})</span></span>
+                <button className="btn btn-primary btn-sm" onClick={openNewJob}>
+                  <i className="fa-solid fa-plus"></i> Post New Job
+                </button>
+              </div>
+
+              {jobsLoading ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
+                </div>
+              ) : jobs.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-briefcase" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
+                  No jobs posted yet.
+                  <div style={{marginTop:'16px'}}>
+                    <button className="btn btn-primary btn-sm" onClick={openNewJob}><i className="fa-solid fa-plus"></i> Post Your First Job</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+                  {jobs.map(job => (
+                    <div key={job.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'18px 20px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap'}}>
+                        <div style={{flex:1,minWidth:'220px'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
+                            <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{job.title}</span>
+                            <span className={`status-pill ${job.status==='active'?'sp-active':'sp-pending'}`}>
+                              {job.status.charAt(0).toUpperCase()+job.status.slice(1)}
+                            </span>
+                          </div>
+                          <div style={{fontSize:'13px',color:'var(--text-muted)'}}>
+                            <i className="fa-solid fa-building" style={{marginRight:'5px',color:'var(--orange)'}}></i>{job.company}
+                            <span style={{margin:'0 8px',color:'var(--border-dark)'}}>·</span>
+                            <i className="fa-solid fa-location-dot" style={{marginRight:'5px',color:'var(--orange)'}}></i>{job.location}
+                            <span style={{margin:'0 8px',color:'var(--border-dark)'}}>·</span>
+                            {job.job_type}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                          <button className="admin-btn admin-btn-orange" onClick={() => viewApplications(job.id)}>
+                            <i className="fa-solid fa-users"></i> {appCounts[job.id] || 0} Applications
+                          </button>
+                          <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => openEditJob(job)}>
+                            <i className="fa-solid fa-pen"></i> Edit
+                          </button>
+                          <button className="admin-btn" style={{background: job.status==='active'?'var(--off-white)':'var(--green-pale)', color: job.status==='active'?'var(--text-muted)':'var(--green)', border:'1px solid var(--border)'}} onClick={() => toggleJobStatus(job)}>
+                            {job.status==='active' ? <><i className="fa-solid fa-pause"></i> Close</> : <><i className="fa-solid fa-play"></i> Reopen</>}
+                          </button>
+                          <button className="admin-btn admin-btn-danger" onClick={() => deleteJob(job.id)}>
+                            <i className="fa-solid fa-trash"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══ JOB APPLICATIONS VIEW ═══ */}
+          {tab === 'jobs' && viewingJobId && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px'}}>
+                <button onClick={() => setViewingJobId(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}>
+                  <i className="fa-solid fa-arrow-left"></i>
+                </button>
+                <span>Applications for <strong>{jobs.find(j=>j.id===viewingJobId)?.title}</strong></span>
+              </div>
+
+              {appsLoading ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
+                </div>
+              ) : applications.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-inbox" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
+                  No applications yet for this job.
+                </div>
+              ) : (
+                <div style={{display:'flex',flexDirection:'column',gap:'14px'}}>
+                  {applications.map(app => {
+                    const initials = (app.applicant_name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase()||'?';
+                    return (
+                      <div key={app.application_id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'18px 20px'}}>
+                        <div style={{display:'flex',gap:'14px',alignItems:'flex-start',marginBottom:'12px'}}>
+                          <div style={{width:'40px',height:'40px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'13px',flexShrink:0}}>
+                            {initials}
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,color:'var(--blue)',fontSize:'14px'}}>{app.applicant_name}</div>
+                            <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}}>
+                              {app.applicant_profession} {app.applicant_city ? `· ${app.applicant_city}` : ''}
+                            </div>
+                            <div style={{fontSize:'12px',color:'var(--text-light)',marginTop:'2px'}}>
+                              <i className="fa-solid fa-envelope" style={{marginRight:'4px'}}></i>{app.applicant_email}
+                              {app.applicant_phone && <span style={{marginLeft:'12px'}}><i className="fa-solid fa-phone" style={{marginRight:'4px'}}></i>{app.applicant_phone}</span>}
+                            </div>
+                          </div>
+                          <span style={{padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:700,
+                            background:app.status==='shortlisted'?'var(--green-pale)':app.status==='rejected'?'#FFF0EE':app.status==='reviewed'?'var(--blue-tint)':'var(--orange-pale)',
+                            color:app.status==='shortlisted'?'var(--green)':app.status==='rejected'?'#C0392B':app.status==='reviewed'?'var(--blue-mid)':'var(--orange-dark)'}}>
+                            {app.status.charAt(0).toUpperCase()+app.status.slice(1)}
+                          </span>
+                        </div>
+                        <p style={{fontSize:'13px',color:'var(--text-muted)',lineHeight:1.65,borderLeft:'3px solid var(--orange)',paddingLeft:'12px',margin:'0 0 12px'}}>
+                          {app.cover_note}
+                        </p>
+                        {app.resume_url && (
+                          <a href={app.resume_url} target="_blank" rel="noopener noreferrer" style={{fontSize:'12px',color:'var(--orange)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:'5px',marginBottom:'12px'}}>
+                            <i className="fa-solid fa-file-lines"></i> View Resume/Portfolio
+                          </a>
+                        )}
+                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                          {app.status !== 'shortlisted' && (
+                            <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none'}} onClick={() => reviewApplication(app.application_id, 'shortlisted')}>
+                              <i className="fa-solid fa-star"></i> Shortlist
+                            </button>
+                          )}
+                          {app.status === 'submitted' && (
+                            <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => reviewApplication(app.application_id, 'reviewed')}>
+                              <i className="fa-solid fa-eye"></i> Mark Reviewed
+                            </button>
+                          )}
+                          {app.status !== 'rejected' && (
+                            <button className="admin-btn admin-btn-danger" onClick={() => reviewApplication(app.application_id, 'rejected')}>
+                              <i className="fa-solid fa-xmark"></i> Reject
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ═══ SETTINGS ═══ */}
           {tab === 'settings' && (
             <div className="admin-form-card">
@@ -972,6 +1223,81 @@ export default function AdminPage() {
               <button className="btn btn-outline-blue btn-sm" onClick={() => setEditModal(null)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveMember} disabled={!mForm.name.trim()}>
                 {editModal.memberIdx===null ? 'Add Member' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Job Post / Edit Modal ── */}
+      {jobModal && (
+        <div className="modal-overlay" onClick={() => setJobModal(null)}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'560px'}}>
+            <button className="modal-close" onClick={() => setJobModal(null)}>&#x2715;</button>
+            <div className="modal-title">{jobModal === 'new' ? 'Post New Job' : 'Edit Job'}</div>
+            <div className="modal-sub">Fill in the job details below. Only Active Members will be able to apply.</div>
+
+            <div className="form-group">
+              <label className="form-label">Job Title *</label>
+              <input className="form-input" type="text" placeholder="e.g. Senior Tax Associate" value={jobForm.title} onChange={e=>setJobForm(f=>({...f,title:e.target.value}))}/>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Company / Firm *</label>
+                <input className="form-input" type="text" placeholder="e.g. ABC & Associates" value={jobForm.company} onChange={e=>setJobForm(f=>({...f,company:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Location *</label>
+                <input className="form-input" type="text" placeholder="e.g. Delhi / Remote" value={jobForm.location} onChange={e=>setJobForm(f=>({...f,location:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Job Type</label>
+                <select className="form-select" value={jobForm.job_type} onChange={e=>setJobForm(f=>({...f,job_type:e.target.value}))}>
+                  <option>Full-time</option><option>Part-time</option><option>Contract</option><option>Internship</option><option>Freelance</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Category</label>
+                <input className="form-input" type="text" placeholder="e.g. Tax, Audit, Corporate Law" value={jobForm.category} onChange={e=>setJobForm(f=>({...f,category:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Description *</label>
+              <textarea className="form-textarea" placeholder="Role responsibilities and overview…" value={jobForm.description} onChange={e=>setJobForm(f=>({...f,description:e.target.value}))} style={{minHeight:'90px'}}></textarea>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Requirements</label>
+              <textarea className="form-textarea" placeholder="Qualifications, experience, skills required…" value={jobForm.requirements} onChange={e=>setJobForm(f=>({...f,requirements:e.target.value}))} style={{minHeight:'70px'}}></textarea>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Salary Min (₹)</label>
+                <input className="form-input" type="number" placeholder="e.g. 600000" value={jobForm.salary_min} onChange={e=>setJobForm(f=>({...f,salary_min:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Salary Max (₹)</label>
+                <input className="form-input" type="number" placeholder="e.g. 900000" value={jobForm.salary_max} onChange={e=>setJobForm(f=>({...f,salary_max:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Salary Period</label>
+                <select className="form-select" value={jobForm.salary_period} onChange={e=>setJobForm(f=>({...f,salary_period:e.target.value}))}>
+                  <option value="yearly">Per Year</option><option value="monthly">Per Month</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Contact Email</label>
+                <input className="form-input" type="email" placeholder="hr@company.com" value={jobForm.contact_email} onChange={e=>setJobForm(f=>({...f,contact_email:e.target.value}))}/>
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
+              <button className="btn btn-outline-blue btn-sm" onClick={() => setJobModal(null)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={saveJob} disabled={!jobForm.title.trim()||!jobForm.company.trim()||!jobForm.location.trim()||!jobForm.description.trim()}>
+                {jobModal === 'new' ? 'Post Job' : 'Save Changes'}
               </button>
             </div>
           </div>

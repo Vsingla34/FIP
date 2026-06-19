@@ -1203,3 +1203,147 @@ footer{background:#0D1F3C;padding:56px 0 24px;}
   .tree-wrap{align-items:flex-start;}
   .tree-tier{justify-content:flex-start;}
 }
+
+/* ═══════════════════════════════════════════════
+   JOBS PAGE (public)
+═══════════════════════════════════════════════ */
+
+.jobs-member-banner{
+  display:flex;align-items:center;gap:10px;
+  background:var(--orange-pale);
+  border:1px solid #F5C4A8;
+  border-radius:var(--radius-md);
+  padding:12px 16px;margin-bottom:20px;
+  font-size:13px;color:var(--orange-dark);
+}
+.jobs-member-banner i{font-size:16px;flex-shrink:0;}
+
+.jobs-list{display:flex;flex-direction:column;gap:16px;}
+
+.job-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:24px;
+  display:flex;justify-content:space-between;align-items:flex-start;
+  gap:20px;flex-wrap:wrap;
+  transition:var(--t);
+}
+.job-card:hover{border-color:var(--orange);box-shadow:var(--shadow-sm);}
+
+.job-card-main{flex:1;min-width:260px;}
+
+.job-card-top{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+.job-type-pill{
+  background:var(--blue-tint);color:var(--blue-mid);
+  font-size:11px;font-weight:700;padding:3px 12px;
+  border-radius:20px;border:1px solid #C0CDE8;
+}
+.job-cat-pill{
+  background:var(--orange-pale);color:var(--orange-dark);
+  font-size:11px;font-weight:700;padding:3px 12px;
+  border-radius:20px;border:1px solid #F5C4A8;
+}
+
+.job-title{font-size:18px;font-weight:700;color:var(--blue);margin-bottom:6px;}
+
+.job-company{
+  font-size:13px;color:var(--text-muted);
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  margin-bottom:12px;
+}
+.job-dot{color:var(--border-dark);}
+
+.job-desc{font-size:14px;color:var(--text-muted);line-height:1.65;margin-bottom:10px;max-width:680px;}
+
+.job-requirements{
+  font-size:13px;color:var(--text-muted);line-height:1.6;
+  background:var(--off-white);border-radius:var(--radius-sm);
+  padding:10px 14px;margin-bottom:14px;max-width:680px;
+}
+
+.job-meta-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+.job-salary{
+  font-size:13px;font-weight:700;color:var(--green);
+  display:flex;align-items:center;gap:5px;
+}
+.job-posted{font-size:12px;color:var(--text-light);}
+
+.job-card-action{flex-shrink:0;align-self:center;}
+
+@media(max-width:768px){
+  .job-card{flex-direction:column;}
+  .job-card-action{align-self:stretch;}
+  .job-card-action .btn{width:100%;justify-content:center;}
+}
+
+/* ═══════════════════════════════════════════════
+   TEAM PAGE — COMMITTEE LEADERS SECTION
+═══════════════════════════════════════════════ */
+
+.leaders-list{display:flex;flex-direction:column;gap:20px;}
+
+.leaders-group{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:20px 24px;
+}
+
+.leaders-group-header{
+  display:flex;align-items:center;gap:14px;
+  margin-bottom:18px;padding-bottom:16px;
+  border-bottom:1px solid var(--border);
+}
+.leaders-group-icon{
+  width:42px;height:42px;border-radius:var(--radius-md);
+  background:linear-gradient(135deg,var(--blue),var(--blue-mid));
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;color:#FFD09B;flex-shrink:0;
+}
+.leaders-group-name{font-size:15px;font-weight:700;color:var(--blue);}
+.leaders-group-abbr{font-size:10px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+
+.leaders-cards{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:14px;
+}
+
+.leader-card{
+  display:flex;align-items:center;gap:12px;
+  background:var(--off-white);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:12px 14px;
+  transition:var(--t);
+}
+.leader-card:hover{border-color:var(--orange);box-shadow:var(--shadow-sm);}
+
+.leader-av{
+  width:40px;height:40px;border-radius:50%;
+  background:var(--blue);color:#FFD09B;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;flex-shrink:0;
+  border:2px solid var(--orange);
+}
+
+.leader-name{font-size:13px;font-weight:700;color:var(--blue);line-height:1.3;}
+.leader-role{font-size:11px;font-weight:600;color:var(--orange);text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;}
+
+@media(max-width:768px){
+  .leaders-group{padding:16px 18px;}
+  .leaders-cards{grid-template-columns:1fr 1fr;}
+}
+@media(max-width:480px){
+  .leaders-cards{grid-template-columns:1fr;}
+}
+
+/* ─── Committee member row: LinkedIn icon button ─────────── */
+.cm-linkedin-btn{
+  width:28px;height:28px;border-radius:50%;
+  background:var(--blue-pale);border:1px solid var(--border);
+  color:var(--blue-mid);font-size:12px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;flex-shrink:0;transition:var(--t);
+}
+.cm-linkedin-btn:hover{background:#0A66C2;color:#fff;border-color:#0A66C2;}

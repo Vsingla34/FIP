@@ -23,6 +23,7 @@ import ContactPage        from './pages/ContactPage.jsx';
 import CommitteesPage     from './pages/CommitteesPage.jsx';
 import DirectoryPage      from './pages/DirectoryPage.jsx';
 import WebinarsPage       from './pages/WebinarsPage.jsx';
+import JobsPage           from './pages/JobsPage.jsx';
 import DashboardPage      from './pages/DashboardPage.jsx';
 import AdminPage          from './pages/AdminPage.jsx';
 import PaymentPage        from './pages/PaymentPage.jsx';
@@ -50,6 +51,7 @@ function AppContent() {
         <Route path="/contact"         element={<ContactPage />} />
         <Route path="/committees"      element={<CommitteesPage />} />
         <Route path="/webinars"        element={<WebinarsPage />} />
+        <Route path="/jobs"            element={<JobsPage />} />
 
         {/* ── Member-only routes (must be logged in) ── */}
         <Route path="/directory" element={
