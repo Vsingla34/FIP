@@ -100,6 +100,19 @@ export default async function handler(req, res) {
 </body></html>`;
 
   try {
+    // Verify env vars are set
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.error('Missing env vars:', {
+        GMAIL_USER: !!process.env.GMAIL_USER,
+        GMAIL_APP_PASSWORD: !!process.env.GMAIL_APP_PASSWORD,
+      });
+      return res.status(500).json({ error: 'Email not configured. Missing GMAIL_USER or GMAIL_APP_PASSWORD env vars.' });
+    }
+
+    // Verify SMTP connection first
+    await transporter.verify();
+    console.log('SMTP connection verified');
+
     await Promise.all([
       transporter.sendMail({
         from:    `"Federation of Indian Professionals" <${process.env.GMAIL_USER}>`,
@@ -116,6 +129,8 @@ export default async function handler(req, res) {
       }),
     ]);
 
+    console.log('Both emails sent successfully');
+
     if (messageId) {
       await supabaseAdmin.from('contact_messages').update({ status: 'read' }).eq('id', messageId);
     }
@@ -123,7 +138,17 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
 
   } catch (err) {
-    console.error('Email error:', err.message);
-    return res.status(500).json({ error: err.message });
+    console.error('Email error code:', err.code);
+    console.error('Email error message:', err.message);
+    console.error('Email error response:', err.response);
+    return res.status(500).json({
+      error: err.message,
+      code:  err.code,
+      hint:  err.code === 'EAUTH'
+        ? 'Gmail auth failed. Check GMAIL_USER and GMAIL_APP_PASSWORD env vars. Make sure you are using an App Password, not your regular Gmail password.'
+        : err.code === 'ECONNECTION' || err.code === 'ETIMEDOUT'
+        ? 'Cannot connect to Gmail SMTP. Check network or try port 587.'
+        : 'Unknown error',
+    });
   }
 }

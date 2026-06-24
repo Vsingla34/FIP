@@ -44,7 +44,7 @@ export default function ContactPage() {
       setLoading(false);
       setSubmitted(true);
 
-      // 3. Fire email API in background (no await)
+      // 3. Fire email API in background (no await) — log any errors
       fetch('/api/send-contact-email', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,7 +56,11 @@ export default function ContactPage() {
           message:   form.message.trim(),
           messageId: saved?.id || null,
         }),
-      }).catch(err => console.warn('Email send failed silently:', err));
+      }).then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) console.error('Email API error:', data);
+        else console.log('Email API success:', data);
+      }).catch(err => console.warn('Email API failed:', err.message));
 
     } catch (err) {
       console.error('Contact error:', err);
