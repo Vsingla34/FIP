@@ -1,9 +1,69 @@
-
+import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { supabase } from '../lib/supabase.js';
 
 export default function ContactPage() {
   const { showToast } = useApp();
-  const handleSubmit = e => { e.preventDefault(); showToast("Message sent! We'll get back to you within 24 hours."); e.target.reset(); };
+  const { user, profile } = useAuth();
+
+  const [loading,   setLoading]   = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [form, setForm] = useState({
+    name:    profile?.full_name  || user?.user_metadata?.full_name || '',
+    email:   user?.email         || '',
+    phone:   profile?.phone      || '',
+    subject: 'Membership Enquiry',
+    message: '',
+  });
+
+  const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.email.trim() || !form.message.trim()) return;
+    setLoading(true);
+
+    try {
+      // 1. Save to Supabase first
+      const { data: saved, error: dbError } = await supabase
+        .from('contact_messages')
+        .insert({
+          name:    form.name.trim(),
+          email:   form.email.trim(),
+          phone:   form.phone.trim() || null,
+          subject: form.subject,
+          message: form.message.trim(),
+        })
+        .select('id')
+        .single();
+
+      if (dbError) throw new Error(dbError.message);
+
+      // 2. Show success immediately — don't wait for email
+      setLoading(false);
+      setSubmitted(true);
+
+      // 3. Fire email API in background (no await)
+      fetch('/api/send-contact-email', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          name:      form.name.trim(),
+          email:     form.email.trim(),
+          phone:     form.phone.trim() || null,
+          subject:   form.subject,
+          message:   form.message.trim(),
+          messageId: saved?.id || null,
+        }),
+      }).catch(err => console.warn('Email send failed silently:', err));
+
+    } catch (err) {
+      console.error('Contact error:', err);
+      setLoading(false);
+      showToast('Failed to send. Please email us directly at fippresidentoffice@gmail.com', true);
+    }
+  };
 
   return (
     <>
@@ -14,23 +74,33 @@ export default function ContactPage() {
           <p>Questions about membership, events or sponsorship? We respond within 24 hours.</p>
         </div>
       </div>
+
       <section className="section section-alt">
         <div className="container">
           <div className="contact-grid">
+
+            {/* ── Left: Info ── */}
             <div>
               <div className="contact-info-list">
                 {[
-                  { cls:'ci-orange', icon:'fa-phone', label:'Phone', val:'+91 99998 30938' },
-                  { cls:'ci-blue', icon:'fa-envelope', label:'Email', val:'fippresidentoffice@gmail.com' },
-                  { cls:'ci-wa', icon:'fa-brands fa-whatsapp', label:'WhatsApp', val:'+91 95557 92955' },
-                  { cls:'ci-red', icon:'fa-location-dot', label:'Base', val:'New Delhi, India' },
+                  { cls:'ci-orange', icon:'fa-phone',                    label:'Phone',    val:'+91 99998 30938',             href:'tel:+919999830938' },
+                  { cls:'ci-blue',   icon:'fa-envelope',                  label:'Email',    val:'fippresidentoffice@gmail.com', href:'mailto:fippresidentoffice@gmail.com' },
+                  { cls:'ci-wa',     icon:'fa-brands fa-whatsapp',        label:'WhatsApp', val:'+91 95557 92955',             href:'https://wa.me/919555792955' },
+                  { cls:'ci-red',    icon:'fa-location-dot',              label:'Base',     val:'New Delhi, India',            href:null },
                 ].map((c,i) => (
                   <div className="ci-item" key={i}>
                     <div className={`ci-icon ${c.cls}`}><i className={`fa-solid ${c.icon}`}></i></div>
-                    <div><div className="ci-label">{c.label}</div><div className="ci-val">{c.val}</div></div>
+                    <div>
+                      <div className="ci-label">{c.label}</div>
+                      {c.href
+                        ? <a href={c.href} className="ci-val" style={{textDecoration:'none',color:'inherit'}}>{c.val}</a>
+                        : <div className="ci-val">{c.val}</div>
+                      }
+                    </div>
                   </div>
                 ))}
               </div>
+
               <div className="social-follow">
                 <div className="social-follow-title">Follow FIP</div>
                 <div className="social-buttons">
@@ -40,28 +110,108 @@ export default function ContactPage() {
                   <a className="social-btn" href="https://mobile.twitter.com/fip_official" target="_blank" rel="noopener"><i className="fa-brands fa-x-twitter"></i></a>
                 </div>
               </div>
+
+              {/* Response time card */}
+              <div className="contact-response-card">
+                <div className="contact-response-icon"><i className="fa-solid fa-clock-rotate-left"></i></div>
+                <div>
+                  <div className="contact-response-title">Quick Response</div>
+                  <div className="contact-response-desc">We typically respond within 24 hours on working days (Mon–Sat).</div>
+                </div>
+              </div>
             </div>
+
+            {/* ── Right: Form ── */}
             <div className="contact-form-card">
-              <h2 style={{fontSize:'20px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>Send a Message</h2>
-              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>We typically respond within 24 hours on working days.</p>
-              <form onSubmit={handleSubmit} noValidate>
-                <div className="form-row">
-                  <div className="form-group"><label className="form-label">Full Name *</label><input className="form-input" type="text" placeholder="CA / CS / Adv. Full Name" required /></div>
-                  <div className="form-group"><label className="form-label">Email *</label><input className="form-input" type="email" placeholder="you@example.com" required /></div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group"><label className="form-label">Phone</label><input className="form-input" type="tel" placeholder="+91 XXXXX XXXXX" /></div>
-                  <div className="form-group"><label className="form-label">Subject</label>
-                    <select className="form-select">
-                      <option>Membership Enquiry</option><option>Course Registration</option>
-                      <option>Event Sponsorship</option><option>Speaker Invitation</option>
-                      <option>Media &amp; Press</option><option>General</option>
-                    </select>
+              {submitted ? (
+                /* ── Success state ── */
+                <div style={{textAlign:'center',padding:'40px 20px'}}>
+                  <div style={{width:'72px',height:'72px',borderRadius:'50%',background:'var(--green-pale)',border:'2px solid var(--green)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',fontSize:'28px',color:'var(--green)'}}>
+                    <i className="fa-solid fa-check"></i>
                   </div>
+                  <h2 style={{fontSize:'22px',fontWeight:700,color:'var(--blue)',marginBottom:'8px',fontFamily:"'Playfair Display',serif"}}>
+                    Message Sent!
+                  </h2>
+                  <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,marginBottom:'24px'}}>
+                    Thank you, <strong>{form.name.split(' ')[0]}</strong>! We've received your message
+                    and will get back to you at <strong>{form.email}</strong> within 24 hours.
+                  </p>
+                  <button
+                    className="btn btn-outline-blue btn-sm"
+                    onClick={() => { setSubmitted(false); setForm(f => ({ ...f, message: '', subject:'Membership Enquiry' })); }}
+                  >
+                    Send Another Message
+                  </button>
                 </div>
-                <div className="form-group"><label className="form-label">Message *</label><textarea className="form-textarea" placeholder="How can we help you?" required></textarea></div>
-                <button type="submit" className="btn btn-secondary" style={{width:'100%',justifyContent:'center',padding:'13px'}}>Send Message <i className="fa-solid fa-paper-plane"></i></button>
-              </form>
+              ) : (
+                <>
+                  <h2 style={{fontSize:'20px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>Send a Message</h2>
+                  <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>
+                    Fill in the form below — no login required. We read every message.
+                  </p>
+
+                  <form onSubmit={handleSubmit} noValidate>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Full Name *</label>
+                        <input className="form-input" name="name" type="text"
+                          placeholder="CA / CS / Adv. Full Name"
+                          value={form.name} onChange={handleChange} required />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Email *</label>
+                        <input className="form-input" name="email" type="email"
+                          placeholder="you@example.com"
+                          value={form.email} onChange={handleChange} required />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Phone</label>
+                        <input className="form-input" name="phone" type="tel"
+                          placeholder="+91 XXXXX XXXXX"
+                          value={form.phone} onChange={handleChange} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Subject</label>
+                        <select className="form-select" name="subject" value={form.subject} onChange={handleChange}>
+                          <option>Membership Enquiry</option>
+                          <option>Course Registration</option>
+                          <option>Event Sponsorship</option>
+                          <option>Speaker Invitation</option>
+                          <option>Media &amp; Press</option>
+                          <option>Job Posting</option>
+                          <option>General</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Message *</label>
+                      <textarea className="form-textarea" name="message"
+                        placeholder="How can we help you? Please be as specific as possible…"
+                        value={form.message} onChange={handleChange}
+                        required style={{minHeight:'130px'}}></textarea>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="btn btn-secondary"
+                      style={{width:'100%',justifyContent:'center',padding:'13px'}}
+                      disabled={loading}
+                    >
+                      {loading
+                        ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</>
+                        : <>Send Message <i className="fa-solid fa-paper-plane"></i></>
+                      }
+                    </button>
+
+                    <p style={{textAlign:'center',fontSize:'12px',color:'var(--text-light)',marginTop:'12px'}}>
+                      <i className="fa-solid fa-lock" style={{marginRight:'4px',color:'var(--green)'}}></i>
+                      Your information is secure and will never be shared with third parties.
+                    </p>
+                  </form>
+                </>
+              )}
             </div>
           </div>
         </div>

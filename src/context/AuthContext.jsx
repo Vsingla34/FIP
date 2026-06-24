@@ -13,10 +13,7 @@ export function AuthProvider({ children }) {
     if (!userId) return null;
     try {
       const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+        .from('profiles').select('*').eq('id', userId).single();
       if (!error && data) { setProfile(data); return data; }
     } catch (err) { console.error('fetchProfile:', err); }
     return null;
@@ -44,25 +41,86 @@ export function AuthProvider({ children }) {
     return () => { mounted = false; subscription.unsubscribe(); };
   }, [fetchProfile]);
 
-  /* ── SIGN UP ── */
-  const signUp = async ({ email, password, fullName, profession, phone }) => {
+  /* ── CHECK PHONE UNIQUE ── */
+  const checkPhoneUnique = async (phone) => {
+    if (!phone?.trim()) return true;
+    const { data } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('phone', phone.trim())
+      .maybeSingle();
+    return !data; // true = unique, false = already taken
+  };
+
+  /* ── SIGN UP — sends OTP email, returns pendingData for OTP step ── */
+  const signUp = async ({ email, password, fullName, profession, phone, accountType }) => {
+    // 1. Check phone uniqueness first
+    const phoneUnique = await checkPhoneUnique(phone);
+    if (!phoneUnique) {
+      throw new Error('This phone number is already registered. Please use a different number or sign in.');
+    }
+
+    // 2. Create the auth user — Supabase sends OTP confirmation email
     const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: fullName, profession, phone } },
+      email,
+      password,
+      options: {
+        data: {
+          full_name:    fullName,
+          profession,
+          phone,
+          account_type: accountType || 'student',
+        },
+      },
     });
     if (error) throw error;
-    if (data.user) {
+
+    // 3. Store pending profile data to upsert after OTP verification
+    // We do NOT create the profile row yet — wait until email is confirmed
+    return {
+      user:        data.user,
+      pendingData: { email, fullName, profession, phone, accountType },
+      needsOTP:    !data.session, // if no session, email confirmation needed
+    };
+  };
+
+  /* ── VERIFY OTP — called after user enters the 6-digit code ── */
+  const verifyOTP = async ({ email, token, pendingData }) => {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'signup',
+    });
+    if (error) throw error;
+
+    // Now create the profile row after verified
+    if (data.user && pendingData) {
       const { data: prof } = await supabase
         .from('profiles')
         .upsert({
-          id: data.user.id, email,
-          full_name: fullName, profession, phone,
-          role: 'member',
+          id:           data.user.id,
+          email:        pendingData.email,
+          full_name:    pendingData.fullName,
+          profession:   pendingData.profession,
+          phone:        pendingData.phone,
+          account_type: pendingData.accountType || 'student',
+          role:         'member',
         }, { onConflict: 'id' })
         .select().single();
       if (prof) setProfile(prof);
     }
+
+    setUser(data.user);
     return data;
+  };
+
+  /* ── RESEND OTP ── */
+  const resendOTP = async (email) => {
+    const { error } = await supabase.auth.resend({
+      type:  'signup',
+      email,
+    });
+    if (error) throw error;
   };
 
   /* ── SIGN IN ── */
@@ -91,18 +149,21 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  /* ── role helpers ── */
-  const role    = profile?.role || 'member';
-  const isAdmin  = role === 'admin';
-  const isMember = role === 'member';
-
   return (
     <AuthContext.Provider value={{
       user, profile, loading,
-      role, isAdmin, isMember,
-      signUp, signIn, signOut,
-      updateProfile, fetchProfile,
+      role:            profile?.role || 'member',
+      isAdmin:         profile?.role === 'admin',
+      isMember:        profile?.role === 'member',
       isAuthenticated: !!user,
+      signUp,
+      verifyOTP,
+      resendOTP,
+      checkPhoneUnique,
+      signIn,
+      signOut,
+      updateProfile,
+      fetchProfile,
     }}>
       {children}
     </AuthContext.Provider>

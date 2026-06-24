@@ -210,6 +210,145 @@ export default function AdminPage() {
     if (!error && data) setTestimonials(prev => prev.map(t => t.id === id ? data : t));
   };
 
+  /* ── courses (LMS) state ── */
+  const [adminCourses,           setAdminCourses]           = useState([]);
+  const [adminCoursesLoading,    setAdminCoursesLoading]    = useState(false);
+  const [adminCourseView,        setAdminCourseView]        = useState(null);
+  const [courseEnrollments,      setCourseEnrollments]      = useState([]);
+  const [courseEnrollmentsLoading, setCourseEnrollmentsLoading] = useState(false);
+  const [showCourseModal,        setShowCourseModal]        = useState(null); // 'new' | course obj
+  const [courseForm, setCourseForm] = useState({
+    title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate',
+    price:0, free_for:'none', instructor:'', duration_hours:'',
+  });
+
+  useEffect(() => {
+    if (tab !== 'courses') return;
+    setAdminCoursesLoading(true);
+    supabase.rpc('admin_get_courses')
+      .then(({ data }) => { if (data) setAdminCourses(data); })
+      .finally(() => setAdminCoursesLoading(false));
+  }, [tab]);
+
+  const loadCourseEnrollments = async (course) => {
+    setCourseEnrollmentsLoading(true);
+    const { data } = await supabase.rpc('admin_get_course_enrollments', { p_course_id: course.id });
+    if (data) setCourseEnrollments(data);
+    setCourseEnrollmentsLoading(false);
+  };
+
+  const saveCourse = async () => {
+    if (!courseForm.title.trim()) return;
+    const slug = courseForm.slug.trim() || courseForm.title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+    const payload = { ...courseForm, slug, price: Number(courseForm.price)||0, is_free_for_members: courseForm.free_for === 'members' || courseForm.free_for === 'all' };
+    if (showCourseModal === 'new') {
+      const { data, error } = await supabase.from('courses').insert({ ...payload, created_by: profile?.id, status:'published' }).select().single();
+      if (!error && data) { setAdminCourses(prev => [data, ...prev]); setShowCourseModal(null); }
+      else console.error(error);
+    } else {
+      const { data, error } = await supabase.from('courses').update(payload).eq('id', showCourseModal.id).select().single();
+      if (!error && data) { setAdminCourses(prev => prev.map(c => c.id===data.id?data:c)); setShowCourseModal(null); }
+    }
+  };
+
+  const deleteAdminCourse = async (courseId) => {
+    if (!window.confirm('Delete this course and all its modules, videos and enrollments? Cannot be undone.')) return;
+    const { error } = await supabase.from('courses').delete().eq('id', courseId);
+    if (!error) setAdminCourses(prev => prev.filter(c => c.id !== courseId));
+  };
+
+  const issueCertificate = async (userId, courseId, idx) => {
+    const { error } = await supabase.rpc('admin_issue_certificate', { p_user_id: userId, p_course_id: courseId });
+    if (!error) {
+      setCourseEnrollments(prev => prev.map((e,i) => i===idx ? {...e, has_certificate: true} : e));
+    }
+  };
+
+  const revokeCertificate = async (userId, courseId) => {
+    if (!window.confirm('Revoke this certificate?')) return;
+    const { data: cert } = await supabase.from('certificates').select('id').eq('user_id', userId).eq('course_id', courseId).single();
+    if (cert) {
+      await supabase.rpc('admin_revoke_certificate', { p_cert_id: cert.id });
+      setCourseEnrollments(prev => prev.map(e => e.user_id===userId ? {...e, has_certificate: false} : e));
+    }
+  };
+
+  /* open course modal */
+  const openCourseModal = (course) => {
+    if (course === 'new') {
+      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'' });
+    } else {
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'' });
+    }
+    setShowCourseModal(course);
+  };
+
+  /* ── blog state ── */
+  const [blogPosts,      setBlogPosts]      = useState([]);
+  const [blogAuthors,    setBlogAuthors]    = useState({});
+  const [blogLoading,    setBlogLoading]    = useState(false);
+  const [blogFilter,     setBlogFilter]     = useState('pending');
+
+  useEffect(() => {
+    if (tab !== 'blog') return;
+    setBlogLoading(true);
+    supabase.rpc('admin_get_blog_posts')
+      .then(async ({ data, error }) => {
+        if (error) { console.error('Blog fetch error:', error); return; }
+        setBlogPosts(data || []);
+        // fetch author names
+        if (data?.length) {
+          const ids = [...new Set(data.map(p => p.author_id))];
+          const { data: profiles } = await supabase
+            .from('profiles').select('id, full_name, email').in('id', ids);
+          const map = {};
+          (profiles||[]).forEach(p => { map[p.id] = p; });
+          setBlogAuthors(map);
+        }
+      })
+      .finally(() => setBlogLoading(false));
+  }, [tab]);
+
+  const handleBlogAction = async (id, action, note = null) => {
+    if (action === 'delete') {
+      if (!window.confirm('Permanently delete this blog post?')) return;
+      const { error } = await supabase.rpc('admin_delete_blog', { p_post_id: id });
+      if (!error) setBlogPosts(prev => prev.filter(p => p.id !== id));
+      return;
+    }
+    const fnMap = {
+      approved: 'admin_approve_blog',
+      rejected: 'admin_reject_blog',
+      pending:  'admin_unpublish_blog',
+    };
+    const { data, error } = await supabase.rpc(fnMap[action], action === 'pending'
+      ? { p_post_id: id }
+      : { p_post_id: id, p_note: note }
+    );
+    if (!error && data) setBlogPosts(prev => prev.map(p => p.id === id ? { ...p, status: action } : p));
+  };
+
+  /* ── contacts state ── */
+  const [contacts,       setContacts]       = useState([]);
+  const [contactsLoading,setContactsLoading]= useState(false);
+  const [contactFilter,  setContactFilter]  = useState('unread');
+
+  useEffect(() => {
+    if (tab !== 'contacts') return;
+    setContactsLoading(true);
+    supabase.rpc('admin_get_contact_messages')
+      .then(({ data, error }) => {
+        if (!error) setContacts(data || []);
+        else console.error('Contacts error:', error);
+      })
+      .finally(() => setContactsLoading(false));
+  }, [tab]);
+
+  const markContactStatus = async (id, status) => {
+    await supabase.from('contact_messages').update({ status }).eq('id', id);
+    setContacts(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+  };
+
   /* ── jobs state ── */
   const [jobs,           setJobs]          = useState([]);
   const [jobsLoading,    setJobsLoading]   = useState(false);
@@ -424,6 +563,9 @@ export default function AdminPage() {
           <button className={`admin-nav-v2${tab==='testimonials'?' active':''}`} onClick={() => setTab('testimonials')}>
             <i className="fa-solid fa-star"></i> Testimonials
           </button>
+          <button className={`admin-nav-v2${tab==='blog'?' active':''}`} onClick={() => setTab('blog')}>
+            <i className="fa-solid fa-newspaper"></i> Blog Posts
+          </button>
           <button className={`admin-nav-v2${tab==='jobs'?' active':''}`} onClick={() => setTab('jobs')}>
             <i className="fa-solid fa-briefcase"></i> Jobs
           </button>
@@ -434,6 +576,9 @@ export default function AdminPage() {
           </button>
 
           <div className="admin-nav-group-label">Settings</div>
+          <button className={`admin-nav-v2${tab==='contacts'?' active':''}`} onClick={() => setTab('contacts')}>
+            <i className="fa-solid fa-envelope"></i> Contact Messages
+          </button>
           <button className={`admin-nav-v2${tab==='settings'?' active':''}`} onClick={() => setTab('settings')}>
             <i className="fa-solid fa-gear"></i> Settings
           </button>
@@ -683,12 +828,115 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* ═══ COURSES (placeholder) ═══ */}
-          {tab === 'courses' && (
-            <div className="admin-form-card" style={{textAlign:'center',padding:'60px 24px',color:'var(--text-muted)'}}>
-              <i className="fa-solid fa-book-open" style={{fontSize:'32px',marginBottom:'12px',display:'block',color:'var(--border-dark)'}}></i>
-              <p style={{fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>Course Management</p>
-              <p style={{fontSize:'13px'}}>Coming soon — manage course listings, pricing and enrollments here.</p>
+          {/* ═══ COURSES — LMS ADMIN ═══ */}
+          {tab === 'courses' && !adminCourseView && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+                <span>Courses <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({adminCourses.length})</span></span>
+                <button className="btn btn-primary btn-sm" onClick={() => openCourseModal('new')}>
+                  <i className="fa-solid fa-plus"></i> Add Course
+                </button>
+              </div>
+              {adminCoursesLoading ? (
+                <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading courses…
+                </div>
+              ) : adminCourses.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-book-open" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+                  <p>No courses yet.</p>
+                  <button className="btn btn-primary btn-sm" style={{marginTop:'16px'}} onClick={() => openCourseModal('new')}><i className="fa-solid fa-plus"></i> Create First Course</button>
+                </div>
+              ) : (
+                <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+                  {adminCourses.map(c => (
+                    <div key={c.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap'}}>
+                      <div style={{flex:1,minWidth:'200px'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
+                          <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{c.title}</span>
+                          <span className={`status-pill ${c.status==='published'?'sp-active':'sp-pending'}`}>{c.status}</span>
+                        </div>
+                        <div style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                          {c.category} · {c.level}
+                          {c.price > 0 ? ` · ₹${c.price}` : ' · Free'}
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                        <button className="admin-btn admin-btn-orange" onClick={() => { setAdminCourseView(c); loadCourseEnrollments(c); }}>
+                          <i className="fa-solid fa-users"></i> Enrollments
+                        </button>
+                        <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => openCourseModal(c)}>
+                          <i className="fa-solid fa-pen"></i> Edit
+                        </button>
+                        <button className="admin-btn admin-btn-danger" onClick={() => deleteAdminCourse(c.id)}>
+                          <i className="fa-solid fa-trash"></i>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══ COURSE ENROLLMENTS + CERTIFICATE ISSUER ═══ */}
+          {tab === 'courses' && adminCourseView && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px'}}>
+                <button onClick={() => setAdminCourseView(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}>
+                  <i className="fa-solid fa-arrow-left"></i>
+                </button>
+                <span>Enrollments: <strong>{adminCourseView.title}</strong></span>
+              </div>
+              {courseEnrollmentsLoading ? (
+                <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
+              ) : courseEnrollments.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-users" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>No enrollments yet.
+                </div>
+              ) : (
+                <div style={{overflowX:'auto'}}>
+                  <table className="dboard-table">
+                    <thead><tr><th>Student</th><th>Progress</th><th>Enrolled</th><th>Certificate</th><th>Action</th></tr></thead>
+                    <tbody>
+                      {courseEnrollments.map((e,i) => (
+                        <tr key={i}>
+                          <td>
+                            <div className="dboard-table-name">{e.full_name}</div>
+                            <div className="dboard-table-sub">{e.profession} · {e.email}</div>
+                          </td>
+                          <td>
+                            <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                              <div style={{flex:1,height:'6px',background:'var(--border)',borderRadius:'3px',overflow:'hidden',minWidth:'60px'}}>
+                                <div style={{height:'100%',background:Number(e.videos_completed)===Number(e.total_videos)&&Number(e.total_videos)>0?'var(--green)':'var(--orange)',borderRadius:'3px',width: e.total_videos>0?`${Math.round((e.videos_completed/e.total_videos)*100)}%`:'0%'}}></div>
+                              </div>
+                              <span style={{fontSize:'12px',color:'var(--text-muted)',whiteSpace:'nowrap'}}>{e.videos_completed}/{e.total_videos}</span>
+                            </div>
+                          </td>
+                          <td className="dboard-table-muted" style={{fontSize:'12px'}}>{e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString('en-IN') : '—'}</td>
+                          <td>
+                            {e.has_certificate
+                              ? <span className="dboard-pill pill-green"><i className="fa-solid fa-certificate" style={{marginRight:'4px'}}></i>Issued</span>
+                              : <span className="dboard-pill pill-orange">Pending</span>
+                            }
+                          </td>
+                          <td>
+                            {e.has_certificate ? (
+                              <button className="admin-btn" style={{background:'#FFF0EE',color:'#C0392B',border:'1px solid #F5BDBA',fontSize:'11px'}} onClick={() => revokeCertificate(e.user_id, adminCourseView.id)}>
+                                <i className="fa-solid fa-xmark"></i> Revoke
+                              </button>
+                            ) : (
+                              <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none',fontSize:'11px'}} onClick={() => issueCertificate(e.user_id, adminCourseView.id, i)}>
+                                <i className="fa-solid fa-certificate"></i> Issue Certificate
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -1110,6 +1358,156 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* ═══ BLOG POSTS ═══ */}
+          {tab === 'blog' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+                <span>Blog Posts</span>
+                <div style={{display:'flex',gap:'6px'}}>
+                  {['pending','approved','rejected'].map(f => (
+                    <button key={f} onClick={() => setBlogFilter(f)}
+                      style={{padding:'5px 14px',borderRadius:'20px',fontSize:'12px',fontWeight:600,cursor:'pointer',border:'1.5px solid',
+                        background: blogFilter===f ? (f==='approved'?'var(--green)':f==='rejected'?'#C0392B':'var(--blue)') : 'transparent',
+                        color: blogFilter===f ? '#fff' : 'var(--text-muted)',
+                        borderColor: blogFilter===f ? (f==='approved'?'var(--green)':f==='rejected'?'#C0392B':'var(--blue)') : 'var(--border)',
+                      }}>
+                      {f.charAt(0).toUpperCase()+f.slice(1)}
+                      <span style={{marginLeft:'5px',background:'rgba(0,0,0,0.1)',padding:'1px 6px',borderRadius:'10px'}}>
+                        {blogPosts.filter(p=>p.status===f).length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {blogLoading ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
+                </div>
+              ) : blogPosts.filter(p=>p.status===blogFilter).length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-newspaper" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
+                  No {blogFilter} blog posts.
+                </div>
+              ) : blogPosts.filter(p=>p.status===blogFilter).map(post => (
+                <div key={post.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'20px',marginBottom:'14px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'12px',flexWrap:'wrap'}}>
+                    <div style={{flex:1,minWidth:'200px'}}>
+                      <div style={{fontSize:'15px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>{post.title}</div>
+                      <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                        {post.category && <span>{post.category}</span>}
+                        <span>by <strong>{blogAuthors[post.author_id]?.full_name || 'Unknown'}</strong> · {blogAuthors[post.author_id]?.email || ''}</span>
+                        <span>{new Date(post.created_at).toLocaleDateString('en-IN')}</span>
+                        {post.read_time_mins && <span>{post.read_time_mins} min read</span>}
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
+                      {post.status !== 'approved' && (
+                        <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none'}}
+                          onClick={() => handleBlogAction(post.id, 'approved')}>
+                          <i className="fa-solid fa-check"></i> Approve & Publish
+                        </button>
+                      )}
+                      {post.status !== 'rejected' && (
+                        <button className="admin-btn" style={{background:'#FFF0EE',color:'#C0392B',border:'1px solid #F5BDBA'}}
+                          onClick={() => {
+                            const note = window.prompt('Reason for rejection (optional):');
+                            handleBlogAction(post.id, 'rejected', note);
+                          }}>
+                          <i className="fa-solid fa-xmark"></i> Reject
+                        </button>
+                      )}
+                      {post.status === 'approved' && (
+                        <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}}
+                          onClick={() => handleBlogAction(post.id, 'pending')}>
+                          <i className="fa-solid fa-rotate-left"></i> Unpublish
+                        </button>
+                      )}
+                      <button className="admin-btn admin-btn-danger"
+                        onClick={() => handleBlogAction(post.id, 'delete')}>
+                        <i className="fa-solid fa-trash"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ═══ CONTACT MESSAGES ═══ */}
+          {tab === 'contacts' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+                <span>Contact Messages</span>
+                <div style={{display:'flex',gap:'6px'}}>
+                  {['unread','read','replied'].map(f => (
+                    <button key={f} onClick={() => setContactFilter(f)}
+                      style={{padding:'5px 14px',borderRadius:'20px',fontSize:'12px',fontWeight:600,cursor:'pointer',border:'1.5px solid',
+                        background: contactFilter===f ? (f==='unread'?'var(--blue)':f==='replied'?'var(--green)':'var(--text-muted)') : 'transparent',
+                        color: contactFilter===f ? '#fff' : 'var(--text-muted)',
+                        borderColor: contactFilter===f ? (f==='unread'?'var(--blue)':f==='replied'?'var(--green)':'var(--text-muted)') : 'var(--border)',
+                      }}>
+                      {f.charAt(0).toUpperCase()+f.slice(1)}
+                      <span style={{marginLeft:'5px',background:'rgba(0,0,0,0.1)',padding:'1px 6px',borderRadius:'10px'}}>
+                        {contacts.filter(c=>c.status===f).length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {contactsLoading ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
+                </div>
+              ) : contacts.filter(c=>c.status===contactFilter).length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-envelope" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
+                  No {contactFilter} messages.
+                </div>
+              ) : contacts.filter(c=>c.status===contactFilter).map(msg => (
+                <div key={msg.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'20px',marginBottom:'14px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'12px',flexWrap:'wrap'}}>
+                    <div>
+                      <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
+                        <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{msg.name}</span>
+                        <span style={{fontSize:'11px',padding:'2px 8px',borderRadius:'10px',fontWeight:600,
+                          background:msg.status==='unread'?'rgba(26,60,110,0.1)':msg.status==='replied'?'var(--green-pale)':'var(--off-white)',
+                          color:msg.status==='unread'?'var(--blue)':msg.status==='replied'?'var(--green)':'var(--text-muted)',
+                          border:`1px solid ${msg.status==='unread'?'#C0CDE8':msg.status==='replied'?'#9ADDC3':'var(--border)'}`,
+                        }}>
+                          {msg.status.charAt(0).toUpperCase()+msg.status.slice(1)}
+                        </span>
+                      </div>
+                      <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                        <a href={`mailto:${msg.email}`} style={{color:'var(--orange)',fontWeight:600,textDecoration:'none'}}>{msg.email}</a>
+                        {msg.phone && <span><i className="fa-solid fa-phone" style={{marginRight:'3px'}}></i>{msg.phone}</span>}
+                        <span>{new Date(msg.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                      </div>
+                      {msg.subject && <div style={{marginTop:'4px',fontSize:'12px',fontWeight:600,color:'var(--blue-mid)'}}>{msg.subject}</div>}
+                    </div>
+                    <div style={{display:'flex',gap:'8px',flexShrink:0,flexWrap:'wrap'}}>
+                      <a href={`mailto:${msg.email}?subject=Re: ${encodeURIComponent(msg.subject||'Your FIP Enquiry')}`}
+                        className="admin-btn" style={{background:'var(--blue)',color:'#fff',border:'none',textDecoration:'none'}}
+                        onClick={() => markContactStatus(msg.id,'replied')}>
+                        <i className="fa-solid fa-reply"></i> Reply
+                      </a>
+                      {msg.status === 'unread' && (
+                        <button className="admin-btn" style={{background:'var(--off-white)',color:'var(--text-muted)',border:'1px solid var(--border)'}}
+                          onClick={() => markContactStatus(msg.id,'read')}>
+                          <i className="fa-solid fa-check"></i> Mark Read
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'14px 16px',fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,whiteSpace:'pre-wrap'}}>
+                    {msg.message}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* ═══ SETTINGS ═══ */}
           {tab === 'settings' && (
             <div className="admin-form-card">
@@ -1223,6 +1621,79 @@ export default function AdminPage() {
               <button className="btn btn-outline-blue btn-sm" onClick={() => setEditModal(null)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveMember} disabled={!mForm.name.trim()}>
                 {editModal.memberIdx===null ? 'Add Member' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Course Add / Edit Modal ── */}
+      {showCourseModal && (
+        <div className="modal-overlay" onClick={() => setShowCourseModal(null)}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'560px'}}>
+            <button className="modal-close" onClick={() => setShowCourseModal(null)}>&#x2715;</button>
+            <div className="modal-title">{showCourseModal === 'new' ? 'Add New Course' : 'Edit Course'}</div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Title *</label>
+                <input className="form-input" type="text" placeholder="e.g. Mastering GST Litigation" value={courseForm.title} onChange={e=>setCourseForm(f=>({...f,title:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Slug (URL)</label>
+                <input className="form-input" type="text" placeholder="auto-generated from title" value={courseForm.slug} onChange={e=>setCourseForm(f=>({...f,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')}))}/>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Subtitle</label>
+              <input className="form-input" type="text" placeholder="e.g. Sankalp 2026 — 6 Expert Sessions" value={courseForm.subtitle} onChange={e=>setCourseForm(f=>({...f,subtitle:e.target.value}))}/>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Description</label>
+              <textarea className="form-textarea" placeholder="What will students learn?" value={courseForm.description} onChange={e=>setCourseForm(f=>({...f,description:e.target.value}))} style={{minHeight:'80px'}}></textarea>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Category</label>
+                <input className="form-input" type="text" placeholder="e.g. GST, Direct Tax" value={courseForm.category} onChange={e=>setCourseForm(f=>({...f,category:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Level</label>
+                <select className="form-select" value={courseForm.level} onChange={e=>setCourseForm(f=>({...f,level:e.target.value}))}>
+                  <option>Beginner</option><option>Intermediate</option><option>Advanced</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Price (₹)</label>
+                <input className="form-input" type="number" placeholder="0 = free" value={courseForm.price} onChange={e=>setCourseForm(f=>({...f,price:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Instructor</label>
+                <input className="form-input" type="text" placeholder="e.g. CA Gaurav Aggrawal" value={courseForm.instructor} onChange={e=>setCourseForm(f=>({...f,instructor:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Duration (hours)</label>
+                <input className="form-input" type="number" placeholder="e.g. 8" value={courseForm.duration_hours} onChange={e=>setCourseForm(f=>({...f,duration_hours:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Access / Pricing</label>
+              <select className="form-select" value={courseForm.free_for} onChange={e=>setCourseForm(f=>({...f,free_for:e.target.value}))}>
+                <option value="none">Paid — everyone pays the course price</option>
+                <option value="members">Free for Active Members · Students pay</option>
+                <option value="students">Free for Students · Members pay</option>
+                <option value="all">Free for Everyone</option>
+              </select>
+            </div>
+            <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
+              <button className="btn btn-outline-blue btn-sm" onClick={() => setShowCourseModal(null)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={saveCourse} disabled={!courseForm.title.trim()}>
+                {showCourseModal === 'new' ? 'Create Course' : 'Save Changes'}
               </button>
             </div>
           </div>

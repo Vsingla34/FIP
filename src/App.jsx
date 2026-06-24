@@ -24,6 +24,8 @@ import CommitteesPage     from './pages/CommitteesPage.jsx';
 import DirectoryPage      from './pages/DirectoryPage.jsx';
 import WebinarsPage       from './pages/WebinarsPage.jsx';
 import JobsPage           from './pages/JobsPage.jsx';
+import CourseViewerPage   from './pages/CourseViewerPage.jsx';
+import CourseDetailPage   from './pages/CourseDetailPage.jsx';
 import DashboardPage      from './pages/DashboardPage.jsx';
 import AdminPage          from './pages/AdminPage.jsx';
 import PaymentPage        from './pages/PaymentPage.jsx';
@@ -31,12 +33,13 @@ import PaymentSuccessPage from './pages/PaymentSuccessPage.jsx';
 
 function AppContent() {
   const location = useLocation();
-  const isAdmin  = location.pathname === '/admin';
+  const isAdmin   = location.pathname === '/admin';
+  const isViewer  = location.pathname.endsWith('/watch');
 
   return (
     <>
-      {!isAdmin && <AnnounceBar />}
-      {!isAdmin && <Navbar />}
+      {!isAdmin && !isViewer && <AnnounceBar />}
+      {!isAdmin && !isViewer && <Navbar />}
 
       <Routes>
         {/* ── Public routes ── */}
@@ -64,6 +67,8 @@ function AppContent() {
             <DashboardPage />
           </ProtectedRoute>
         }/>
+        <Route path="/courses/:slug"       element={<CourseDetailPage />}/>
+        <Route path="/courses/:slug/watch" element={<CourseViewerPage />}/>
         <Route path="/payment" element={
           <ProtectedRoute requireAuth>
             <PaymentPage />
@@ -83,7 +88,7 @@ function AppContent() {
         }/>
       </Routes>
 
-      {!isAdmin && <Footer />}
+      {!isAdmin && !isViewer && <Footer />}
       <a href="https://wa.me/919999830938" className="wa-fab"
          target="_blank" rel="noopener noreferrer" aria-label="WhatsApp">
         <i className="fa-brands fa-whatsapp"></i>

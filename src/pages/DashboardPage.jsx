@@ -59,9 +59,6 @@ export default function DashboardPage() {
   const displayRole  = profile?.profession || user?.user_metadata?.profession || 'Professional';
   const memberStatus = profile?.membership_status || 'Inactive';
   const memberPlan   = profile?.membership_plan   || 'Standard';
-  const cpeCompleted = profile?.cpe_hours_completed || 0;
-  const cpeRequired  = profile?.cpe_hours_required  || 25;
-  const cpePercent   = Math.round((cpeCompleted / cpeRequired) * 100);
   const memberSince  = profile?.created_at
     ? new Date(profile.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
     : '—';
@@ -145,8 +142,7 @@ export default function DashboardPage() {
                 <>
                   <div className="dash-metrics">
                     <div className="dash-metric">
-                      <div className="dash-mval">{cpeCompleted}</div>
-                      <div className="dash-mlbl">CPE Hours</div>
+
                     </div>
                     <div className="dash-metric">
                       <div className="dash-mval">{enrollments.length}</div>
@@ -157,15 +153,7 @@ export default function DashboardPage() {
                       <div className="dash-mlbl">Events RSVPd</div>
                     </div>
                   </div>
-                  <div className="prog-wrap">
-                    <div className="prog-label">
-                      <span>CPE Hours Completed</span>
-                      <span>{cpeCompleted} / {cpeRequired}</span>
-                    </div>
-                    <div className="prog-track">
-                      <div className="prog-fill" style={{width:`${cpePercent}%`}}></div>
-                    </div>
-                  </div>
+
                   {profile?.membership_end && (
                     <p style={{fontSize:'12px',color:'var(--text-light)',marginTop:'12px'}}>
                       <i className="fa-solid fa-calendar" style={{color:'var(--orange)',marginRight:'5px'}}></i>
