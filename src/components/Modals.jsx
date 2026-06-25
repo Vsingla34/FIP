@@ -115,7 +115,7 @@ export default function Modals() {
         email:       f.email.value.trim(),
         password:    f.password.value,
         fullName:    f.fullName.value.trim(),
-        profession:  f.profession.value,
+        profession:  regType === 'member' ? f.profession?.value : 'Student',
         phone:       f.phone.value.trim(),
         accountType: regType,
       });
@@ -138,10 +138,24 @@ export default function Modals() {
   };
 
   /* ── COURSE ENROLL ── */
-  const handleCourseEnroll = (e) => {
-    e.preventDefault(); closeModal();
+  const handleCourseEnroll = async (e) => {
+    e.preventDefault();
     const course = modalData?.course;
-    showToast(`Enrollment request sent for ${course?.title || 'this course'}! We'll confirm shortly.`);
+    if (!course) return;
+    // Free course — enroll directly
+    if (!course.price || course.price === 0) {
+      await supabase.from('course_enrollments').upsert({
+        user_id: user.id, course_title: course.title,
+        status: 'Enrolled', price_paid: 0, amount_paid: 0,
+      }, { onConflict: 'user_id,course_title' });
+      closeModal();
+      showToast('Enrolled successfully!');
+      if (course.slug) navigate(`/courses/${course.slug}/watch`);
+      return;
+    }
+    // Paid course — show toast (payment integration coming soon)
+    closeModal();
+    showToast('Course enrollment — payment integration coming soon!', true);
   };
 
   /* ── RSVP ── */
@@ -319,16 +333,19 @@ export default function Modals() {
 
             <form onSubmit={handleRegister}>
               <div className="form-group"><label className="form-label">Full Name *</label>
-                <input className="form-input" name="fullName" type="text" placeholder="CA / CS / Adv. Full Name" required />
+                <input className="form-input" name="fullName" type="text"
+                  placeholder={regType === 'student' ? 'Your full name' : 'CA / CS / Adv. Full Name'} required />
               </div>
-              <div className="form-group"><label className="form-label">Profession *</label>
-                <select className="form-select" name="profession" required>
-                  <option value="">Select profession</option>
-                  <option>Chartered Accountant</option><option>Company Secretary</option>
-                  <option>Cost Accountant</option><option>Advocate</option>
-                  <option>Student</option><option>Other</option>
-                </select>
-              </div>
+              {regType === 'member' && (
+                <div className="form-group"><label className="form-label">Profession *</label>
+                  <select className="form-select" name="profession" required>
+                    <option value="">Select profession</option>
+                    <option>Chartered Accountant</option><option>Company Secretary</option>
+                    <option>Cost Accountant</option><option>Advocate</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group"><label className="form-label">Email *</label>
                   <input className="form-input" name="email" type="email" placeholder="you@example.com" required />

@@ -72,18 +72,27 @@ export default function Navbar() {
               )}
               {/* User avatar */}
               <Link to="/dashboard" className="nav-user-btn">
-                <div className="nav-avatar">
-                  {profile?.avatar_url
-                    ? <img src={profile.avatar_url} alt="avatar"
-                           style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
-                    : initials
-                  }
+                <div style={{position:'relative',display:'inline-flex'}}>
+                  <div className="nav-avatar" style={profile?.is_committee_member ? {border:'2px solid #FFD700',boxShadow:'0 0 0 1px #B8860B'} : {}}>
+                    {profile?.avatar_url
+                      ? <img src={profile.avatar_url} alt="avatar"
+                             style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                      : initials
+                    }
+                  </div>
+                  {profile?.is_committee_member && (
+                    <div className="nav-gold-crown" title={`${profile.committee_role}, ${profile.committee_name}`}>
+                      <i className="fa-solid fa-crown"></i>
+                    </div>
+                  )}
                 </div>
                 <div className="nav-user-info">
                   <span className="nav-user-name">{displayName.split(' ')[0]}</span>
-                  <span className="nav-user-plan" style={{color: isAdmin ? 'var(--orange)' : undefined}}>
-                    {isAdmin ? '⚡ Admin' : profile?.membership_status === 'Active'
-                      ? `✦ ${profile.membership_plan} Member` : profile ? '…' : 'Loading'}
+                  <span className="nav-user-plan" style={{color: isAdmin ? 'var(--orange)' : profile?.is_committee_member ? '#B8860B' : undefined}}>
+                    {isAdmin ? '⚡ Admin'
+                      : profile?.is_committee_member ? `👑 ${profile.committee_role || 'Committee Member'}`
+                      : profile?.membership_status === 'Active' ? `✦ ${profile.membership_plan} Member`
+                      : profile ? '…' : 'Loading'}
                   </span>
                 </div>
               </Link>

@@ -232,33 +232,73 @@ input,select,textarea{font-family:inherit;outline:none;}
 .ev-rsvp-btn:hover{background:var(--orange);}
 
 /* ─── MEMBERSHIP ─────────── */
-.mem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:start;}
-.mem-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:32px 28px;position:relative;transition:var(--t);}
-.mem-card:hover{box-shadow:var(--shadow-md);}
-.mem-card.featured{background:var(--blue);border:2px solid var(--orange);box-shadow:0 8px 40px rgba(26,60,110,0.22);}
-.mem-badge-wrap{position:absolute;top:-13px;left:50%;transform:translateX(-50%);white-space:nowrap;}
-.mem-badge{background:var(--orange);color:#fff;font-size:10px;font-weight:800;padding:4px 16px;border-radius:20px;text-transform:uppercase;letter-spacing:0.5px;}
-.mem-tier{font-size:10px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px;}
+.mem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;align-items:start;}
+.mem-card{
+  background:var(--surface);
+  border:1.5px solid var(--border);
+  border-radius:20px;
+  padding:36px 30px;
+  position:relative;
+  transition:transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.mem-card:hover{
+  transform:translateY(-6px);
+  box-shadow:0 16px 48px rgba(26,60,110,0.12);
+  border-color:var(--blue);
+}
+.mem-card.featured{
+  background:linear-gradient(160deg,#1A3C6E 0%,#1B4A9E 100%);
+  border:2px solid var(--orange);
+  box-shadow:0 12px 48px rgba(26,60,110,0.28);
+  transform:translateY(-8px) scale(1.02);
+}
+.mem-card.featured:hover{
+  transform:translateY(-14px) scale(1.02);
+  box-shadow:0 24px 64px rgba(26,60,110,0.35);
+}
+.mem-badge-wrap{position:absolute;top:-14px;left:50%;transform:translateX(-50%);white-space:nowrap;}
+.mem-badge{
+  background:linear-gradient(90deg,var(--orange),#FF8C42);
+  color:#fff;font-size:10px;font-weight:800;
+  padding:5px 18px;border-radius:20px;
+  text-transform:uppercase;letter-spacing:0.8px;
+  box-shadow:0 4px 12px rgba(242,101,34,0.35);
+}
+.mem-tier{font-size:10px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;}
 .mem-card.featured .mem-tier{color:#FFD09B;}
-.mem-name{font-size:22px;font-weight:800;color:var(--blue);font-family:'Playfair Display',serif;margin-bottom:6px;}
+.mem-name{font-size:24px;font-weight:800;color:var(--blue);font-family:'Playfair Display',serif;margin-bottom:8px;}
 .mem-card.featured .mem-name{color:#fff;}
-.mem-price{font-size:40px;font-weight:800;color:var(--blue);line-height:1;margin-bottom:3px;}
+.mem-price{font-size:44px;font-weight:900;color:var(--blue);line-height:1;margin-bottom:3px;letter-spacing:-1px;}
 .mem-card.featured .mem-price{color:#FFD09B;}
 .mem-price span{font-size:16px;font-weight:500;color:var(--text-muted);}
 .mem-card.featured .mem-price span{color:rgba(255,255,255,0.45);}
 .mem-period{font-size:12px;color:var(--text-light);margin-bottom:24px;}
 .mem-card.featured .mem-period{color:rgba(255,255,255,0.4);}
 .mem-divider{height:1px;background:var(--border);margin-bottom:20px;}
-.mem-card.featured .mem-divider{background:rgba(255,255,255,0.1);}
-.mem-features{display:flex;flex-direction:column;gap:10px;margin-bottom:28px;}
-.mem-feat{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text-muted);}
-.mem-card.featured .mem-feat{color:rgba(255,255,255,0.7);}
-.mem-feat i{color:var(--green);margin-top:2px;font-size:13px;flex-shrink:0;}
-.mem-card.featured .mem-feat i{color:#FFD09B;}
-.mem-btn-out{width:100%;padding:12px;border-radius:var(--radius-md);font-size:14px;font-weight:700;cursor:pointer;background:transparent;border:1.5px solid var(--border-dark);color:var(--blue);transition:var(--t);}
-.mem-btn-out:hover{border-color:var(--orange);color:var(--orange);}
-.mem-btn-solid{width:100%;padding:12px;border-radius:var(--radius-md);font-size:14px;font-weight:700;cursor:pointer;background:var(--orange);border:none;color:#fff;transition:var(--t);}
-.mem-btn-solid:hover{background:var(--orange-light);transform:translateY(-1px);box-shadow:var(--shadow-md);}
+.mem-card.featured .mem-divider{background:rgba(255,255,255,0.12);}
+.mem-features{display:flex;flex-direction:column;gap:11px;margin-bottom:28px;}
+.mem-feat{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text-muted);line-height:1.45;}
+.mem-card.featured .mem-feat{color:rgba(255,255,255,0.75);}
+.mem-feat i{
+  color:var(--green);margin-top:2px;font-size:12px;flex-shrink:0;
+  background:rgba(34,197,94,0.1);border-radius:50%;
+  width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+}
+.mem-card.featured .mem-feat i{color:#4ADE80;background:rgba(74,222,128,0.15);}
+.mem-btn-out{
+  width:100%;padding:13px;border-radius:10px;
+  font-size:14px;font-weight:700;cursor:pointer;
+  background:transparent;border:1.5px solid var(--blue);color:var(--blue);
+  transition:all 0.2s ease;letter-spacing:0.2px;
+}
+.mem-btn-out:hover{background:var(--blue);color:#fff;transform:translateY(-1px);box-shadow:0 6px 20px rgba(26,60,110,0.2);}
+.mem-btn-solid{
+  width:100%;padding:13px;border-radius:10px;
+  font-size:14px;font-weight:700;cursor:pointer;
+  background:var(--orange);border:none;color:#fff;
+  transition:all 0.2s ease;letter-spacing:0.2px;
+}
+.mem-btn-solid:hover{background:#E5571A;transform:translateY(-2px);box-shadow:0 8px 24px rgba(242,101,34,0.35);}
 
 /* ─── FEATURES GRID ─────── */
 .features-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
@@ -1848,3 +1888,132 @@ footer{background:#0D1F3C;padding:56px 0 24px;}
 }
 .contact-response-title{font-size:14px;font-weight:700;color:var(--blue);margin-bottom:3px;}
 .contact-response-desc{font-size:12px;color:var(--text-muted);line-height:1.6;}
+
+/* ─── Membership page — variable grid ────────────────────── */
+.mem-grid-2{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:24px;max-width:780px;margin:0 auto;
+}
+.mem-grid-3{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:24px;
+}
+@media(max-width:700px){
+  .mem-grid-2,.mem-grid-3{grid-template-columns:1fr;}
+}
+
+/* ─── Why join perks ─────────────────────────────────────── */
+.mem-perks-section{margin-top:48px;padding-top:40px;border-top:1px solid var(--border);}
+.mem-perks-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
+.mem-perk-item{text-align:center;padding:20px 12px;}
+.mem-perk-icon{
+  width:52px;height:52px;border-radius:50%;
+  background:var(--blue);color:#FFD09B;
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;margin:0 auto 12px;
+}
+.mem-perk-title{font-size:14px;font-weight:700;color:var(--blue);margin-bottom:5px;}
+.mem-perk-desc{font-size:12px;color:var(--text-muted);line-height:1.6;}
+@media(max-width:700px){
+  .mem-perks-grid{grid-template-columns:repeat(2,1fr);}
+}
+
+/* ═══════════════════════════════════════════════
+   COMMITTEE MEMBER — GOLD TIER
+═══════════════════════════════════════════════ */
+
+/* Gold badge pill */
+.gold-badge {
+  display:inline-flex;align-items:center;gap:4px;
+  background:linear-gradient(135deg,#B8860B,#FFD700,#B8860B);
+  color:#3D2B00;font-size:9px;font-weight:800;
+  padding:2px 8px;border-radius:20px;
+  text-transform:uppercase;letter-spacing:0.8px;
+  box-shadow:0 2px 8px rgba(184,134,11,0.35);
+  flex-shrink:0;
+}
+.gold-badge i{font-size:8px;color:#8B6000;}
+
+/* Gold avatar ring */
+.gold-avatar-ring {
+  position:relative;display:inline-flex;
+}
+.gold-avatar-ring::after {
+  content:'';
+  position:absolute;inset:-3px;
+  border-radius:50%;
+  background:linear-gradient(135deg,#B8860B,#FFD700,#DAA520,#B8860B);
+  z-index:-1;
+}
+
+/* Gold member card in directory */
+.gold-member-card {
+  border:2px solid #FFD700 !important;
+  background:linear-gradient(160deg,#FFFBF0 0%,#FFF8E1 100%) !important;
+  box-shadow:0 4px 20px rgba(184,134,11,0.15) !important;
+  position:relative;
+  overflow:hidden;
+}
+.gold-member-card::before {
+  content:'';
+  position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,#B8860B,#FFD700,#DAA520,#FFD700,#B8860B);
+}
+.gold-member-card:hover {
+  box-shadow:0 8px 32px rgba(184,134,11,0.28) !important;
+  transform:translateY(-3px);
+}
+
+/* Gold dashboard panel */
+.gold-panel {
+  background:linear-gradient(135deg,#FFFBF0,#FFF3CD);
+  border:1.5px solid #FFD700;
+  border-radius:var(--radius-lg);
+  padding:24px;
+  position:relative;
+  overflow:hidden;
+}
+.gold-panel::before {
+  content:'';
+  position:absolute;top:0;left:0;right:0;height:4px;
+  background:linear-gradient(90deg,#B8860B,#FFD700,#DAA520,#FFD700,#B8860B);
+}
+.gold-panel-title {
+  font-size:16px;font-weight:700;
+  color:#3D2B00;margin-bottom:4px;
+  display:flex;align-items:center;gap:8px;
+}
+.gold-panel-sub {
+  font-size:12px;color:#8B6000;margin-bottom:18px;
+}
+
+/* Gold committee member row */
+.gold-cm-row {
+  display:flex;align-items:center;gap:12px;
+  padding:10px 14px;border-radius:var(--radius-md);
+  background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.25);
+  margin-bottom:8px;transition:var(--t);
+}
+.gold-cm-row:hover{background:rgba(255,215,0,0.14);}
+.gold-cm-av {
+  width:36px;height:36px;border-radius:50%;
+  background:linear-gradient(135deg,#B8860B,#FFD700);
+  color:#3D2B00;font-size:12px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;border:2px solid rgba(255,255,255,0.5);
+}
+.gold-cm-name{font-size:13px;font-weight:700;color:#3D2B00;}
+.gold-cm-role{font-size:11px;color:#8B6000;}
+
+/* Navbar gold crown icon */
+.nav-gold-crown {
+  position:absolute;top:-4px;right:-4px;
+  width:14px;height:14px;border-radius:50%;
+  background:linear-gradient(135deg,#B8860B,#FFD700);
+  display:flex;align-items:center;justify-content:center;
+  font-size:7px;color:#3D2B00;
+  box-shadow:0 1px 4px rgba(0,0,0,0.2);
+  border:1.5px solid #fff;
+}

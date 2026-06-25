@@ -4,6 +4,49 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { getEnrollments, getRSVPs, getPayments } from '../lib/api.js';
 import AvatarUpload from '../components/AvatarUpload.jsx';
+import { supabase } from '../lib/supabase.js';
+
+/* ── Committee Members Panel (for gold members) ── */
+function CommitteeMembersPanel({ committeeName, currentUserId }) {
+  const [members, setMembers] = useState([]);
+
+  useEffect(() => {
+    if (!committeeName) return;
+    supabase.rpc('get_committee_members')
+      .then(({ data }) => {
+        setMembers((data || []).filter(m => m.committee_name === committeeName));
+      });
+  }, [committeeName]);
+
+  const getInitials = (name) =>
+    (name || '').split(' ').filter(w => w.length > 1).map(w => w[0]).join('').slice(0,2).toUpperCase();
+
+  const roleOrder = { 'Chairman':1, 'Co-Chairman':2, 'Chairperson':1, 'Co-Chairperson':2, 'Secretary':3, 'Member':4 };
+  const sorted = [...members].sort((a,b) => (roleOrder[a.committee_role]||5) - (roleOrder[b.committee_role]||5));
+
+  if (!sorted.length) return <div style={{fontSize:'12px',color:'#8B6000'}}>Loading members…</div>;
+
+  return (
+    <div>
+      {sorted.map((m, i) => (
+        <div key={i} className="gold-cm-row">
+          {m.avatar_url
+            ? <img src={m.avatar_url} alt="" style={{width:'36px',height:'36px',borderRadius:'50%',objectFit:'cover',border:'2px solid #FFD700',flexShrink:0}}/>
+            : <div className="gold-cm-av">{getInitials(m.full_name)}</div>
+          }
+          <div style={{flex:1,minWidth:0}}>
+            <div className="gold-cm-name">
+              {m.full_name}
+              {m.id === currentUserId && <span style={{fontSize:'9px',fontWeight:700,color:'#B8860B',marginLeft:'6px',background:'rgba(184,134,11,0.1)',padding:'1px 6px',borderRadius:'10px'}}>You</span>}
+            </div>
+            <div className="gold-cm-role">{m.committee_role}</div>
+          </div>
+          {m.profession && <div style={{fontSize:'10px',color:'#B8860B',flexShrink:0}}>{m.profession.split(' ').map(w=>w[0]).join('')}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const [tab, setTab]             = useState('overview');
@@ -103,8 +146,17 @@ export default function DashboardPage() {
               {profile.city}
             </div>
           )}
-          <span className={`dash-mbadge${memberStatus !== 'Active' ? ' inactive' : ''}`} style={{marginTop:'8px'}}>
-            {memberStatus === 'Active' ? `✦ ${memberPlan} Member` : memberStatus}
+          {/* Gold badge for committee members */}
+          {profile?.is_committee_member && (
+            <div style={{marginTop:'8px',display:'flex',flexDirection:'column',alignItems:'center',gap:'4px'}}>
+              <span className="gold-badge"><i className="fa-solid fa-crown"></i> Committee Member</span>
+              <span style={{fontSize:'10px',color:'#8B6000',fontWeight:600}}>{profile.committee_role} · {profile.committee_name?.replace(' Committee','')}</span>
+            </div>
+          )}
+          <span className={`dash-mbadge${memberStatus !== 'Active' ? ' inactive' : ''}`} style={{marginTop:'8px',
+            ...(profile?.is_committee_member ? {background:'linear-gradient(135deg,#B8860B,#DAA520)',color:'#fff',border:'none'} : {})
+          }}>
+            {profile?.is_committee_member ? '👑 Committee Member' : memberStatus === 'Active' ? `✦ ${memberPlan} Member` : memberStatus}
           </span>
         </div>
 
@@ -127,6 +179,20 @@ export default function DashboardPage() {
         {/* OVERVIEW */}
         {tab === 'overview' && (
           <>
+            {/* ── Gold Committee Panel ── */}
+            {profile?.is_committee_member && (
+              <div className="gold-panel" style={{marginBottom:'20px'}}>
+                <div className="gold-panel-title">
+                  <i className="fa-solid fa-crown" style={{color:'#B8860B',fontSize:'18px'}}></i>
+                  Your Committee
+                </div>
+                <div className="gold-panel-sub">
+                  {profile.committee_role} · {profile.committee_name}
+                </div>
+                <CommitteeMembersPanel committeeName={profile.committee_name} currentUserId={profile.id} />
+              </div>
+            )}
+
             <div className="dash-card">
               <div className="dash-card-title">
                 Welcome back, {displayName.split(' ')[0]} 👋

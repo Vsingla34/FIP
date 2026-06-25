@@ -499,7 +499,7 @@ export default function HomePage() {
               { icon:'fa-gauge-high',    cls:'fi-blue',   title:'Member Dashboard',        desc:'Track CPE hours, enrolled courses, event RSVPs, and membership status in one personalised view.', tag:null },
               { icon:'fa-calendar-check',cls:'fi-orange', title:'Event Calendar & RSVP',   desc:'Browse all FIP events, RSVP with one click, and get automatic WhatsApp & email reminders.', tag:'New' },
               { icon:'fa-comments',      cls:'fi-teal',   title:'Community Forum',          desc:'Post questions, share regulatory updates, and discuss case studies with 3,000+ community members.', tag:'New' },
-              { icon:'fa-certificate',   cls:'fi-purple', title:'CPE Credit Tracking',      desc:'Auto-log ICAI CPE hours from FIP webinars and courses. Download e-certificates instantly.', tag:'New' },
+              { icon:'fa-award',         cls:'fi-purple', title:'E-Certificate',            desc:'Instantly download your FIP course completion certificate. Shareable on LinkedIn & recognised by ICAI.', tag:'New' },
               { icon:'fa-book-open',     cls:'fi-red',    title:'Resource Library',          desc:'Searchable archive of all FIP session recordings, decks, case studies, and circulars.', tag:'New' },
               { icon:'fa-briefcase',     cls:'fi-green',  title:'Job & Opportunity Board',  desc:'Exclusive listings from FIP member firms — jobs, freelance briefs, and collaboration opportunities.', tag:'New' },
             ].map((f,i) => (

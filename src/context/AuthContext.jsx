@@ -93,18 +93,20 @@ export function AuthProvider({ children }) {
     });
     if (error) throw error;
 
-    // Now create the profile row after verified
+    // Create profile — always start as 'student' regardless of chosen type
+    // If they chose 'member', payment will upgrade them after this
     if (data.user && pendingData) {
       const { data: prof } = await supabase
         .from('profiles')
         .upsert({
-          id:           data.user.id,
-          email:        pendingData.email,
-          full_name:    pendingData.fullName,
-          profession:   pendingData.profession,
-          phone:        pendingData.phone,
-          account_type: pendingData.accountType || 'student',
-          role:         'member',
+          id:               data.user.id,
+          email:            pendingData.email,
+          full_name:        pendingData.fullName,
+          profession:       pendingData.profession,
+          phone:            pendingData.phone,
+          account_type:     'student',           // always student until paid
+          membership_status:'Inactive',
+          role:             'member',
         }, { onConflict: 'id' })
         .select().single();
       if (prof) setProfile(prof);
@@ -120,6 +122,20 @@ export function AuthProvider({ children }) {
       type:  'signup',
       email,
     });
+    if (error) throw error;
+  };
+
+  /* ── RESET PASSWORD (sends email link) ── */
+  const resetPassword = async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) throw error;
+  };
+
+  /* ── UPDATE PASSWORD (after reset link) ── */
+  const updatePassword = async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) throw error;
   };
 
@@ -162,6 +178,8 @@ export function AuthProvider({ children }) {
       checkPhoneUnique,
       signIn,
       signOut,
+      resetPassword,
+      updatePassword,
       updateProfile,
       fetchProfile,
     }}>

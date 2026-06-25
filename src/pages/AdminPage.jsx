@@ -75,6 +75,45 @@ export default function AdminPage() {
   const handleSignOut = async () => { await signOut(); navigate('/'); };
 
   /* ── role / status changes ── */
+  const [committeeModal, setCommitteeModal] = useState(null);
+  const [cmForm, setCmForm] = useState({ committee_name:'', committee_role:'Member' });
+
+  const COMMITTEES = [
+    'Executive Committee','Editorial & Social Media Committee','Members Development Committee',
+    'Indirect Tax Committee','Direct Tax Committee','Accounting Standard & Audit Assurance Committee',
+    'Global Capability Center (GCC) Committee','Financial Market Committee',
+    'Artificial Intelligence Committee','MSME, Startup & Valuation Committee',
+    'Students Development Committee',
+  ];
+
+  const handleAssignCommittee = async () => {
+    if (!cmForm.committee_name || !committeeModal) return;
+    const { error } = await supabase.rpc('admin_assign_committee', {
+      p_user_id:   committeeModal.id,
+      p_committee: cmForm.committee_name,
+      p_role:      cmForm.committee_role,
+    });
+    if (!error) {
+      setMembers(prev => prev.map(m => m.id === committeeModal.id
+        ? { ...m, is_committee_member: true, committee_name: cmForm.committee_name, committee_role: cmForm.committee_role }
+        : m
+      ));
+      setCommitteeModal(null);
+      showToast(`${committeeModal.full_name} assigned as ${cForm.committee_role}!`);
+    }
+  };
+
+  const handleRemoveCommittee = async (memberId) => {
+    if (!window.confirm('Remove committee membership?')) return;
+    const { error } = await supabase.rpc('admin_remove_committee', { p_user_id: memberId });
+    if (!error) {
+      setMembers(prev => prev.map(m => m.id === memberId
+        ? { ...m, is_committee_member: false, committee_name: null, committee_role: null }
+        : m
+      ));
+    }
+  };
+
   const handleRoleChange = async (memberId, newRole) => {
     const { error } = await supabase.rpc('admin_update_profile', { target_id: memberId, new_role: newRole });
     if (!error) setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m));
@@ -326,6 +365,60 @@ export default function AdminPage() {
       : { p_post_id: id, p_note: note }
     );
     if (!error && data) setBlogPosts(prev => prev.map(p => p.id === id ? { ...p, status: action } : p));
+  };
+
+  /* ── events state ── */
+  const [adminEvents,      setAdminEvents]      = useState([]);
+  const [eventsLoading,    setEventsLoading]    = useState(false);
+  const [showEventModal,   setShowEventModal]   = useState(null); // 'new' | event obj
+  const [eventRsvps,       setEventRsvps]       = useState([]);
+  const [rsvpEventView,    setRsvpEventView]    = useState(null);
+  const [rsvpLoading,      setRsvpLoading]      = useState(false);
+  const [eventForm, setEventForm] = useState({
+    title:'', description:'', event_type:'Physical', location:'', venue:'',
+    city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'',
+  });
+
+  useEffect(() => {
+    if (tab !== 'events') return;
+    setEventsLoading(true);
+    supabase.from('events').select('*').order('event_date', { ascending: true, nullsFirst: false })
+      .then(({ data }) => { setAdminEvents(data || []); setEventsLoading(false); });
+  }, [tab]);
+
+  const openEventModal = (ev) => {
+    if (ev === 'new') {
+      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'' });
+    } else {
+      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', ') });
+    }
+    setShowEventModal(ev);
+  };
+
+  const saveEvent = async () => {
+    if (!eventForm.title.trim()) return;
+    const payload = { ...eventForm, tags: eventForm.tags.split(',').map(t=>t.trim()).filter(Boolean), capacity: eventForm.capacity ? Number(eventForm.capacity) : null, price: Number(eventForm.price)||0, event_date: eventForm.event_date || null, created_by: profile?.id };
+    if (showEventModal === 'new') {
+      const { data, error } = await supabase.from('events').insert(payload).select().single();
+      if (!error && data) { setAdminEvents(prev => [data, ...prev]); setShowEventModal(null); showToast('Event created!'); }
+      else showToast('Error: ' + (error?.message || 'Failed'), true);
+    } else {
+      const { data, error } = await supabase.from('events').update(payload).eq('id', showEventModal.id).select().single();
+      if (!error && data) { setAdminEvents(prev => prev.map(e => e.id===data.id?data:e)); setShowEventModal(null); showToast('Event updated!'); }
+      else showToast('Error: ' + (error?.message || 'Failed'), true);
+    }
+  };
+
+  const deleteEvent = async (id) => {
+    if (!window.confirm('Delete this event and all its RSVPs?')) return;
+    const { error } = await supabase.from('events').delete().eq('id', id);
+    if (!error) { setAdminEvents(prev => prev.filter(e => e.id !== id)); showToast('Event deleted.'); }
+  };
+
+  const loadRsvps = async (ev) => {
+    setRsvpEventView(ev); setRsvpLoading(true);
+    const { data } = await supabase.rpc('admin_get_event_rsvps', { p_event_id: ev.id });
+    setEventRsvps(data || []); setRsvpLoading(false);
   };
 
   /* ── contacts state ── */
@@ -808,6 +901,17 @@ export default function AdminPage() {
                                 ? <button className="admin-btn admin-btn-primary" onClick={()=>handleStatusChange(m.id,'Active')}>Activate</button>
                                 : <button className="admin-btn" style={{background:'var(--off-white)',color:'var(--text-muted)',border:'1px solid var(--border)'}} onClick={()=>handleStatusChange(m.id,'Inactive')}>Deactivate</button>
                               }
+                              {/* Committee assignment */}
+                              {!m.is_committee_member
+                                ? <button className="admin-btn" style={{background:'linear-gradient(135deg,#B8860B,#DAA520)',color:'#fff',border:'none'}}
+                                    onClick={() => setCommitteeModal(m)}>
+                                    <i className="fa-solid fa-crown"></i> Assign
+                                  </button>
+                                : <button className="admin-btn" style={{background:'rgba(184,134,11,0.1)',color:'#8B6000',border:'1px solid #DAA520'}}
+                                    onClick={() => handleRemoveCommittee(m.id)}>
+                                    <i className="fa-solid fa-crown"></i> {m.committee_role?.split('-')[0] || 'Member'}
+                                  </button>
+                              }
                             </div>
                           </td>
                         </tr>
@@ -819,12 +923,96 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* ═══ EVENTS (placeholder) ═══ */}
-          {tab === 'events' && (
-            <div className="admin-form-card" style={{textAlign:'center',padding:'60px 24px',color:'var(--text-muted)'}}>
-              <i className="fa-solid fa-calendar-days" style={{fontSize:'32px',marginBottom:'12px',display:'block',color:'var(--border-dark)'}}></i>
-              <p style={{fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>Events Management</p>
-              <p style={{fontSize:'13px'}}>Coming soon — manage event listings, RSVPs and capacity here.</p>
+                    {/* ═══ EVENTS ═══ */}
+          {tab === 'events' && !rsvpEventView && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+                <span>Events <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({adminEvents.length})</span></span>
+                <button className="btn btn-primary btn-sm" onClick={() => openEventModal('new')}>
+                  <i className="fa-solid fa-plus"></i> Add Event
+                </button>
+              </div>
+              {eventsLoading ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
+              ) : adminEvents.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-calendar" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+                  <p>No events yet.</p>
+                  <button className="btn btn-primary btn-sm" style={{marginTop:'14px'}} onClick={() => openEventModal('new')}><i className="fa-solid fa-plus"></i> Create First Event</button>
+                </div>
+              ) : adminEvents.map(ev => (
+                <div key={ev.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'16px 20px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap'}}>
+                  <div style={{flex:1,minWidth:'200px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
+                      <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{ev.title}</span>
+                      <span className={`status-pill ${ev.status==='upcoming'?'sp-active':ev.status==='ongoing'?'sp-pending':'sp-rejected'}`}>{ev.status}</span>
+                    </div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                      {ev.event_date && <span><i className="fa-regular fa-calendar" style={{marginRight:'3px'}}></i>{new Date(ev.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span>}
+                      {ev.venue && <span><i className="fa-solid fa-location-dot" style={{marginRight:'3px'}}></i>{ev.venue}</span>}
+                      {ev.capacity && <span><i className="fa-solid fa-users" style={{marginRight:'3px'}}></i>{ev.capacity} seats</span>}
+                      <span style={{color:ev.is_free?'var(--green)':'var(--blue)',fontWeight:600}}>{ev.is_free ? 'Free' : `₹${ev.price}`}</span>
+                    </div>
+                  </div>
+                  <div style={{display:'flex',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
+                    <button className="admin-btn admin-btn-orange" onClick={() => loadRsvps(ev)}><i className="fa-solid fa-users"></i> RSVPs</button>
+                    <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => openEventModal(ev)}><i className="fa-solid fa-pen"></i> Edit</button>
+                    <button className="admin-btn admin-btn-danger" onClick={() => deleteEvent(ev.id)}><i className="fa-solid fa-trash"></i></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ═══ EVENT RSVPs VIEW ═══ */}
+          {tab === 'events' && rsvpEventView && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px'}}>
+                <button onClick={() => setRsvpEventView(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}><i className="fa-solid fa-arrow-left"></i></button>
+                <span>RSVPs: <strong>{rsvpEventView.title}</strong></span>
+              </div>
+              {rsvpLoading ? (
+                <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
+              ) : eventRsvps.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-users" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>No RSVPs yet.
+                </div>
+              ) : (
+                <>
+                  <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+                    <div style={{background:'var(--blue-pale)',borderRadius:'var(--radius-md)',padding:'10px 16px',fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
+                      <i className="fa-solid fa-users" style={{marginRight:'6px'}}></i>Total: {eventRsvps.length}
+                    </div>
+                    <div style={{background:'var(--orange-pale)',borderRadius:'var(--radius-md)',padding:'10px 16px',fontSize:'13px',fontWeight:700,color:'var(--orange)'}}>
+                      <i className="fa-solid fa-hand-holding-heart" style={{marginRight:'6px'}}></i>Volunteers: {eventRsvps.filter(r=>r.is_volunteer).length}
+                    </div>
+                  </div>
+                  <div style={{overflowX:'auto'}}>
+                    <table className="dboard-table">
+                      <thead><tr><th>Name</th><th>Contact</th><th>Profession</th><th>ICAI No.</th><th>City</th><th>Vol.</th><th>Registered</th></tr></thead>
+                      <tbody>
+                        {eventRsvps.map((r,i) => (
+                          <tr key={i}>
+                            <td>
+                              <div className="dboard-table-name">{r.full_name}</div>
+                              {r.organisation && <div className="dboard-table-sub">{r.designation?`${r.designation}, `:''}{r.organisation}</div>}
+                            </td>
+                            <td>
+                              <a href={`mailto:${r.email}`} style={{color:'var(--orange)',fontSize:'12px',display:'block',textDecoration:'none'}}>{r.email}</a>
+                              {r.phone && <div className="dboard-table-sub">{r.phone}</div>}
+                            </td>
+                            <td className="dboard-table-muted" style={{fontSize:'12px'}}>{r.profession||'—'}</td>
+                            <td style={{fontSize:'12px',fontFamily:'monospace',color:'var(--blue)',fontWeight:600}}>{r.icai_membership_no||'—'}</td>
+                            <td className="dboard-table-muted" style={{fontSize:'12px'}}>{r.city||'—'}</td>
+                            <td style={{textAlign:'center'}}>{r.is_volunteer?<span title="Volunteer">🙋</span>:<span style={{color:'var(--text-light)'}}>—</span>}</td>
+                            <td className="dboard-table-muted" style={{fontSize:'12px'}}>{new Date(r.created_at).toLocaleDateString('en-IN')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1621,6 +1809,122 @@ export default function AdminPage() {
               <button className="btn btn-outline-blue btn-sm" onClick={() => setEditModal(null)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveMember} disabled={!mForm.name.trim()}>
                 {editModal.memberIdx===null ? 'Add Member' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Event Create / Edit Modal ── */}
+      {showEventModal && (
+        <div className="modal-overlay" onClick={() => setShowEventModal(null)}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'600px'}}>
+            <button className="modal-close" onClick={() => setShowEventModal(null)}>&#x2715;</button>
+            <div className="modal-title">{showEventModal === 'new' ? 'Create New Event' : 'Edit Event'}</div>
+            <div className="form-row">
+              <div className="form-group" style={{flex:2}}>
+                <label className="form-label">Event Title *</label>
+                <input className="form-input" type="text" placeholder="e.g. GST Conclave 2026" value={eventForm.title} onChange={e=>setEventForm(f=>({...f,title:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Type</label>
+                <select className="form-select" value={eventForm.event_type} onChange={e=>setEventForm(f=>({...f,event_type:e.target.value}))}>
+                  <option>Physical</option><option>Virtual</option><option>Hybrid</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Description</label>
+              <textarea className="form-textarea" placeholder="Event details…" value={eventForm.description} onChange={e=>setEventForm(f=>({...f,description:e.target.value}))} style={{minHeight:'80px'}}></textarea>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Venue / Location</label>
+                <input className="form-input" type="text" placeholder="e.g. Le Meridien, New Delhi" value={eventForm.venue} onChange={e=>setEventForm(f=>({...f,venue:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">City</label>
+                <input className="form-input" type="text" placeholder="Delhi" value={eventForm.city} onChange={e=>setEventForm(f=>({...f,city:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Date</label>
+                <input className="form-input" type="date" value={eventForm.event_date} onChange={e=>setEventForm(f=>({...f,event_date:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Time</label>
+                <input className="form-input" type="text" placeholder="e.g. 09:00 AM" value={eventForm.event_time} onChange={e=>setEventForm(f=>({...f,event_time:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Capacity</label>
+                <input className="form-input" type="number" placeholder="e.g. 200" value={eventForm.capacity} onChange={e=>setEventForm(f=>({...f,capacity:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Status</label>
+                <select className="form-select" value={eventForm.status} onChange={e=>setEventForm(f=>({...f,status:e.target.value}))}>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="ongoing">Ongoing</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Price (₹)</label>
+                <input className="form-input" type="number" placeholder="0 = free" value={eventForm.price} onChange={e=>setEventForm(f=>({...f,price:e.target.value,is_free:Number(e.target.value)===0}))}/>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Tags <span style={{fontWeight:400,color:'var(--text-light)'}}>— comma separated</span></label>
+              <input className="form-input" type="text" placeholder="e.g. GST, Networking, Summit" value={eventForm.tags} onChange={e=>setEventForm(f=>({...f,tags:e.target.value}))}/>
+            </div>
+            <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
+              <button className="btn btn-outline-blue btn-sm" onClick={() => setShowEventModal(null)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={saveEvent} disabled={!eventForm.title.trim()}>
+                {showEventModal === 'new' ? 'Create Event' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Committee Assignment Modal ── */}
+      {committeeModal && (
+        <div className="modal-overlay" onClick={() => setCommitteeModal(null)}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'460px'}}>
+            <button className="modal-close" onClick={() => setCommitteeModal(null)}>&#x2715;</button>
+            <div style={{textAlign:'center',marginBottom:'20px'}}>
+              <div style={{width:'56px',height:'56px',borderRadius:'50%',background:'linear-gradient(135deg,#B8860B,#FFD700)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px',fontSize:'22px'}}>
+                <i className="fa-solid fa-crown" style={{color:'#3D2B00'}}></i>
+              </div>
+              <div className="modal-title" style={{color:'#B8860B'}}>Assign Committee Role</div>
+              <div style={{fontSize:'13px',color:'var(--text-muted)'}}>Assigning to <strong>{committeeModal.full_name}</strong></div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Committee</label>
+              <select className="form-select" value={cmForm.committee_name} onChange={e=>setCmForm(f=>({...f,committee_name:e.target.value}))}>
+                <option value="">Select committee…</option>
+                {COMMITTEES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Role</label>
+              <select className="form-select" value={cmForm.committee_role} onChange={e=>setCmForm(f=>({...f,committee_role:e.target.value}))}>
+                <option>Chairman</option>
+                <option>Co-Chairman</option>
+                <option>Chairperson</option>
+                <option>Co-Chairperson</option>
+                <option>Secretary</option>
+                <option>Member</option>
+              </select>
+            </div>
+            <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
+              <button className="btn btn-outline-blue btn-sm" onClick={() => setCommitteeModal(null)}>Cancel</button>
+              <button className="btn btn-sm" style={{background:'linear-gradient(135deg,#B8860B,#DAA520)',color:'#fff',border:'none',fontWeight:700}}
+                onClick={handleAssignCommittee} disabled={!cmForm.committee_name}>
+                <i className="fa-solid fa-crown"></i> Assign Gold Role
               </button>
             </div>
           </div>
