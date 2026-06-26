@@ -1,56 +1,65 @@
 import { useState, useEffect } from 'react';
-import { committees as defaultCommittees } from '../data/index.js';
+import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
+import { supabase } from '../lib/supabase.js';
+import { committees as localCommittees } from '../data/index.js';
 
-const STORAGE_KEY = 'fip_committees';
+const ROLE_STYLES = {
+  chairman:         { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
+  'co-chairman':    { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
+  chairperson:      { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
+  'co-chairperson': { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
+  secretary:        { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
+  member:           { avCls:'cm-av-member',   roleCls:'cm-role-member'   },
+};
 
-function loadCommittees() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : defaultCommittees;
-  } catch { return defaultCommittees; }
+function getRoleStyle(role = '') {
+  return ROLE_STYLES[role.toLowerCase()] || ROLE_STYLES.member;
+}
+
+function getInitials(name = '') {
+  return name.split(' ').filter(w => w.length > 1).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
+
+// Generate slug from name — same formula used in SQL
+function nameToSlug(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 export default function CommitteesPage() {
-  const [committees, setCommittees] = useState(loadCommittees);
-  const [search, setSearch]         = useState('');
-  const [filter, setFilter]         = useState('All');
   const { showToast } = useApp();
+  const [filter,    setFilter]    = useState('All');
+  const [dbSlugs,   setDbSlugs]   = useState({}); // profile_slug -> true (for members registered in system)
+  const [liveExtra, setLiveExtra] = useState([]); // newly assigned members from DB
 
-  /* sync when admin makes changes */
   useEffect(() => {
-    const sync = () => setCommittees(loadCommittees());
-    window.addEventListener('committees-updated', sync);
-    window.addEventListener('storage', sync);
-    return () => {
-      window.removeEventListener('committees-updated', sync);
-      window.removeEventListener('storage', sync);
-    };
+    supabase.rpc('get_committee_members').then(({ data }) => {
+      const slugMap = {};
+      (data || []).forEach(m => {
+        if (m.profile_slug) slugMap[m.profile_slug] = m;
+      });
+      setDbSlugs(slugMap);
+
+      // Extra members not in hardcoded list
+      const hardcodedNames = new Set(
+        localCommittees.flatMap(c => c.members.map(m => m.name.toLowerCase().trim()))
+      );
+      setLiveExtra((data || []).filter(m =>
+        !hardcodedNames.has((m.full_name || '').toLowerCase().trim())
+      ));
+    });
   }, []);
 
-  const categories = ['All', ...new Set(committees.map(c => c.category))];
-  const filtered   = committees.filter(c =>
-    (filter === 'All' || c.category === filter) &&
-    (c.name.toLowerCase().includes(search.toLowerCase()) ||
-     (c.desc||'').toLowerCase().includes(search.toLowerCase()))
-  );
+  const categories = ['All', ...new Set(localCommittees.map(c => c.category))];
+  const filtered   = filter === 'All' ? localCommittees : localCommittees.filter(c => c.category === filter);
 
-  const getRoleStyle = (role) => {
-    const r = role.toLowerCase();
-    if (r.includes('president')||r.includes('chairman')||r.includes('chairperson'))
-      return { avCls:'cm-av-chair', roleCls:'cm-role-chair' };
-    if (r.includes('vice')||r.includes('co-chair')||r.includes('secretary')||r.includes('treasurer'))
-      return { avCls:'cm-av-vice', roleCls:'cm-role-vice' };
-    return { avCls:'cm-av-member', roleCls:'cm-role-member' };
-  };
-
-  const getInitials = (name) =>
-    name.split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase();
-
-  const handleLinkedInClick = (e, name) => {
-    e.stopPropagation();
-    showToast(`Opening LinkedIn for ${name}…`);
-  };
+  // Merge extra live members into their committee
+  const mergedFiltered = filtered.map(committee => {
+    const extra = liveExtra
+      .filter(m => m.committee_name === committee.name)
+      .map(m => ({ name: m.full_name, role: m.committee_role || 'Member', isLive: true }));
+    return { ...committee, members: [...committee.members, ...extra] };
+  });
 
   return (
     <>
@@ -58,64 +67,59 @@ export default function CommitteesPage() {
         <div className="container">
           <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Committees</span></div>
           <h1>Our Committees</h1>
-          <p>Specialist groups driving policy, practice excellence, and professional advocacy across FIP.</p>
+          <p>FIP's specialised committees drive knowledge, networking and professional growth.</p>
         </div>
       </div>
+
       <section className="section section-alt">
         <div className="container">
-          <div className="committee-filter-bar">
-            <div className="search-wrap" style={{marginBottom:0}}>
-              <i className="fa-solid fa-magnifying-glass"></i>
-              <input type="search" placeholder="Search committees…" value={search} onChange={e=>setSearch(e.target.value)}/>
-            </div>
-            <div className="filter-pills" style={{marginBottom:0}}>
-              {categories.map(c=>(
-                <div key={c} className={`fpill${filter===c?' active':''}`} onClick={()=>setFilter(c)}>{c}</div>
-              ))}
-            </div>
+          <div className="filter-pills">
+            {categories.map(c => (
+              <div key={c} className={`fpill${filter === c ? ' active' : ''}`} onClick={() => setFilter(c)}>{c}</div>
+            ))}
           </div>
 
-          {filtered.length === 0 ? (
-            <div style={{textAlign:'center',padding:'60px',color:'var(--text-muted)'}}>
-              <i className="fa-solid fa-people-group" style={{fontSize:'36px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-              No committees match your search.
-            </div>
-          ) : (
-            <div className="committee-grid">
-              {filtered.map(c=>(
-                <div className="committee-card" key={c.id}>
-                  <div className="committee-header">
-                    <div className="committee-icon"><i className={c.icon}></i></div>
-                    <div className="committee-name">{c.name}</div>
-                    <div className="committee-abbr">{c.abbr||c.category}</div>
-                  </div>
-                  <div className="committee-members">
-                    {c.members.length === 0 ? (
-                      <p style={{fontSize:'13px',color:'var(--text-light)',padding:'8px 0'}}>No members assigned yet.</p>
-                    ) : c.members.map((m,i)=>{
-                      const { avCls, roleCls } = getRoleStyle(m.role);
-                      return (
-                        <div className="cm-row" key={i}>
-                          <div className={`cm-av ${avCls}`}>{getInitials(m.name)}</div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div className="cm-name">{m.name}</div>
-                            <div className={`cm-role ${roleCls}`}>{m.role.toUpperCase()}</div>
-                          </div>
-                          <button
-                            className="cm-linkedin-btn"
-                            onClick={(e) => handleLinkedInClick(e, m.name)}
-                            title={`${m.name} on LinkedIn`}
-                          >
-                            <i className="fa-brands fa-linkedin-in"></i>
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
+          <div className="committee-grid">
+            {mergedFiltered.map(c => (
+              <div className="committee-card" key={c.id}>
+                <div className="committee-header">
+                  <div className="committee-icon"><i className={c.icon}></i></div>
+                  <div className="committee-name">{c.name}</div>
+                  <div className="committee-abbr">{c.abbr || c.category}</div>
                 </div>
-              ))}
-            </div>
-          )}
+                <div className="committee-members">
+                  {c.members.length === 0 ? (
+                    <p style={{fontSize:'13px',color:'var(--text-light)',padding:'8px 0'}}>No members assigned yet.</p>
+                  ) : c.members.map((m, i) => {
+                    const { avCls, roleCls } = getRoleStyle(m.role);
+                    const slug = nameToSlug(m.name);
+
+                    return (
+                      <Link
+                        key={i}
+                        to={`/member/${slug}`}
+                        className="cm-row"
+                        style={{textDecoration:'none',display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',transition:'background 0.15s',
+                          ...(m.isLive ? {background:'rgba(255,215,0,0.05)'} : {})
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background='var(--blue-pale)'}
+                        onMouseLeave={e => e.currentTarget.style.background = m.isLive ? 'rgba(255,215,0,0.05)' : 'transparent'}
+                      >
+                        <div className={`cm-av ${avCls}`}>{getInitials(m.name)}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div className="cm-name" style={{display:'flex',alignItems:'center',gap:'5px'}}>
+                            {m.name}
+                            <i className="fa-solid fa-arrow-up-right-from-square" style={{fontSize:'8px',color:'var(--orange)',opacity:0.5,flexShrink:0}}></i>
+                          </div>
+                          <div className={`cm-role ${roleCls}`}>{m.role.toUpperCase()}</div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     </>

@@ -26,6 +26,7 @@ import WebinarsPage       from './pages/WebinarsPage.jsx';
 import JobsPage           from './pages/JobsPage.jsx';
 import CourseViewerPage   from './pages/CourseViewerPage.jsx';
 import CourseDetailPage   from './pages/CourseDetailPage.jsx';
+import MemberProfilePage  from './pages/MemberProfilePage.jsx';
 import DashboardPage      from './pages/DashboardPage.jsx';
 import AdminPage          from './pages/AdminPage.jsx';
 import PaymentPage        from './pages/PaymentPage.jsx';
@@ -67,6 +68,7 @@ function AppContent() {
             <DashboardPage />
           </ProtectedRoute>
         }/>
+        <Route path="/member/:slug" element={<MemberProfilePage />}/>
         <Route path="/courses/:slug"       element={<CourseDetailPage />}/>
         <Route path="/courses/:slug/watch" element={<CourseViewerPage />}/>
         <Route path="/payment" element={

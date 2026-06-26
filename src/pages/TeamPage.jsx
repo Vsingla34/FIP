@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
+import * as React from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase.js';
 import { committees as defaultCommittees } from '../data/index.js';
 
 const STORAGE_KEY = 'fip_committees';
@@ -17,7 +20,20 @@ function getInitials(name) {
 
 const AV_COLORS = ['av-blue', 'av-blue2', 'av-purple', 'av-green'];
 
+function toSlug(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+}
+
 export default function TeamPage() {
+  const [profileSlugs, setProfileSlugs] = React.useState({});
+  React.useEffect(() => {
+    supabase.rpc('get_committee_members').then(({ data }) => {
+      const map = {};
+      (data||[]).forEach(m => { if(m.full_name && m.profile_slug) map[m.full_name.toLowerCase()] = m.profile_slug; });
+      setProfileSlugs(map);
+    });
+  }, []);
+  const getSlug = (name) => profileSlugs[name.toLowerCase()] || null;
   const { showToast } = useApp();
   const [committees, setCommittees] = useState(loadCommittees);
 
@@ -74,7 +90,13 @@ export default function TeamPage() {
             {founders.map((t, i) => (
               <div className="team-card" key={i}>
                 <div className={`team-av ${t.cls}`}>{t.initials}</div>
-                <div className="team-name">{t.name}</div>
+                {getSlug(t.name) ? (
+                  <Link to={`/member/${getSlug(t.name)}`} className="team-name" style={{textDecoration:'none',color:'inherit',display:'block'}}>
+                    {t.name} <i className="fa-solid fa-arrow-up-right-from-square" style={{fontSize:'8px',opacity:0.3,color:'var(--orange)',marginLeft:'4px'}}></i>
+                  </Link>
+                ) : (
+                  <div className="team-name">{t.name}</div>
+                )}
                 <div className="team-role">{t.role}</div>
                 <div className="team-qual">FIP Executive Committee</div>
                 <div className="team-socials">
