@@ -18,6 +18,7 @@ export default function Modals() {
   const [forgotStep, setForgotStep] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
+  const [payStep,    setPayStep]    = useState(false);
   const [refCode,    setRefCode]    = useState('');
 
   // Auto-fill referral code from URL ?ref= param
@@ -92,22 +93,9 @@ export default function Modals() {
         if (modalData?.courseSlug) navigate(`/courses/${modalData.courseSlug}`);
         else navigate('/dashboard');
       } else {
-        closeModal();
-        showToast('Email verified! Opening payment…');
-        setTimeout(async () => {
-          const success = await pay({
-            purchaseType: 'membership',
-            planName:     'Standard',
-            onSuccess:    () => navigate('/dashboard'),
-          });
-          if (!success) {
-            showToast('Complete your payment to activate membership.', true);
-            navigate('/membership');
-          }
-        }, 400);
-        return; // skip the else block below
-        showToast('Email verified! Complete your membership payment.');
-        navigate('/membership');
+        // Member — show payment step inside modal
+        setOtpStep(false);
+        setPayStep(true);
       }
     } catch (err) {
       setError(err.message?.includes('expired')
@@ -220,10 +208,66 @@ export default function Modals() {
   };
 
   return (
-    <div className="modal-overlay" onClick={!otpStep ? closeModal : undefined}>
+    <div className="modal-overlay" onClick={(!otpStep && !payStep) ? closeModal : undefined}>
       <div className="modal-box" onClick={e => e.stopPropagation()}>
-        {!otpStep && (
+        {!otpStep && !payStep && (
           <button className="modal-close" onClick={() => { closeModal(); clearError(); setOtpStep(false); }}>&#x2715;</button>
+        )}
+
+        {/* ══════════════════════════════════
+            PAYMENT STEP (after member OTP)
+        ══════════════════════════════════ */}
+        {payStep && (
+          <div style={{textAlign:'center',padding:'8px 0'}}>
+            <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'linear-gradient(135deg,#B8860B,#FFD700)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px'}}>
+              <i className="fa-solid fa-crown" style={{color:'#3D2B00'}}></i>
+            </div>
+            <div className="modal-title">One Last Step!</div>
+            <p style={{fontSize:'14px',color:'var(--text-muted)',marginBottom:'20px',lineHeight:1.6}}>
+              Your email is verified ✓<br/>
+              Complete your payment to activate your <strong style={{color:'var(--blue)'}}>FIP Membership</strong>.
+            </p>
+            <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'16px 20px',marginBottom:'20px',textAlign:'left'}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'6px'}}>
+                <span style={{color:'var(--text-muted)'}}>FIP Standard Membership</span>
+                <span style={{fontWeight:700}}>₹500</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'6px'}}>
+                <span style={{color:'var(--text-muted)'}}>GST (18%)</span>
+                <span style={{fontWeight:700}}>₹90</span>
+              </div>
+              <div style={{height:'1px',background:'var(--border)',margin:'8px 0'}}></div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'15px',fontWeight:800,color:'var(--blue)'}}>
+                <span>Total</span>
+                <span>₹590</span>
+              </div>
+              <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'6px'}}>Valid for 1 year · Secure payment via Razorpay</div>
+            </div>
+            <button className="btn btn-primary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}}
+              onClick={async () => {
+                const success = await pay({
+                  purchaseType: 'membership',
+                  planName:     'Standard',
+                  onSuccess:    () => { setPayStep(false); closeModal(); navigate('/dashboard'); },
+                });
+                if (!success) {
+                  showToast('Payment cancelled. You can complete it anytime from the Membership page.', true);
+                  setPayStep(false);
+                  closeModal();
+                  navigate('/membership');
+                }
+              }}>
+              <i className="fa-solid fa-lock"></i> Pay ₹590 & Activate Membership
+            </button>
+            <button className="btn btn-outline-blue btn-sm" style={{width:'100%',justifyContent:'center'}}
+              onClick={() => { setPayStep(false); closeModal(); navigate('/membership'); }}>
+              Pay Later
+            </button>
+            <p style={{fontSize:'11px',color:'var(--text-light)',marginTop:'10px'}}>
+              <i className="fa-solid fa-shield-halved" style={{color:'var(--green)',marginRight:'4px'}}></i>
+              256-bit SSL encrypted · Powered by Razorpay
+            </p>
+          </div>
         )}
 
         {/* ══════════════════════════════════
@@ -528,6 +572,7 @@ export default function Modals() {
             </form>
           </>
         )}
+
       </div>
     </div>
   );
