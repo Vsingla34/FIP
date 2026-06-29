@@ -73,7 +73,7 @@ const FALLBACK = [
 ];
 
 export default function HomePage() {
-  const { openModal, startCheckout } = useApp();
+  const { openModal } = useApp();
   const navigate = useNavigate();
   const [testimonials, setTestimonials] = useState(FALLBACK);
 
@@ -284,9 +284,9 @@ export default function HomePage() {
 
   const handleSlideBtn = (action) => {
     if (action === 'events')     navigate('/events');
-    if (action === 'rsvp')       openModal('rsvp');
-    if (action === 'enroll')     openModal('enroll');
-    if (action === 'join')       { startCheckout('FIP Standard Membership', 500); navigate('/payment'); }
+    if (action === 'rsvp')       navigate('/events');
+    if (action === 'enroll')     navigate('/courses');
+    if (action === 'join')       { openModal('register', { defaultType: 'member' }); }
     if (action === 'courses')    navigate('/courses');
     if (action === 'webinars')   navigate('/webinars');
     if (action === 'committees') navigate('/committees');
@@ -320,7 +320,7 @@ export default function HomePage() {
                 <h1 className="hero-h1">Where Finance Professionals<br/><em>Unite &amp; Conquer</em></h1>
                 <p className="hero-desc">FIP connects 3,000+ Chartered Accountants, Company Secretaries, Cost Accountants and Advocates through world-class knowledge events, certificate courses, and a community built for impact.</p>
                 <div className="hero-cta">
-                  <button className="btn btn-primary btn-lg" onClick={() => { startCheckout('FIP Standard Membership', 500); navigate('/payment'); }}>
+                  <button className="btn btn-primary btn-lg" onClick={() => openModal('register', { defaultType: 'member' })}>
                     <i className="fa-solid fa-user-plus"></i> Join FIP — ₹500/yr
                   </button>
                   <Link to="/about" className="btn btn-outline-white btn-lg">Our Story <i className="fa-solid fa-arrow-right"></i></Link>
@@ -449,7 +449,7 @@ export default function HomePage() {
               { bg:'ct-teal', emoji:'🏛', tag:'tag-free', tagLabel:'Free for Members', cat:'Corporate Law', title:'NCLT & Corporate Insolvency Practice', instr:'Expert Panel', sessions:'4 Sessions', level:'Advanced', price:'Members Free', free:true },
               { bg:'ct-orange', emoji:'📊', tag:null, tagLabel:null, cat:'Direct Tax', title:'Income Tax Search & Seizure — Practical Guide', instr:'Senior Practitioners', sessions:'5 Sessions', level:'Advanced', price:'₹1,499', free:false },
             ].map((c,i) => (
-              <div className="course-card" key={i} onClick={() => openModal('enroll')}>
+              <div className="course-card" key={i} onClick={() => navigate('/courses')} style={{cursor:'pointer'}}>
                 <div className={`course-thumb ${c.bg}`}><span>{c.emoji}</span>{c.tag&&<span className={`course-tag ${c.tag}`}>{c.tagLabel}</span>}</div>
                 <div className="course-body">
                   <div className="course-cat">{c.cat}</div>
@@ -458,7 +458,7 @@ export default function HomePage() {
                   <div className="course-meta"><span><i className="fa-regular fa-clock"></i> {c.sessions}</span><span><i className="fa-solid fa-signal"></i> {c.level}</span></div>
                   <div className="course-footer">
                     {c.free?<span className="course-price-free">{c.price}</span>:<span className="course-price">{c.price}</span>}
-                    <button className="c-enroll-btn" onClick={e=>{e.stopPropagation();openModal('enroll');}}>Enroll Now</button>
+                    <button className="c-enroll-btn" onClick={e=>{e.stopPropagation();navigate('/courses');}}>View Course</button>
                   </div>
                 </div>
               </div>
@@ -479,8 +479,8 @@ export default function HomePage() {
             <Link to="/events" className="btn btn-outline-white">All Events <i className="fa-solid fa-arrow-right"></i></Link>
           </div>
           <div className="event-grid">
-            <div className="ev-dark" onClick={()=>openModal('rsvp')}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Jan 11, 2026</div><div className="ev-title">Rashtrapati Bhawan Visit</div><div className="ev-desc">Exclusive guided visit to the President's residence. RSVP by Jan 2, 7 PM with your name, designation &amp; ID proof.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div></div>
-            <div className="ev-dark" onClick={()=>openModal('rsvp')}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Every Sunday</div><div className="ev-title">Chartered Walk &amp; Talk</div><div className="ev-desc">Morning walks at India Gate, War Memorial &amp; Firoz Shah Road. Networking meets wellness — free for all members.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">Open to all</span></div></div>
+            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Jan 11, 2026</div><div className="ev-title">Rashtrapati Bhawan Visit</div><div className="ev-desc">Exclusive guided visit to the President's residence. RSVP by Jan 2, 7 PM with your name, designation &amp; ID proof.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div></div>
+            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Every Sunday</div><div className="ev-title">Chartered Walk &amp; Talk</div><div className="ev-desc">Morning walks at India Gate, War Memorial &amp; Firoz Shah Road. Networking meets wellness — free for all members.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">Open to all</span></div></div>
             <div className="ev-dark"><div className="ev-date"><i className="fa-regular fa-calendar"></i> Coming Soon</div><div className="ev-title">GST Conclave 2026</div><div className="ev-desc">Following Le Meridien's success, the next GST Conclave brings 500+ professionals for a full-day indirect tax summit.</div><div className="ev-footer"><span className="ev-type evt-virtual">Notify Me</span><span className="ev-seats">500+ capacity</span></div></div>
           </div>
         </div>
@@ -563,7 +563,7 @@ export default function HomePage() {
             <h2 className="cta-h2">Ready to <em>Connect, Collaborate</em> &amp; Conquer?</h2>
             <p className="cta-desc">Join 3,000+ finance and legal professionals building careers, sharing knowledge, and making an impact.</p>
             <div className="cta-actions">
-              <button className="btn btn-primary btn-lg" onClick={() => { startCheckout('FIP Standard Membership', 500); navigate('/payment'); }}>
+              <button className="btn btn-primary btn-lg" onClick={() => openModal('register', { defaultType: 'member' })}>
                 <i className="fa-solid fa-user-plus"></i> Become a Member — ₹500
               </button>
               <Link to="/contact" className="btn btn-outline-white btn-lg">Talk to Us</Link>

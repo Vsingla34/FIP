@@ -44,7 +44,7 @@ export default function Modals() {
     const next = [...otp];
     next[i] = digits;
     setOtp(next);
-    if (digits && i < 7) otpRefs.current[i+1]?.focus();
+    if (digits && i < 5) otpRefs.current[i+1]?.focus();
   };
 
   const handleOtpKeyDown = (i, e) => {
@@ -52,7 +52,7 @@ export default function Modals() {
       otpRefs.current[i-1]?.focus();
     }
     if (e.key === 'ArrowLeft'  && i > 0) otpRefs.current[i-1]?.focus();
-    if (e.key === 'ArrowRight' && i < 7) otpRefs.current[i+1]?.focus();
+    if (e.key === 'ArrowRight' && i < 5) otpRefs.current[i+1]?.focus();
   };
 
   const handleOtpPaste = (e) => {
@@ -61,7 +61,7 @@ export default function Modals() {
     const next = [...otp];
     digits.forEach((d,i) => { if (i < 6) next[i] = d; });
     setOtp(next);
-    otpRefs.current[Math.min(digits.length, 7)]?.focus();
+    otpRefs.current[Math.min(digits.length, 5)]?.focus();
   };
 
   /* ── Resend OTP with countdown ── */
@@ -80,18 +80,32 @@ export default function Modals() {
   /* ── Verify OTP ── */
   const handleVerifyOTP = async () => {
     const token = otp.join('');
-    if (token.length !== 8) { setError('Please enter all 8 digits.'); return; }
+    if (token.length !== 6) { setError('Please enter all 6 digits.'); return; }
     setLoading(true); setError('');
     try {
       await verifyOTP({ email: otpEmail, token, pendingData });
       setOtpStep(false);
-      closeModal();
 
       if (regType === 'student') {
+        closeModal();
         showToast('Email verified! Welcome to FIP.');
         if (modalData?.courseSlug) navigate(`/courses/${modalData.courseSlug}`);
         else navigate('/dashboard');
       } else {
+        closeModal();
+        showToast('Email verified! Opening payment…');
+        setTimeout(async () => {
+          const success = await pay({
+            purchaseType: 'membership',
+            planName:     'Standard',
+            onSuccess:    () => navigate('/dashboard'),
+          });
+          if (!success) {
+            showToast('Complete your payment to activate membership.', true);
+            navigate('/membership');
+          }
+        }, 400);
+        return; // skip the else block below
         showToast('Email verified! Complete your membership payment.');
         navigate('/membership');
       }
@@ -254,7 +268,7 @@ export default function Modals() {
               className="btn btn-primary"
               style={{width:'100%',justifyContent:'center',marginBottom:'14px',marginTop:'8px'}}
               onClick={handleVerifyOTP}
-              disabled={loading || otp.join('').length !== 8}
+              disabled={loading || otp.join('').length !== 6}
             >
               {loading
                 ? <><i className="fa-solid fa-spinner fa-spin"></i> Verifying…</>
