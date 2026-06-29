@@ -1,19 +1,28 @@
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useRazorpay } from '../hooks/useRazorpay.js';
 
 export default function MembershipPage() {
   const { openModal, showToast } = useApp();
   const { user, profile } = useAuth();
+  const { pay } = useRazorpay();
   const navigate = useNavigate();
 
   const isActiveMember = profile?.membership_status === 'Active';
   const role = isActiveMember ? 'member' : (user ? 'student' : 'visitor');
 
-  const handlePlan = (planKey) => {
+  const handlePlan = async (planKey) => {
     if (!user) { openModal('register', { defaultType: 'member' }); return; }
     if (planKey === 'firm') { navigate('/contact'); return; }
-    showToast('Redirecting to payment… (coming soon)');
+
+    // Trigger real Razorpay payment
+    const planName = planKey === 'renewal' ? 'Renewal' : 'Standard';
+    await pay({
+      purchaseType: 'membership',
+      planName,
+      onSuccess: () => navigate('/dashboard'),
+    });
   };
 
   const allPlans = [

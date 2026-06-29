@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
+import { useRazorpay } from '../hooks/useRazorpay.js';
 import { supabase } from '../lib/supabase.js';
 
 const EMOJI_MAP = {
@@ -32,6 +33,7 @@ export default function CourseDetailPage() {
   const { slug } = useParams();
   const { user, profile } = useAuth();
   const { openModal, showToast } = useApp();
+  const { pay } = useRazorpay();
   const navigate = useNavigate();
 
   const [course,  setCourse]  = useState(null);
@@ -96,7 +98,7 @@ export default function CourseDetailPage() {
     ? priceLabel
     : `₹${Math.round(course.price * 1.18).toLocaleString('en-IN')} (incl. GST)`;
 
-  const handleEnroll = () => {
+  const handleEnroll = async () => {
     if (!user) { openModal('register', { course, courseSlug: course.slug }); return; }
     if (profile?.role === 'admin') {
       if (course.slug) navigate(`/courses/${course.slug}/watch`);
@@ -108,7 +110,15 @@ export default function CourseDetailPage() {
       else openModal('enroll', { course });
       return;
     }
-    openModal('enroll', { course });
+    // Paid course — real payment
+    await pay({
+      purchaseType: 'course',
+      itemRefId:    course.slug,
+      onSuccess:    () => {
+        showToast('Enrolled! 🎉');
+        if (course.slug) navigate(`/courses/${course.slug}/watch`);
+      },
+    });
   };
 
   const emoji = getEmoji(course.category);

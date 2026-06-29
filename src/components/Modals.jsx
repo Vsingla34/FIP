@@ -1,17 +1,31 @@
+import * as React from 'react';
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useRazorpay } from '../hooks/useRazorpay.js';
 import { supabase } from '../lib/supabase.js';
 
 export default function Modals() {
   const { modal, modalData, closeModal, openModal, showToast } = useApp();
-  const { signIn, signUp, verifyOTP, resendOTP, user, profile } = useAuth();
+  const { signIn, signUp, verifyOTP, resendOTP, resetPassword, user, profile } = useAuth();
+  const { pay } = useRazorpay();
   const navigate = useNavigate();
 
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [regType,  setRegType]  = useState('student');
+  const [forgotStep, setForgotStep] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+  const [refCode,    setRefCode]    = useState('');
+
+  // Auto-fill referral code from URL ?ref= param
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref) setRefCode(ref.toUpperCase());
+  }, []);
 
   /* OTP step state */
   const [otpStep,       setOtpStep]       = useState(false); // true = show OTP screen
@@ -111,13 +125,16 @@ export default function Modals() {
     e.preventDefault(); setLoading(true); setError('');
     const f = e.target;
     try {
+      const referralCode = f.referralCode?.value?.trim().toUpperCase() || null;
+
       const result = await signUp({
-        email:       f.email.value.trim(),
-        password:    f.password.value,
-        fullName:    f.fullName.value.trim(),
-        profession:  regType === 'member' ? f.profession?.value : 'Student',
-        phone:       f.phone.value.trim(),
-        accountType: regType,
+        email:        f.email.value.trim(),
+        password:     f.password.value,
+        fullName:     f.fullName.value.trim(),
+        profession:   regType === 'member' ? f.profession?.value : 'Student',
+        phone:        f.phone.value.trim(),
+        accountType:  regType,
+        referralCode,
       });
 
       setPendingData(result.pendingData);
@@ -153,9 +170,16 @@ export default function Modals() {
       if (course.slug) navigate(`/courses/${course.slug}/watch`);
       return;
     }
-    // Paid course — show toast (payment integration coming soon)
+    // Paid course — real Razorpay payment
     closeModal();
-    showToast('Course enrollment — payment integration coming soon!', true);
+    await pay({
+      purchaseType: 'course',
+      itemRefId:    course.slug || course.id,
+      onSuccess:    () => {
+        showToast('Enrolled successfully! 🎉');
+        if (course.slug) navigate(`/courses/${course.slug}/watch`);
+      },
+    });
   };
 
   /* ── RSVP ── */
@@ -356,6 +380,20 @@ export default function Modals() {
               </div>
               <div className="form-group"><label className="form-label">Password *</label>
                 <input className="form-input" name="password" type="password" placeholder="Min 8 characters" required minLength={8} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Referral Code
+                  <span style={{fontWeight:400,color:'var(--text-light)',marginLeft:'6px'}}>— optional</span>
+                </label>
+                <input className="form-input" name="referralCode" type="text"
+                  placeholder="e.g. FIP-ROHIT-A3X9"
+                  defaultValue={refCode}
+                  style={{textTransform:'uppercase',letterSpacing:'1px'}}/>
+                <div style={{fontSize:'11px',color:'var(--green)',marginTop:'4px',display:'flex',alignItems:'center',gap:'4px'}}>
+                  <i className="fa-solid fa-gift"></i>
+                  Have a referral code? Enter it to help your friend earn a free membership year!
+                </div>
               </div>
               <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}} disabled={loading}>
                 {loading

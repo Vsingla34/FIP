@@ -27,6 +27,7 @@ import JobsPage           from './pages/JobsPage.jsx';
 import CourseViewerPage   from './pages/CourseViewerPage.jsx';
 import CourseDetailPage   from './pages/CourseDetailPage.jsx';
 import MemberProfilePage  from './pages/MemberProfilePage.jsx';
+import PromoPopup         from './components/PromoPopup.jsx';
 import DashboardPage      from './pages/DashboardPage.jsx';
 import AdminPage          from './pages/AdminPage.jsx';
 import PaymentPage        from './pages/PaymentPage.jsx';
@@ -41,6 +42,7 @@ function AppContent() {
     <>
       {!isAdmin && !isViewer && <AnnounceBar />}
       {!isAdmin && !isViewer && <Navbar />}
+      <PromoPopup />
 
       <Routes>
         {/* ── Public routes ── */}
