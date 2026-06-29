@@ -244,17 +244,22 @@ export default function Modals() {
               <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'6px'}}>Valid for 1 year · Secure payment via Razorpay</div>
             </div>
             <button className="btn btn-primary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}}
-              onClick={async () => {
-                const success = await pay({
-                  purchaseType: 'membership',
-                  planName:     'Standard',
-                  onSuccess:    () => { setPayStep(false); closeModal(); navigate('/dashboard'); },
-                });
-                if (!success) {
-                  showToast('Payment cancelled. You can complete it anytime from the Membership page.', true);
-                  setPayStep(false);
-                  closeModal();
-                  navigate('/membership');
+              onClick={async (e) => {
+                e.preventDefault();
+                try {
+                  const success = await pay({
+                    purchaseType: 'membership',
+                    planName:     'Standard',
+                    onSuccess:    () => { setPayStep(false); closeModal(); navigate('/dashboard'); },
+                  });
+                  if (!success) {
+                    setPayStep(false);
+                    closeModal();
+                    navigate('/membership');
+                  }
+                } catch(err) {
+                  showToast('Payment error: ' + err.message, true);
+                  console.error('Payment error:', err);
                 }
               }}>
               <i className="fa-solid fa-lock"></i> Pay ₹590 & Activate Membership

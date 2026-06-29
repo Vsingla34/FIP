@@ -68,15 +68,15 @@ export async function createPayment({ userId, plan, amount }) {
   const total = amount + gst;
 
   const { data, error } = await supabase
-    .from('membership_payments')
+    .from('payments')
     .insert({
       user_id:        userId,
-      plan,
+      purchase_type:  'membership',
+      item_name:      `FIP ${plan} Membership`,
       amount,
       gst_amount:     gst,
       total_amount:   total,
-      payment_status: 'Success',
-      transaction_id: `FIP-${Date.now()}`,
+      status:         'paid',
       valid_from:     new Date().toISOString().split('T')[0],
       valid_until:    new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     })
@@ -100,7 +100,7 @@ export async function createPayment({ userId, plan, amount }) {
 
 export async function getPayments(userId) {
   const { data, error } = await supabase
-    .from('membership_payments')
+    .from('payments')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
