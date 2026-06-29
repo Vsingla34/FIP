@@ -532,4 +532,4 @@ export default function Modals() {
       </div>
     </div>
   );
-}
+}   
