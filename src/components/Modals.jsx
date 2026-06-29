@@ -156,7 +156,7 @@ export default function Modals() {
 
       if (result.needsOTP) {
         // Show OTP verification screen
-        setOtp(['','','','','','','','']);
+        setOtp(['','','','','','']);
         setOtpStep(true);
         setError('');
       } else {
@@ -528,8 +528,7 @@ export default function Modals() {
             </form>
           </>
         )}
-
       </div>
     </div>
   );
-}   
+}
