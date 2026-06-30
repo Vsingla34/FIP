@@ -6,6 +6,149 @@ import { getEnrollments, getRSVPs, getPayments } from '../lib/api.js';
 import AvatarUpload from '../components/AvatarUpload.jsx';
 import { supabase } from '../lib/supabase.js';
 
+/* ── Referral Panel Component ── */
+function ReferralPanel({ profile }) {
+  const [stats,    setStats]    = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [copied,   setCopied]   = useState(false);
+  const { showToast } = useApp();
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      const { data } = await supabase.rpc('get_my_referral_stats');
+      if (!data?.[0]?.code) {
+        // Generate code first
+        await supabase.rpc('get_my_referral_code');
+        const { data: d2 } = await supabase.rpc('get_my_referral_stats');
+        setStats(d2?.[0] || null);
+      } else {
+        setStats(data[0]);
+      }
+      setLoading(false);
+    };
+    load();
+  }, []);
+
+  const referralLink = stats?.code
+    ? `${window.location.origin}?ref=${stats.code}`
+    : '';
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(referralLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    showToast('Referral link copied!');
+  };
+
+  const shareWhatsApp = () => {
+    const msg = `Join me on FIP — India's largest network of CAs, CSs & CMAs! Use my referral link to sign up: ${referralLink}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  if (loading) return (
+    <div className="dash-card" style={{textAlign:'center',padding:'40px'}}>
+      <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',color:'var(--orange)'}}></i>
+    </div>
+  );
+
+  const completed = (stats?.completed || 0) + (stats?.rewarded || 0);
+  const progress  = completed % 10;
+  const earned    = Math.floor(completed / 10);
+  const needed    = stats?.next_reward_at || (10 - progress);
+
+  return (
+    <>
+      {/* Hero card */}
+      <div style={{background:'linear-gradient(135deg,var(--blue) 0%,#1B4A9E 100%)',borderRadius:'var(--radius-lg)',padding:'28px',marginBottom:'16px',position:'relative',overflow:'hidden'}}>
+        <div style={{position:'absolute',top:'-20px',right:'-20px',width:'120px',height:'120px',borderRadius:'50%',background:'rgba(255,255,255,0.05)'}}/>
+        <div style={{position:'absolute',bottom:'-30px',right:'40px',width:'80px',height:'80px',borderRadius:'50%',background:'rgba(255,255,255,0.04)'}}/>
+        <div style={{fontSize:'13px',fontWeight:700,color:'rgba(255,255,255,0.55)',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'8px'}}>
+          Refer & Earn
+        </div>
+        <h2 style={{fontSize:'22px',fontWeight:800,color:'#fff',marginBottom:'6px',fontFamily:"'Playfair Display',serif"}}>
+          Invite 10 Members → Get 1 Free Year
+        </h2>
+        <p style={{fontSize:'13px',color:'rgba(255,255,255,0.6)',margin:'0 0 20px',lineHeight:1.6}}>
+          Share your unique referral link. For every 10 members who join and activate their membership, your membership renews free for 1 year.
+        </p>
+
+        {/* Referral code + copy */}
+        <div style={{background:'rgba(255,255,255,0.1)',borderRadius:'10px',padding:'12px 16px',display:'flex',alignItems:'center',gap:'10px',marginBottom:'12px',backdropFilter:'blur(8px)'}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:'10px',color:'rgba(255,255,255,0.45)',marginBottom:'2px',textTransform:'uppercase',letterSpacing:'1px'}}>Your Referral Code</div>
+            <div style={{fontSize:'16px',fontWeight:800,color:'#FFD09B',letterSpacing:'2px',fontFamily:'monospace'}}>{stats?.code || '—'}</div>
+          </div>
+          <button onClick={copyLink} style={{background:copied?'var(--green)':'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',padding:'8px 16px',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:700,flexShrink:0,transition:'all 0.2s'}}>
+            {copied ? <><i className="fa-solid fa-check" style={{marginRight:'5px'}}></i>Copied!</> : <><i className="fa-solid fa-copy" style={{marginRight:'5px'}}></i>Copy Link</>}
+          </button>
+          <button onClick={shareWhatsApp} style={{background:'#25D366',border:'none',color:'#fff',width:'36px',height:'36px',borderRadius:'8px',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <i className="fa-brands fa-whatsapp"></i>
+          </button>
+        </div>
+      </div>
+
+      {/* Progress card */}
+      <div className="dash-card" style={{marginBottom:'16px'}}>
+        <div className="dash-card-title">Your Progress</div>
+
+        {/* Stats row */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'12px',marginBottom:'20px'}}>
+          {[
+            { val: stats?.total||0,     label:'Total Referrals',    color:'var(--blue)'   },
+            { val: stats?.pending||0,   label:'Pending',            color:'#F59E0B'        },
+            { val: completed,           label:'Completed',          color:'var(--green)'   },
+            { val: earned,              label:'Free Years Earned',  color:'var(--orange)'  },
+          ].map((s,i) => (
+            <div key={i} style={{textAlign:'center',padding:'14px',background:'var(--off-white)',borderRadius:'var(--radius-md)',border:'1px solid var(--border)'}}>
+              <div style={{fontSize:'28px',fontWeight:800,color:s.color,lineHeight:1,fontFamily:"'Playfair Display',serif"}}>{s.val}</div>
+              <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'4px'}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Progress toward next reward */}
+        <div style={{marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontSize:'13px',fontWeight:600,color:'var(--blue)'}}>Progress to next free year</span>
+          <span style={{fontSize:'13px',fontWeight:700,color:'var(--orange)'}}>{progress}/10</span>
+        </div>
+        <div style={{height:'10px',background:'var(--border)',borderRadius:'5px',overflow:'hidden',marginBottom:'8px'}}>
+          <div style={{height:'100%',width:`${(progress/10)*100}%`,background:'linear-gradient(90deg,var(--orange),#FF8C42)',borderRadius:'5px',transition:'width 0.6s ease'}}/>
+        </div>
+        <p style={{fontSize:'12px',color:'var(--text-muted)',margin:0}}>
+          {progress === 0 && earned > 0
+            ? <><i className="fa-solid fa-party-horn" style={{color:'var(--orange)',marginRight:'5px'}}></i>You just earned a free year! Keep going — invite {needed} more to earn another.</>
+            : <><i className="fa-solid fa-gift" style={{color:'var(--orange)',marginRight:'5px'}}></i>Invite <strong>{needed} more member{needed!==1?'s':''}</strong> to get 1 year free membership!</>
+          }
+        </p>
+      </div>
+
+      {/* How it works */}
+      <div className="dash-card">
+        <div className="dash-card-title">How It Works</div>
+        <div style={{display:'flex',flexDirection:'column',gap:'14px'}}>
+          {[
+            { icon:'fa-share-nodes',  color:'var(--blue)',   title:'Share your link',       desc:'Send your unique referral link to CA, CS, CMA or Advocate friends.' },
+            { icon:'fa-user-plus',    color:'var(--orange)', title:'They sign up',           desc:'Your friend creates an account using your referral link or code.' },
+            { icon:'fa-credit-card',  color:'var(--green)',  title:'They activate',          desc:'When they pay and activate their FIP membership, you get credit.' },
+            { icon:'fa-trophy',       color:'#B8860B',       title:'You earn free membership', desc:'Every 10 activations = 1 free year automatically added to your account.' },
+          ].map((s,i) => (
+            <div key={i} style={{display:'flex',alignItems:'flex-start',gap:'14px',padding:'12px',background:'var(--off-white)',borderRadius:'var(--radius-md)',border:'1px solid var(--border)'}}>
+              <div style={{width:'36px',height:'36px',borderRadius:'50%',background:`${s.color}15`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <i className={`fa-solid ${s.icon}`} style={{color:s.color,fontSize:'14px'}}></i>
+              </div>
+              <div>
+                <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'2px'}}>{s.title}</div>
+                <div style={{fontSize:'12px',color:'var(--text-muted)',lineHeight:1.6}}>{s.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 /* ── Committee Members Panel (for gold members) ── */
 function CommitteeMembersPanel({ committeeName, currentUserId }) {
   const [members, setMembers] = useState([]);
@@ -110,6 +253,7 @@ export default function DashboardPage() {
     { id:'overview', icon:'fa-gauge-high',     label:'Overview' },
     { id:'courses',  icon:'fa-book-open',      label:'My Courses' },
     { id:'events',   icon:'fa-calendar-check', label:'Events' },
+    { id:'referral', icon:'fa-gift',           label:'Refer & Earn' },
     { id:'payments', icon:'fa-receipt',        label:'Payments' },
     { id:'settings', icon:'fa-gear',           label:'Settings' },
   ];
@@ -307,6 +451,10 @@ export default function DashboardPage() {
         )}
 
         {/* PAYMENTS */}
+        {tab === 'referral' && (
+          <ReferralPanel profile={profile} />
+        )}
+
         {tab === 'payments' && (
           <div className="dash-card">
             <div className="dash-card-title">Payment History</div>
@@ -319,19 +467,41 @@ export default function DashboardPage() {
                   <p>No payment records yet.</p>
                   <button className="btn btn-primary btn-sm" style={{marginTop:'12px'}} onClick={() => navigate('/membership')}>Activate Membership</button>
                 </div>
-              ) : payments.map((p,i) => (
-                <div key={i} style={{background:'var(--blue-pale)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'16px',marginBottom:'12px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}>
-                    <span style={{fontWeight:700,color:'var(--blue)',fontSize:'14px'}}>{p.plan} Membership</span>
-                    <span className="status-pill sp-active">{p.payment_status}</span>
+              ) : payments.map((p,i) => {
+                const statusMap = {
+                  paid:     { label:'Paid',     cls:'sp-active',   color:'var(--green)' },
+                  created:  { label:'Pending',  cls:'sp-pending',  color:'#F59E0B' },
+                  failed:   { label:'Failed',   cls:'sp-rejected', color:'#EF4444' },
+                  refunded: { label:'Refunded', cls:'sp-pending',  color:'var(--text-muted)' },
+                };
+                const s = statusMap[p.status] || statusMap.created;
+                return (
+                  <div key={i} style={{background: p.status==='paid' ? 'var(--blue-pale)' : 'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'16px',marginBottom:'12px',opacity: p.status==='failed' ? 0.7 : 1}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'8px'}}>
+                      <span style={{fontWeight:700,color:'var(--blue)',fontSize:'14px'}}>{p.item_name || 'Membership'}</span>
+                      <span className={`status-pill ${s.cls}`}>
+                        {p.status === 'paid' && <i className="fa-solid fa-circle-check" style={{marginRight:'4px'}}></i>}
+                        {p.status === 'created' && <i className="fa-solid fa-clock" style={{marginRight:'4px'}}></i>}
+                        {p.status === 'failed' && <i className="fa-solid fa-circle-xmark" style={{marginRight:'4px'}}></i>}
+                        {s.label}
+                      </span>
+                    </div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'16px',flexWrap:'wrap'}}>
+                      <span>₹{p.total_amount} {p.status==='paid' ? 'paid' : p.status==='created' ? '(pending)' : ''}</span>
+                      {p.razorpay_payment_id && <span>TXN: {p.razorpay_payment_id}</span>}
+                      {p.status === 'paid' && p.valid_from && (
+                        <span>Valid: {new Date(p.valid_from).toLocaleDateString('en-IN')} → {new Date(p.valid_until).toLocaleDateString('en-IN')}</span>
+                      )}
+                    </div>
+                    {p.status === 'created' && (
+                      <div style={{fontSize:'11px',color:'#F59E0B',marginTop:'8px'}}>
+                        <i className="fa-solid fa-triangle-exclamation" style={{marginRight:'4px'}}></i>
+                        Payment was not completed. {new Date() - new Date(p.created_at) > 3600000 ? 'This order has expired.' : 'You can retry from the Membership page.'}
+                      </div>
+                    )}
                   </div>
-                  <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'16px',flexWrap:'wrap'}}>
-                    <span>₹{p.total_amount} paid</span>
-                    <span>TXN: {p.transaction_id}</span>
-                    <span>Valid: {p.valid_from} → {p.valid_until}</span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             }
           </div>
         )}

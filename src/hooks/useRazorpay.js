@@ -73,7 +73,22 @@ export function useRazorpay() {
           contact: profile?.phone || '',
         },
         theme:  { color: '#1A3C6E' },
-        modal:  { confirm_close: true, escape: false },
+        modal:  {
+          confirm_close: true,
+          escape: false,
+          ondismiss: async () => {
+            // User closed the popup without paying — mark order as failed
+            try {
+              await fetch('/api/cancel-order', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ razorpayOrderId: orderData.orderId }),
+              });
+            } catch (e) { /* best effort, ignore */ }
+            showToast('Payment cancelled.', true);
+            resolve(false);
+          },
+        },
 
         handler: async (response) => {
           // 4. Verify on backend
