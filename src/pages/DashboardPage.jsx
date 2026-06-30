@@ -8,23 +8,29 @@ import { supabase } from '../lib/supabase.js';
 
 /* ── Referral Panel Component ── */
 function ReferralPanel({ profile }) {
-  const [stats,    setStats]    = useState(null);
-  const [loading,  setLoading]  = useState(true);
-  const [copied,   setCopied]   = useState(false);
+  const [stats,         setStats]         = useState(null);
+  const [referredUsers, setReferredUsers] = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [copied,        setCopied]        = useState(false);
   const { showToast } = useApp();
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       const { data } = await supabase.rpc('get_my_referral_stats');
-      if (!data?.[0]?.code) {
+      let statsResult = data?.[0] || null;
+      if (!statsResult?.code) {
         // Generate code first
         await supabase.rpc('get_my_referral_code');
         const { data: d2 } = await supabase.rpc('get_my_referral_stats');
-        setStats(d2?.[0] || null);
-      } else {
-        setStats(data[0]);
+        statsResult = d2?.[0] || null;
       }
+      setStats(statsResult);
+
+      // Fetch the actual list of people referred
+      const { data: usersList, error: usersErr } = await supabase.rpc('get_my_referred_users');
+      if (!usersErr) setReferredUsers(usersList || []);
+
       setLoading(false);
     };
     load();
@@ -121,6 +127,52 @@ function ReferralPanel({ profile }) {
             : <><i className="fa-solid fa-gift" style={{color:'var(--orange)',marginRight:'5px'}}></i>Invite <strong>{needed} more member{needed!==1?'s':''}</strong> to get 1 year free membership!</>
           }
         </p>
+      </div>
+
+      {/* People You've Referred */}
+      <div className="dash-card" style={{marginBottom:'16px'}}>
+        <div className="dash-card-title">
+          People You've Referred
+          <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400,marginLeft:'8px'}}>({referredUsers.length})</span>
+        </div>
+
+        {referredUsers.length === 0 ? (
+          <div style={{textAlign:'center',padding:'32px 0',color:'var(--text-muted)'}}>
+            <i className="fa-solid fa-user-group" style={{fontSize:'28px',display:'block',marginBottom:'10px',opacity:.3}}></i>
+            <p style={{fontSize:'13px',margin:0}}>No one has used your referral code yet.</p>
+            <p style={{fontSize:'12px',marginTop:'4px'}}>Share your link above to start earning!</p>
+          </div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+            {referredUsers.map((u, i) => {
+              const initials = (u.full_name || '?').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+              const statusMap = {
+                pending:   { label:'Pending',          color:'#F59E0B', bg:'#FEF3C7', icon:'fa-clock' },
+                completed: { label:'Activated',        color:'var(--green)', bg:'#DCFCE7', icon:'fa-circle-check' },
+                rewarded:  { label:'Counted ✓ Reward',  color:'#B8860B', bg:'rgba(184,134,11,0.1)', icon:'fa-trophy' },
+              };
+              const s = statusMap[u.status] || statusMap.pending;
+              return (
+                <div key={i} style={{display:'flex',alignItems:'center',gap:'12px',padding:'10px 14px',background:'var(--off-white)',borderRadius:'var(--radius-md)',border:'1px solid var(--border)'}}>
+                  {u.avatar_url
+                    ? <img src={u.avatar_url} alt="" style={{width:'36px',height:'36px',borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+                    : <div style={{width:'36px',height:'36px',borderRadius:'50%',background:'var(--blue-pale)',color:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:700,flexShrink:0}}>{initials}</div>
+                  }
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>{u.full_name}</div>
+                    <div style={{fontSize:'11px',color:'var(--text-light)'}}>
+                      Joined {new Date(u.joined_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+                      {u.account_type && <span style={{marginLeft:'6px',textTransform:'capitalize'}}>· {u.account_type}</span>}
+                    </div>
+                  </div>
+                  <span style={{fontSize:'11px',fontWeight:700,color:s.color,background:s.bg,padding:'4px 10px',borderRadius:'20px',display:'flex',alignItems:'center',gap:'4px',flexShrink:0}}>
+                    <i className={`fa-solid ${s.icon}`}></i> {s.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* How it works */}
