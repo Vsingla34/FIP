@@ -1,8 +1,8 @@
 // /api/verify-payment.js
-// Vercel Serverless Function — verifies Razorpay payment signature
-// This is the ONLY place a payment is marked "paid" — never trust the frontend
+// Vercel Serverless Function — verifies Razorpay payment + sends confirmation email
 
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseAdmin = createClient(
@@ -10,62 +10,317 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+/* ── Email transporter ── */
+function getTransporter() {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  });
+}
+
+/* ── Email templates ── */
+function membershipEmailHTML({ name, plan, amount, gst, total, validFrom, validUntil, paymentId, orderId, memberId, profession, city }) {
+  const formatDate = (d) => new Date(d).toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
+  const firstName = name.split(' ')[0];
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F0F4FA;font-family:'Segoe UI',Arial,sans-serif;">
+<div style="max-width:600px;margin:32px auto;">
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#1A3C6E 0%,#1B4A9E 100%);border-radius:16px 16px 0 0;padding:40px;text-align:center;position:relative;overflow:hidden;">
+    <div style="position:absolute;top:-30px;right:-30px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.06);"></div>
+    <div style="position:absolute;bottom:-20px;left:20px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,0.04);"></div>
+    <div style="font-size:32px;font-weight:900;color:#fff;letter-spacing:3px;margin-bottom:2px;">FIP</div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.45);letter-spacing:2px;text-transform:uppercase;">Federation of Indian Professionals</div>
+    <div style="margin-top:20px;font-size:36px;">🎉</div>
+    <h1 style="font-size:26px;font-weight:800;color:#fff;margin:8px 0 4px;">Welcome to FIP, ${firstName}!</h1>
+    <p style="font-size:14px;color:rgba(255,255,255,0.65);margin:0;">Your membership is officially active.</p>
+  </div>
+
+  <!-- Member ID card -->
+  <div style="background:linear-gradient(135deg,#B8860B,#DAA520);padding:20px 32px;text-align:center;">
+    <div style="font-size:10px;color:rgba(255,255,255,0.65);text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;">Your FIP Member ID</div>
+    <div style="font-size:28px;font-weight:900;color:#fff;letter-spacing:4px;font-family:monospace;">${memberId}</div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:4px;">Keep this safe — use it for all FIP communications</div>
+  </div>
+
+  <!-- Body -->
+  <div style="background:#fff;padding:36px 40px;">
+    <p style="font-size:16px;color:#1A3C6E;font-weight:700;margin:0 0 8px;">Dear ${name},</p>
+    <p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 20px;">
+      It's a privilege to welcome you into the <strong>Federation of Indian Professionals</strong> — 
+      a community of 3,000+ Chartered Accountants, Company Secretaries, CMAs and Advocates committed 
+      to professional excellence and mutual growth.
+    </p>
+    <p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 24px;">
+      Your <strong style="color:#1A3C6E;">${plan} Membership</strong> is now active and you have 
+      full access to everything FIP has to offer.
+    </p>
+
+    <!-- What you get grid -->
+    <div style="background:#F8FAFF;border-radius:12px;padding:20px 24px;margin:0 0 24px;border:1px solid #E0E7FF;">
+      <div style="font-size:12px;font-weight:700;color:#1A3C6E;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px;">✨ Your Member Benefits</div>
+      <table width="100%" style="border-collapse:collapse;">
+        <tr>
+          <td style="padding:5px 0;font-size:13px;color:#374151;width:50%;">✅ Member Directory Access</td>
+          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Event Priority Registration</td>
+        </tr>
+        <tr>
+          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Exclusive Job Board</td>
+          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Committee Membership</td>
+        </tr>
+        <tr>
+          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Webinars & CPE Courses</td>
+          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Networking Events</td>
+        </tr>
+        <tr>
+          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Digital Certificate</td>
+          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Monthly Newsletter</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Membership card -->
+    <div style="background:linear-gradient(135deg,#1A3C6E,#1B4A9E);border-radius:12px;padding:22px 24px;color:#fff;margin:0 0 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+        <div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1px;">Membership Type</div>
+          <div style="font-size:18px;font-weight:800;color:#FFD09B;">${plan} Member</div>
+        </div>
+        <div style="font-size:24px;font-weight:900;color:rgba(255,255,255,0.15);letter-spacing:2px;">FIP</div>
+      </div>
+      <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:12px;">
+        <div style="font-size:10px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Member ID</div>
+        <div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:2px;font-family:monospace;">${memberId}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:rgba(255,255,255,0.6);">
+        <span>From: <strong style="color:#FFD09B;">${formatDate(validFrom)}</strong></span>
+        <span>Until: <strong style="color:#FFD09B;">${formatDate(validUntil)}</strong></span>
+      </div>
+    </div>
+
+    <!-- Payment receipt -->
+    <div style="background:#F9FAFB;border-radius:10px;padding:18px 20px;border:1px solid #E5E7EB;margin:0 0 24px;">
+      <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">🧾 Payment Receipt</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#6B7280;padding:7px 0;border-bottom:1px solid #E5E7EB;">
+        <span>${plan} Membership</span><span>₹${amount}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#6B7280;padding:7px 0;border-bottom:1px solid #E5E7EB;">
+        <span>GST @ 18%</span><span>₹${gst}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;color:#1A3C6E;padding:10px 0 4px;">
+        <span>Total Paid</span><span>₹${total}</span>
+      </div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #E5E7EB;font-size:11px;color:#9CA3AF;line-height:1.8;">
+        <div><strong>Payment ID:</strong> ${paymentId}</div>
+        <div><strong>Order ID:</strong> ${orderId}</div>
+        <div><strong>Member ID:</strong> ${memberId}</div>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <div style="text-align:center;margin:28px 0 8px;">
+      <a href="https://www.fipin.org/dashboard" 
+        style="display:inline-block;background:linear-gradient(135deg,#F26122,#E05010);color:#fff;text-decoration:none;padding:15px 40px;border-radius:10px;font-weight:800;font-size:15px;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(242,97,34,0.35);">
+        Explore Your Dashboard →
+      </a>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#9CA3AF;margin:12px 0 0;">
+      Questions? Reach us at <a href="mailto:fippresidentoffice@gmail.com" style="color:#1A3C6E;font-weight:600;">fippresidentoffice@gmail.com</a> or WhatsApp <strong>+91 99998 30938</strong>
+    </p>
+  </div>
+
+  <!-- Footer -->
+  <div style="background:#1A3C6E;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;">
+    <div style="font-size:14px;font-weight:700;color:#FFD09B;margin-bottom:6px;">Connect · Collaborate · Conquer</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.45);">© 2026 Federation of Indian Professionals · www.fipin.org</div>
+    <div style="display:flex;justify-content:center;gap:16px;margin-top:12px;">
+      <a href="https://www.fipin.org" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Website</a>
+      <a href="https://www.fipin.org/events" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Events</a>
+      <a href="https://www.fipin.org/dashboard" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Dashboard</a>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
+function courseEmailHTML({ name, courseTitle, amount, gst, total, paymentId, orderId, memberId, profession }) {
+  const firstName = name.split(' ')[0];
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F0F4FA;font-family:'Segoe UI',Arial,sans-serif;">
+<div style="max-width:600px;margin:32px auto;">
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#1A3C6E 0%,#1B4A9E 100%);border-radius:16px 16px 0 0;padding:40px;text-align:center;position:relative;overflow:hidden;">
+    <div style="position:absolute;top:-30px;right:-30px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.06);"></div>
+    <div style="font-size:32px;font-weight:900;color:#fff;letter-spacing:3px;margin-bottom:2px;">FIP</div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.45);letter-spacing:2px;text-transform:uppercase;">Federation of Indian Professionals</div>
+    <div style="margin-top:20px;font-size:36px;">📚</div>
+    <h1 style="font-size:26px;font-weight:800;color:#fff;margin:8px 0 4px;">You're Enrolled, ${firstName}!</h1>
+    <p style="font-size:14px;color:rgba(255,255,255,0.65);margin:0;">Your learning journey starts now.</p>
+  </div>
+
+  <!-- Member ID strip -->
+  <div style="background:#F26122;padding:14px 32px;text-align:center;">
+    <div style="font-size:11px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:2px;margin-bottom:3px;">Your Member ID</div>
+    <div style="font-size:20px;font-weight:900;color:#fff;letter-spacing:3px;font-family:monospace;">${memberId}</div>
+  </div>
+
+  <!-- Body -->
+  <div style="background:#fff;padding:36px 40px;">
+    <p style="font-size:16px;color:#1A3C6E;font-weight:700;margin:0 0 8px;">Dear ${name},</p>
+    <p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 20px;">
+      Thank you for investing in your professional growth! You now have 
+      <strong>lifetime access</strong> to the course below. Learn at your own pace, 
+      revisit content anytime, and earn your certificate upon completion.
+    </p>
+
+    <!-- Course card -->
+    <div style="background:linear-gradient(135deg,#FFF7ED,#FFF0E0);border:2px solid #FED7AA;border-radius:14px;padding:22px 24px;margin:0 0 24px;">
+      <div style="font-size:10px;color:#9A3412;text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-bottom:8px;">📖 Course Enrolled</div>
+      <div style="font-size:18px;font-weight:800;color:#1A3C6E;margin-bottom:6px;">${courseTitle}</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:#6B7280;background:#fff;padding:3px 10px;border-radius:20px;border:1px solid #E5E7EB;">⏱ Lifetime Access</span>
+        <span style="font-size:12px;color:#6B7280;background:#fff;padding:3px 10px;border-radius:20px;border:1px solid #E5E7EB;">📱 Watch Anytime</span>
+        <span style="font-size:12px;color:#6B7280;background:#fff;padding:3px 10px;border-radius:20px;border:1px solid #E5E7EB;">🏆 Certificate Included</span>
+      </div>
+    </div>
+
+    <!-- Payment receipt -->
+    <div style="background:#F9FAFB;border-radius:10px;padding:18px 20px;border:1px solid #E5E7EB;margin:0 0 24px;">
+      <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">🧾 Payment Receipt</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#6B7280;padding:7px 0;border-bottom:1px solid #E5E7EB;">
+        <span>${courseTitle}</span><span>₹${amount}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#6B7280;padding:7px 0;border-bottom:1px solid #E5E7EB;">
+        <span>GST @ 18%</span><span>₹${gst}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;color:#1A3C6E;padding:10px 0 4px;">
+        <span>Total Paid</span><span>₹${total}</span>
+      </div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #E5E7EB;font-size:11px;color:#9CA3AF;line-height:1.8;">
+        <div><strong>Payment ID:</strong> ${paymentId}</div>
+        <div><strong>Order ID:</strong> ${orderId}</div>
+        <div><strong>Member ID:</strong> ${memberId}</div>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <div style="text-align:center;margin:28px 0 8px;">
+      <a href="https://www.fipin.org/courses"
+        style="display:inline-block;background:linear-gradient(135deg,#F26122,#E05010);color:#fff;text-decoration:none;padding:15px 40px;border-radius:10px;font-weight:800;font-size:15px;box-shadow:0 4px 16px rgba(242,97,34,0.35);">
+        Start Learning Now →
+      </a>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#9CA3AF;margin:12px 0 0;">
+      Questions? Reach us at <a href="mailto:fippresidentoffice@gmail.com" style="color:#1A3C6E;font-weight:600;">fippresidentoffice@gmail.com</a>
+    </p>
+  </div>
+
+  <!-- Footer -->
+  <div style="background:#1A3C6E;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;">
+    <div style="font-size:14px;font-weight:700;color:#FFD09B;margin-bottom:6px;">Connect · Collaborate · Conquer</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.45);">© 2026 Federation of Indian Professionals · www.fipin.org</div>
+    <div style="display:flex;justify-content:center;gap:16px;margin-top:12px;">
+      <a href="https://www.fipin.org" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Website</a>
+      <a href="https://www.fipin.org/courses" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Courses</a>
+      <a href="https://www.fipin.org/dashboard" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Dashboard</a>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
+/* ── Send payment confirmation email ── */
+async function sendPaymentEmail({ profile, payment, validFrom, validUntil, memberId }) {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.warn('Email env vars missing — skipping email');
+    return;
+  }
+
+  const transporter = getTransporter();
+  const name = profile.full_name || 'Member';
+  const email = profile.email;
+  const amount = payment.amount;
+  const gst = payment.gst_amount || 0;
+  const total = payment.total_amount;
+  const paymentId = payment.razorpay_payment_id;
+  const orderId = payment.razorpay_order_id;
+
+  let subject, html;
+
+  if (payment.purchase_type === 'membership') {
+    const plan = payment.item_name?.replace('FIP ', '').replace(' Membership', '') || 'Standard';
+    subject = `✅ FIP ${plan} Membership Activated — Payment Confirmed`;
+    html = membershipEmailHTML({ name, plan, amount, gst, total, validFrom, validUntil, paymentId, orderId, memberId, profession: profile?.profession, city: profile?.city });
+  } else if (payment.purchase_type === 'course') {
+    subject = `✅ Enrolled: ${payment.item_name} — Payment Confirmed`;
+    html = courseEmailHTML({ name, courseTitle: payment.item_name, amount, gst, total, paymentId, orderId, memberId, profession: profile?.profession });
+  } else {
+    return;
   }
 
   try {
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      userId,
-    } = req.body;
+    await transporter.sendMail({
+      from:    `"FIP — Federation of Indian Professionals" <${process.env.GMAIL_USER}>`,
+      to:      email,
+      subject,
+      html,
+    });
+    console.log(`Payment email sent to ${email}`);
+  } catch (err) {
+    // Don't fail the payment verification if email fails
+    console.error('Payment email failed:', err.message);
+  }
+}
+
+/* ── Main handler ── */
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId } = req.body;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !userId) {
       return res.status(400).json({ error: 'Missing payment verification fields' });
     }
 
-    // ── 1. Verify the signature using HMAC SHA256 ──
-    // This proves the payment response actually came from Razorpay
-    // and wasn't forged by someone calling our API directly with fake data.
+    // 1. Verify HMAC signature
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
     const expectedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest('hex');
 
-    const isValid = expectedSignature === razorpay_signature;
-
-    if (!isValid) {
-      // Mark as failed in DB for audit trail
-      await supabaseAdmin
-        .from('payments')
-        .update({ status: 'failed' })
-        .eq('razorpay_order_id', razorpay_order_id);
-
+    if (expectedSignature !== razorpay_signature) {
+      await supabaseAdmin.from('payments').update({ status: 'failed' }).eq('razorpay_order_id', razorpay_order_id);
       return res.status(400).json({ error: 'Payment verification failed', verified: false });
     }
 
-    // ── 2. Fetch the payment row we created at order time ──
+    // 2. Fetch payment row
     const { data: payment, error: fetchError } = await supabaseAdmin
-      .from('payments')
-      .select('*')
+      .from('payments').select('*')
       .eq('razorpay_order_id', razorpay_order_id)
       .eq('user_id', userId)
       .single();
 
-    if (fetchError || !payment) {
-      return res.status(404).json({ error: 'Payment record not found' });
-    }
+    if (fetchError || !payment) return res.status(404).json({ error: 'Payment record not found' });
+    if (payment.status === 'paid') return res.status(200).json({ verified: true, alreadyProcessed: true, payment });
 
-    if (payment.status === 'paid') {
-      // Already processed (idempotency — avoid double-processing on retry)
-      return res.status(200).json({ verified: true, alreadyProcessed: true, payment });
-    }
-
-    // ── 3. Mark payment as paid ──
+    // 3. Mark payment as paid
     const validFrom  = new Date().toISOString().split('T')[0];
     const validUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -74,7 +329,7 @@ export default async function handler(req, res) {
       .update({
         razorpay_payment_id,
         razorpay_signature,
-        status: 'paid',
+        status:      'paid',
         valid_from:  payment.purchase_type === 'membership' ? validFrom  : null,
         valid_until: payment.purchase_type === 'membership' ? validUntil : null,
       })
@@ -82,36 +337,53 @@ export default async function handler(req, res) {
       .select()
       .single();
 
-    if (updateError) {
-      console.error('Payment update error:', updateError);
-      return res.status(500).json({ error: 'Failed to update payment status' });
+    if (updateError) return res.status(500).json({ error: 'Failed to update payment status' });
+
+    // 4. Apply effect (activate membership OR enroll in course)
+    if (payment.purchase_type === 'membership') {
+      await supabaseAdmin.from('profiles').update({
+        account_type:      'member',
+        membership_status: 'Active',
+        membership_plan:   payment.item_name.replace('FIP ', '').replace(' Membership', ''),
+        membership_start:  validFrom,
+        membership_end:    validUntil,
+      }).eq('id', userId);
+
+      // Complete referral if user was referred
+      try {
+        await supabaseAdmin.rpc('complete_referral', { p_referred_id: userId });
+      } catch (e) { console.warn('Referral complete failed:', e.message); }
+
+    } else if (payment.purchase_type === 'course') {
+      await supabaseAdmin.from('course_enrollments').upsert({
+        user_id:         userId,
+        course_title:    payment.item_name,
+        course_category: payment.item_ref_id,
+        price_paid:      payment.total_amount,
+        amount_paid:     payment.total_amount,
+        payment_id:      payment.id,
+        status:          'Enrolled',
+      }, { onConflict: 'user_id,course_title' });
     }
 
-    // ── 4. Apply the effect — activate membership OR enroll in course ──
-    if (payment.purchase_type === 'membership') {
-      await supabaseAdmin
-        .from('profiles')
-        .update({
-          account_type:       'member',
-          membership_status:  'Active',
-          membership_plan:    payment.item_name.replace('FIP ', '').replace(' Membership', ''),
-          membership_start:   validFrom,
-          membership_end:     validUntil,
-        })
-        .eq('id', userId);
-    } else if (payment.purchase_type === 'course') {
-      await supabaseAdmin
-        .from('course_enrollments')
-        .upsert({
-          user_id:         userId,
-          course_title:    payment.item_name,
-          course_category: payment.item_ref_id,
-          price_paid:      payment.total_amount,
-          amount_paid:     payment.total_amount,
-          payment_id:      payment.id,
-          status:          'Enrolled',
-        }, { onConflict: 'user_id,course_title' });
-    }
+    // 5. Fetch user profile for email
+    const { data: profile } = await supabaseAdmin
+      .from('profiles').select('full_name, email, profile_slug, profession, city')
+      .eq('id', userId).single();
+
+    // Generate friendly Member ID
+    const memberId = profile?.profile_slug
+      ? 'FIP-' + profile.profile_slug.split('-').slice(-1)[0].toUpperCase()
+      : 'FIP-' + userId.slice(0,6).toUpperCase();
+
+    // 6. Send confirmation email (non-blocking — don't fail if email fails)
+    sendPaymentEmail({
+      profile,
+      payment: { ...updatedPayment, razorpay_payment_id, razorpay_order_id },
+      validFrom,
+      validUntil,
+      memberId,
+    }).catch(e => console.error('Email error:', e));
 
     return res.status(200).json({ verified: true, payment: updatedPayment });
 

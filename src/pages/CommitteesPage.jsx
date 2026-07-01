@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { committees as localCommittees } from '../data/index.js';
@@ -26,8 +26,10 @@ function nameToSlug(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+
 export default function CommitteesPage() {
   const { showToast } = useApp();
+  const navigate = useNavigate();
   const [filter,    setFilter]    = useState('All');
   const [dbSlugs,   setDbSlugs]   = useState({}); // profile_slug -> true (for members registered in system)
   const [liveExtra, setLiveExtra] = useState([]); // newly assigned members from DB
@@ -95,25 +97,41 @@ export default function CommitteesPage() {
                     const slug = nameToSlug(m.name);
 
                     return (
-                      <Link
+                      <div
                         key={i}
-                        to={`/member/${slug}`}
                         className="cm-row"
-                        style={{textDecoration:'none',display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',transition:'background 0.15s',
+                        style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',transition:'background 0.15s',
                           ...(m.isLive ? {background:'rgba(255,215,0,0.05)'} : {})
                         }}
+                        onClick={() => navigate(`/member/${slug}`)}
                         onMouseEnter={e => e.currentTarget.style.background='var(--blue-pale)'}
                         onMouseLeave={e => e.currentTarget.style.background = m.isLive ? 'rgba(255,215,0,0.05)' : 'transparent'}
                       >
                         <div className={`cm-av ${avCls}`}>{getInitials(m.name)}</div>
                         <div style={{flex:1,minWidth:0}}>
-                          <div className="cm-name" style={{display:'flex',alignItems:'center',gap:'5px'}}>
-                            {m.name}
-                            <i className="fa-solid fa-arrow-up-right-from-square" style={{fontSize:'8px',color:'var(--orange)',opacity:0.5,flexShrink:0}}></i>
-                          </div>
+                          <div className="cm-name">{m.name}</div>
                           <div className={`cm-role ${roleCls}`}>{m.role.toUpperCase()}</div>
                         </div>
-                      </Link>
+                        {/* LinkedIn icon */}
+                        <a
+                          href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(m.name)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            width:'28px',height:'28px',borderRadius:'6px',
+                            background:'#0077B5',color:'#fff',
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            flexShrink:0,textDecoration:'none',fontSize:'13px',
+                            opacity:0.85,transition:'opacity 0.15s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.opacity='1'}
+                          onMouseLeave={e => e.currentTarget.style.opacity='0.85'}
+                          title={`${m.name} on LinkedIn`}
+                        >
+                          <i className="fa-brands fa-linkedin-in"></i>
+                        </a>
+                      </div>
                     );
                   })}
                 </div>
