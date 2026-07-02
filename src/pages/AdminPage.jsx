@@ -259,6 +259,8 @@ export default function AdminPage() {
   const [courseForm, setCourseForm] = useState({
     title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate',
     price:0, free_for:'none', instructor:'', duration_hours:'',
+    event_date:'', event_time:'', zoom_link:'', zoom_password:'',
+    banner_url:'', what_you_learn:'', speakers:'',
   });
 
   useEffect(() => {
@@ -269,9 +271,39 @@ export default function AdminPage() {
       .finally(() => setAdminCoursesLoading(false));
   }, [tab]);
 
+  const downloadEnrollmentsExcel = function(courseName, enrollments) {
+    var headers = ['Full Name', 'Email', 'Phone', 'Status', 'Registered On'];
+    var rows = enrollments.map(function(e) {
+      return [
+        e.full_name || '',
+        e.email || '',
+        e.phone || '',
+        e.status || 'registered',
+        e.created_at ? new Date(e.created_at).toLocaleDateString('en-IN') : '',
+      ];
+    });
+    var allRows = [headers].concat(rows);
+    var csvLines = allRows.map(function(row) {
+      return row.map(function(cell) {
+        return '"' + String(cell).split('"').join('""') + '"';
+      }).join(',');
+    });
+    var csvContent = csvLines.join('\n');
+    var blob = new Blob([csvContent], { type: 'text/csv' });
+    var url  = URL.createObjectURL(blob);
+    var safe = courseName.split('').filter(function(c){ return /[a-zA-Z0-9]/.test(c); }).join('_').slice(0,30);
+    var date = new Date().toISOString().slice(0,10);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'FIP_Enrollments_' + safe + '_' + date + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('CSV downloaded!');
+  };
+
   const loadCourseEnrollments = async (course) => {
     setCourseEnrollmentsLoading(true);
-    const { data } = await supabase.rpc('admin_get_course_enrollments', { p_course_id: course.id });
+    const { data } = await supabase.rpc('admin_get_course_registrations', { p_course_id: course.id });
     if (data) setCourseEnrollments(data);
     setCourseEnrollmentsLoading(false);
   };
@@ -279,7 +311,23 @@ export default function AdminPage() {
   const saveCourse = async () => {
     if (!courseForm.title.trim()) return;
     const slug = courseForm.slug.trim() || courseForm.title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-    const payload = { ...courseForm, slug, price: Number(courseForm.price)||0, is_free_for_members: courseForm.free_for === 'members' || courseForm.free_for === 'all' };
+    const payload = {
+      ...courseForm, slug,
+      price:          Number(courseForm.price) || 0,
+      duration_hours: courseForm.duration_hours ? Number(courseForm.duration_hours) : null,
+      is_free_for_members: courseForm.free_for === 'members' || courseForm.free_for === 'all',
+      event_date:    courseForm.event_date    || null,
+      event_time:    (courseForm.event_time    || '').trim() || null,
+      zoom_link:     (courseForm.zoom_link     || '').trim() || null,
+      zoom_password: (courseForm.zoom_password || '').trim() || null,
+      banner_url:    (courseForm.banner_url    || '').trim() || null,
+      what_you_learn: courseForm.what_you_learn
+        ? courseForm.what_you_learn.split('\n').map(l=>l.trim()).filter(Boolean)
+        : [],
+      speakers: courseForm.speakers
+        ? (() => { try { return JSON.parse(courseForm.speakers); } catch(e) { return []; } })()
+        : [],
+    };
     if (showCourseModal === 'new') {
       const { data, error } = await supabase.from('courses').insert({ ...payload, created_by: profile?.id, status:'published' }).select().single();
       if (!error && data) { setAdminCourses(prev => [data, ...prev]); setShowCourseModal(null); }
@@ -315,9 +363,9 @@ export default function AdminPage() {
   /* open course modal */
   const openCourseModal = (course) => {
     if (course === 'new') {
-      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'' });
+      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', banner_url:'', what_you_learn:'', speakers:'' });
     } else {
-      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'' });
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
     }
     setShowCourseModal(course);
   };
@@ -419,6 +467,47 @@ export default function AdminPage() {
     setRsvpEventView(ev); setRsvpLoading(true);
     const { data } = await supabase.rpc('admin_get_event_rsvps', { p_event_id: ev.id });
     setEventRsvps(data || []); setRsvpLoading(false);
+  };
+
+  /* ── popups state ── */
+  const [popups,        setPopups]        = useState([]);
+  const [popupsLoading, setPopupsLoading] = useState(false);
+  const [popupModal,    setPopupModal]    = useState(null); // 'new' | popup obj
+  const [popupForm,     setPopupForm]     = useState({ title:'', image_url:'', cta_label:'Register Now', cta_link:'/courses', is_active:true, sort_order:0 });
+
+  useEffect(() => {
+    if (tab !== 'popups') return;
+    setPopupsLoading(true);
+    supabase.from('popups').select('*').order('sort_order').then(({ data }) => {
+      setPopups(data || []);
+      setPopupsLoading(false);
+    });
+  }, [tab]);
+
+  const savePopup = async () => {
+    if (!popupForm.title.trim() || !popupForm.image_url.trim()) return;
+    const payload = { ...popupForm, sort_order: Number(popupForm.sort_order)||0 };
+    if (popupModal === 'new') {
+      const { data, error } = await supabase.from('popups').insert(payload).select().single();
+      if (!error) { setPopups(p => [...p, data]); setPopupModal(null); showToast('Popup created!'); }
+      else showToast('Error: ' + error.message, true);
+    } else {
+      const { data, error } = await supabase.from('popups').update(payload).eq('id', popupModal.id).select().single();
+      if (!error) { setPopups(p => p.map(x => x.id===data.id?data:x)); setPopupModal(null); showToast('Popup updated!'); }
+      else showToast('Error: ' + error.message, true);
+    }
+  };
+
+  const deletePopup = async (id) => {
+    if (!window.confirm('Delete this popup?')) return;
+    await supabase.from('popups').delete().eq('id', id);
+    setPopups(p => p.filter(x => x.id !== id));
+    showToast('Popup deleted.');
+  };
+
+  const togglePopup = async (id, val) => {
+    await supabase.from('popups').update({ is_active: val }).eq('id', id);
+    setPopups(p => p.map(x => x.id===id ? {...x, is_active:val} : x));
   };
 
   /* ── contacts state ── */
@@ -678,6 +767,9 @@ export default function AdminPage() {
           <div className="admin-nav-group-label">Settings</div>
           <button className={`admin-nav-v2${tab==='contacts'?' active':''}`} onClick={() => setTab('contacts')}>
             <i className="fa-solid fa-envelope"></i> Contact Messages
+          </button>
+          <button className={`admin-nav-v2${tab==='popups'?' active':''}`} onClick={() => setTab('popups')}>
+            <i className="fa-solid fa-rectangle-ad"></i> Popups
           </button>
           <button className={`admin-nav-v2${tab==='settings'?' active':''}`} onClick={() => setTab('settings')}>
             <i className="fa-solid fa-gear"></i> Settings
@@ -1077,55 +1169,41 @@ export default function AdminPage() {
           {/* ═══ COURSE ENROLLMENTS + CERTIFICATE ISSUER ═══ */}
           {tab === 'courses' && adminCourseView && (
             <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px'}}>
+              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
                 <button onClick={() => setAdminCourseView(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}>
                   <i className="fa-solid fa-arrow-left"></i>
                 </button>
-                <span>Enrollments: <strong>{adminCourseView.title}</strong></span>
+                <span style={{flex:1}}>Registrations: <strong>{adminCourseView.title}</strong></span>
+                <button className="btn btn-sm" style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
+                  onClick={() => downloadEnrollmentsExcel(adminCourseView.title, courseEnrollments)}
+                  disabled={courseEnrollments.length === 0}>
+                  <i className="fa-solid fa-file-excel"></i> Download CSV {courseEnrollments.length > 0 && `(${courseEnrollments.length})`}
+                </button>
               </div>
               {courseEnrollmentsLoading ? (
                 <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
               ) : courseEnrollments.length === 0 ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-users" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>No enrollments yet.
+                  <i className="fa-solid fa-users" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>No registrations yet.
                 </div>
               ) : (
                 <div style={{overflowX:'auto'}}>
                   <table className="dboard-table">
-                    <thead><tr><th>Student</th><th>Progress</th><th>Enrolled</th><th>Certificate</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Registered On</th></tr></thead>
                     <tbody>
                       {courseEnrollments.map((e,i) => (
                         <tr key={i}>
                           <td>
                             <div className="dboard-table-name">{e.full_name}</div>
-                            <div className="dboard-table-sub">{e.profession} · {e.email}</div>
+                            <div className="dboard-table-sub">{e.email}</div>
                           </td>
+                          <td className="dboard-table-muted" style={{fontSize:'12px'}}>{e.phone || '—'}</td>
                           <td>
-                            <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-                              <div style={{flex:1,height:'6px',background:'var(--border)',borderRadius:'3px',overflow:'hidden',minWidth:'60px'}}>
-                                <div style={{height:'100%',background:Number(e.videos_completed)===Number(e.total_videos)&&Number(e.total_videos)>0?'var(--green)':'var(--orange)',borderRadius:'3px',width: e.total_videos>0?`${Math.round((e.videos_completed/e.total_videos)*100)}%`:'0%'}}></div>
-                              </div>
-                              <span style={{fontSize:'12px',color:'var(--text-muted)',whiteSpace:'nowrap'}}>{e.videos_completed}/{e.total_videos}</span>
-                            </div>
+                            <span className={`dboard-pill ${e.status==='attended'?'pill-green':'pill-orange'}`}>
+                              {e.status || 'registered'}
+                            </span>
                           </td>
-                          <td className="dboard-table-muted" style={{fontSize:'12px'}}>{e.enrolled_at ? new Date(e.enrolled_at).toLocaleDateString('en-IN') : '—'}</td>
-                          <td>
-                            {e.has_certificate
-                              ? <span className="dboard-pill pill-green"><i className="fa-solid fa-certificate" style={{marginRight:'4px'}}></i>Issued</span>
-                              : <span className="dboard-pill pill-orange">Pending</span>
-                            }
-                          </td>
-                          <td>
-                            {e.has_certificate ? (
-                              <button className="admin-btn" style={{background:'#FFF0EE',color:'#C0392B',border:'1px solid #F5BDBA',fontSize:'11px'}} onClick={() => revokeCertificate(e.user_id, adminCourseView.id)}>
-                                <i className="fa-solid fa-xmark"></i> Revoke
-                              </button>
-                            ) : (
-                              <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none',fontSize:'11px'}} onClick={() => issueCertificate(e.user_id, adminCourseView.id, i)}>
-                                <i className="fa-solid fa-certificate"></i> Issue Certificate
-                              </button>
-                            )}
-                          </td>
+                          <td className="dboard-table-muted" style={{fontSize:'12px'}}>{e.created_at ? new Date(e.created_at).toLocaleDateString('en-IN') : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1753,6 +1831,111 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* ═══ POPUPS ═══ */}
+          {tab === 'popups' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+                <span>Hero Popups <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({popups.length})</span></span>
+                <button className="btn btn-primary btn-sm" onClick={() => { setPopupForm({title:'',image_url:'',cta_label:'Register Now',cta_link:'/courses',is_active:true,sort_order:popups.length}); setPopupModal('new'); }}>
+                  <i className="fa-solid fa-plus"></i> Add Popup
+                </button>
+              </div>
+              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'16px'}}>
+                These popups appear on the homepage hero when visitors land on the site. Multiple popups show as a carousel.
+              </p>
+              {popupsLoading ? (
+                <div style={{textAlign:'center',padding:'40px'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',color:'var(--orange)'}}></i></div>
+              ) : popups.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-rectangle-ad" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+                  <p>No popups yet. Add your first popup to show on the homepage.</p>
+                </div>
+              ) : popups.map(p => (
+                <div key={p.id} style={{display:'flex',gap:'16px',alignItems:'center',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'14px 16px',marginBottom:'10px',flexWrap:'wrap'}}>
+                  {/* Preview thumbnail */}
+                  <img src={p.image_url} alt={p.title} style={{width:'80px',height:'56px',objectFit:'cover',borderRadius:'8px',flexShrink:0,border:'1px solid var(--border)'}}
+                    onError={e=>e.target.style.display='none'}/>
+                  <div style={{flex:1,minWidth:'160px'}}>
+                    <div style={{fontSize:'14px',fontWeight:700,color:'var(--blue)',marginBottom:'3px'}}>{p.title}</div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                      <span>CTA: {p.cta_label}</span>
+                      <span>Link: {p.cta_link}</span>
+                      <span>Order: {p.sort_order}</span>
+                    </div>
+                  </div>
+                  {/* Toggle active */}
+                  <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',flexShrink:0}}>
+                    <div style={{position:'relative',width:'36px',height:'20px'}} onClick={() => togglePopup(p.id, !p.is_active)}>
+                      <div style={{position:'absolute',inset:0,borderRadius:'10px',background:p.is_active?'var(--green)':'var(--border)',transition:'background 0.2s'}}/>
+                      <div style={{position:'absolute',top:'2px',left:p.is_active?'18px':'2px',width:'16px',height:'16px',borderRadius:'50%',background:'#fff',transition:'left 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+                    </div>
+                    <span style={{fontSize:'12px',color:p.is_active?'var(--green)':'var(--text-muted)',fontWeight:600}}>{p.is_active?'Active':'Hidden'}</span>
+                  </label>
+                  <div style={{display:'flex',gap:'6px',flexShrink:0}}>
+                    <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}}
+                      onClick={() => { setPopupForm({title:p.title,image_url:p.image_url,cta_label:p.cta_label||'Register Now',cta_link:p.cta_link||'/courses',is_active:p.is_active,sort_order:p.sort_order||0}); setPopupModal(p); }}>
+                      <i className="fa-solid fa-pen"></i> Edit
+                    </button>
+                    <button className="admin-btn admin-btn-danger" onClick={() => deletePopup(p.id)}>
+                      <i className="fa-solid fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Popup Create/Edit Modal ── */}
+          {popupModal && (
+            <div className="modal-overlay" onClick={() => setPopupModal(null)}>
+              <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'520px'}}>
+                <button className="modal-close" onClick={() => setPopupModal(null)}>&#x2715;</button>
+                <div className="modal-title">{popupModal==='new'?'Add New Popup':'Edit Popup'}</div>
+                <div className="form-group">
+                  <label className="form-label">Title *</label>
+                  <input className="form-input" placeholder="e.g. ITR Filing Mastery Webinar" value={popupForm.title} onChange={e=>setPopupForm(f=>({...f,title:e.target.value}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">
+                    Image URL *
+                    <span style={{fontWeight:400,color:'var(--text-light)',marginLeft:'6px'}}>— upload to Supabase Storage and paste URL here</span>
+                  </label>
+                  <input className="form-input" type="url" placeholder="https://..." value={popupForm.image_url} onChange={e=>setPopupForm(f=>({...f,image_url:e.target.value}))}/>
+                  {popupForm.image_url && (
+                    <img src={popupForm.image_url} alt="preview" style={{marginTop:'8px',width:'100%',maxHeight:'200px',objectFit:'cover',borderRadius:'8px',border:'1px solid var(--border)'}}
+                      onError={e=>e.target.style.display='none'}/>
+                  )}
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">CTA Button Label</label>
+                    <input className="form-input" placeholder="Register Now" value={popupForm.cta_label} onChange={e=>setPopupForm(f=>({...f,cta_label:e.target.value}))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">CTA Link</label>
+                    <input className="form-input" placeholder="/courses or https://..." value={popupForm.cta_link} onChange={e=>setPopupForm(f=>({...f,cta_link:e.target.value}))}/>
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Display Order</label>
+                    <input className="form-input" type="number" placeholder="0 = first" value={popupForm.sort_order} onChange={e=>setPopupForm(f=>({...f,sort_order:e.target.value}))}/>
+                  </div>
+                  <div className="form-group" style={{display:'flex',alignItems:'center',gap:'10px',paddingTop:'22px'}}>
+                    <input type="checkbox" id="popup_active" checked={popupForm.is_active} onChange={e=>setPopupForm(f=>({...f,is_active:e.target.checked}))} style={{width:'16px',height:'16px',accentColor:'var(--green)'}}/>
+                    <label htmlFor="popup_active" style={{fontSize:'13px',color:'var(--text-muted)',cursor:'pointer'}}>Active (show on site)</label>
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
+                  <button className="btn btn-outline-blue btn-sm" onClick={() => setPopupModal(null)}>Cancel</button>
+                  <button className="btn btn-primary btn-sm" onClick={savePopup} disabled={!popupForm.title.trim()||!popupForm.image_url.trim()}>
+                    {popupModal==='new'?'Create Popup':'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ═══ SETTINGS ═══ */}
           {tab === 'settings' && (
             <div className="admin-form-card">
@@ -2051,6 +2234,56 @@ export default function AdminPage() {
                 <option value="all">Free for Everyone</option>
               </select>
             </div>
+
+            {/* New fields */}
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Event Date</label>
+                <input className="form-input" type="date" value={courseForm.event_date} onChange={e=>setCourseForm(f=>({...f,event_date:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Event Time</label>
+                <input className="form-input" type="text" placeholder="e.g. 6:00 PM - 9:00 PM" value={courseForm.event_time} onChange={e=>setCourseForm(f=>({...f,event_time:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">
+                  Zoom Meeting Link
+                  <span style={{fontSize:'11px',color:'var(--text-light)',marginLeft:'5px'}}>— only visible after registration</span>
+                </label>
+                <input className="form-input" type="url" placeholder="https://zoom.us/j/..." value={courseForm.zoom_link} onChange={e=>setCourseForm(f=>({...f,zoom_link:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Zoom Password <span style={{fontWeight:400,color:'var(--text-light)'}}>— optional</span></label>
+                <input className="form-input" type="text" placeholder="Meeting password" value={courseForm.zoom_password} onChange={e=>setCourseForm(f=>({...f,zoom_password:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">
+                Course Banner / Poster URL
+                <span style={{fontWeight:400,color:'var(--text-light)',marginLeft:'5px'}}>— optional, shown as hero background</span>
+              </label>
+              <input className="form-input" type="url" placeholder="https://... (Supabase storage or any image URL)" value={courseForm.banner_url} onChange={e=>setCourseForm(f=>({...f,banner_url:e.target.value}))}/>
+            </div>
+            <div className="form-group">
+              <label className="form-label">
+                What You'll Learn
+                <span style={{fontWeight:400,color:'var(--text-light)',marginLeft:'5px'}}>— one point per line</span>
+              </label>
+              <textarea className="form-textarea" placeholder={"Understand ITR Forms 1, 2, 3 & 4\nHandle capital gains calculations\nAvoid common filing mistakes"} value={courseForm.what_you_learn} onChange={e=>setCourseForm(f=>({...f,what_you_learn:e.target.value}))} style={{minHeight:'90px'}}></textarea>
+            </div>
+            <div className="form-group">
+              <label className="form-label">
+                Speakers
+                <span style={{fontWeight:400,color:'var(--text-light)',marginLeft:'5px'}}>— JSON array format</span>
+              </label>
+              <textarea className="form-textarea" placeholder={'[\n  {"name":"CA Gaurav Aggarwal","qualification":"President, FIP · Tax Expert","image_url":""}\n]'} value={courseForm.speakers} onChange={e=>setCourseForm(f=>({...f,speakers:e.target.value}))} style={{minHeight:'90px',fontFamily:'monospace',fontSize:'12px'}}></textarea>
+              <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>
+                Format: <code>[{`{"name":"...", "qualification":"...", "image_url":"..."}`}]</code>
+              </div>
+            </div>
+
             <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
               <button className="btn btn-outline-blue btn-sm" onClick={() => setShowCourseModal(null)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveCourse} disabled={!courseForm.title.trim()}>

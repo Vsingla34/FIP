@@ -35,26 +35,15 @@ export default function CoursesPage() {
   const [search,   setSearch]   = useState('');
   const [filter,   setFilter]   = useState('All');
 
-  /* Hardcoded courses — always shown as fallback */
-  const HARDCODED = [
-    { id:'hc-1', slug:null, bg:'ct-blue',   emoji:'📑', category:'GST & Indirect Tax', title:'Mastering GST Litigation — Sankalp 2026',   instructor:'CA Gaurav Aggarwal', duration_hours:null, cpe_hours:0,  level:'Intermediate', price:999,  is_free_for_members:false, status:'published', created_at:null },
-    { id:'hc-2', slug:null, bg:'ct-teal',   emoji:'🏛', category:'Corporate Law',       title:'NCLT & Corporate Insolvency Practice',        instructor:'Expert Panel',       duration_hours:null, cpe_hours:0,  level:'Advanced',     price:0,    is_free_for_members:true,  status:'published', created_at:null },
-    { id:'hc-3', slug:null, bg:'ct-orange', emoji:'📊', category:'Direct Tax',          title:'Income Tax Search & Seizure — Practical Guide', instructor:'Senior Practitioners',duration_hours:null, cpe_hours:0, level:'Advanced',    price:1499, is_free_for_members:false, status:'published', created_at:null },
-    { id:'hc-4', slug:null, bg:'ct-purple', emoji:'⚖️', category:'Company Law',         title:'FEMA & RBI Compliance for CS Professionals',  instructor:'CS Expert Panel',    duration_hours:null, cpe_hours:0,  level:'Intermediate', price:0,    is_free_for_members:true,  status:'published', created_at:null },
-    { id:'hc-5', slug:null, bg:'ct-green',  emoji:'📈', category:'Finance & Valuation', title:'Business Valuation Under SEBI & IBC',         instructor:'IBBI Registered Valuers',duration_hours:null,cpe_hours:0,level:'Advanced',  price:1999, is_free_for_members:false, status:'published', created_at:null },
-    { id:'hc-6', slug:null, bg:'ct-red',    emoji:'🔍', category:'Audit & Assurance',   title:'Forensic Audit & Fraud Detection in Practice', instructor:'CFE Practitioners', duration_hours:null, cpe_hours:0,  level:'Advanced',     price:1299, is_free_for_members:false, status:'published', created_at:null },
-  ];
-
-  /* load live courses from Supabase and merge with hardcoded */
+  /* Load live courses from Supabase only — no hardcoded fallback */
   useEffect(() => {
     supabase
       .from('courses')
       .select('*')
+      .eq('status', 'published')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        const live = (data || []).map(c => ({ ...c, bg: null }));
-        // merge: live courses first, then hardcoded ones not already duplicated
-        setCourses([...live, ...HARDCODED]);
+        setCourses(data || []);
         setLoading(false);
       });
   }, []);
@@ -82,19 +71,8 @@ export default function CoursesPage() {
   };
 
   const handleEnroll = (course) => {
-    if (!user) { openModal('register', { course, courseSlug: course.slug }); return; }
-    if (profile?.role === 'admin') {
-      if (course.slug) navigate(`/courses/${course.slug}/watch`);
-      else showToast('This course has no video content yet.');
-      return;
-    }
-    const isFreeForUser = isFree(course);
-    if (isFreeForUser) {
-      if (course.slug) navigate(`/courses/${course.slug}/watch`);
-      else openModal('enroll', { course });
-      return;
-    }
-    openModal('enroll', { course });
+    // Always go to course detail page — no more LMS/watch
+    if (course.slug) navigate(`/courses/${course.slug}`);
   };
 
   const getFreeLabel = (course) => {
@@ -168,14 +146,35 @@ export default function CoursesPage() {
 
                 return (
                   <div className="course-card" key={c.id} onClick={() => handleCardClick(c)} style={{cursor:'pointer'}}>
-                    <div className={`course-thumb ${bgCls}`}>
-                      <span>{emoji}</span>
-                      {free
-                        ? <span className="course-tag tag-free">{getFreeLabel(c)}</span>
-                        : c.created_at && (Date.now() - new Date(c.created_at) < 30*24*60*60*1000)
-                        ? <span className="course-tag tag-hot">New</span>
-                        : null
-                      }
+                    {/* Thumbnail — banner image or coloured fallback */}
+                    <div className={`course-thumb ${bgCls}`} style={
+                      (c.banner_url || c.thumbnail_url)
+                        ? { backgroundImage:`url('${c.banner_url || c.thumbnail_url}')`, backgroundSize:'cover', backgroundPosition:'center', padding:0 }
+                        : {}
+                    }>
+                      {/* Overlay for image cards */}
+                      {(c.banner_url || c.thumbnail_url) && (
+                        <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(0,0,0,0.45) 100%)',borderRadius:'inherit'}}/>
+                      )}
+                      {/* Emoji only if no image */}
+                      {!(c.banner_url || c.thumbnail_url) && <span style={{position:'relative'}}>{emoji}</span>}
+                      {/* Tag always on top */}
+                      <span style={{position:'relative'}}>
+                        {free
+                          ? <span className="course-tag tag-free">{getFreeLabel(c)}</span>
+                          : c.created_at && (Date.now() - new Date(c.created_at) < 30*24*60*60*1000)
+                          ? <span className="course-tag tag-hot">New</span>
+                          : null
+                        }
+                      </span>
+                      {/* Date on image */}
+                      {c.event_date && (
+                        <div style={{position:'absolute',bottom:'10px',left:'12px',background:'rgba(0,0,0,0.55)',backdropFilter:'blur(4px)',color:'#fff',fontSize:'11px',fontWeight:700,padding:'4px 10px',borderRadius:'20px',display:'flex',alignItems:'center',gap:'5px'}}>
+                          <i className="fa-regular fa-calendar" style={{color:'#FFD09B'}}></i>
+                          {new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+                          {c.event_time && <span style={{opacity:.7}}>· {c.event_time.split('-')[0].trim()}</span>}
+                        </div>
+                      )}
                     </div>
                     <div className="course-body">
                       <div className="course-cat">{c.category || 'Professional Development'}</div>
@@ -186,8 +185,12 @@ export default function CoursesPage() {
                       </div>
                       <div className="course-meta">
                         {c.duration_hours && <span><i className="fa-regular fa-clock"></i> {c.duration_hours}h</span>}
-                        
                         {c.level && <span><i className="fa-solid fa-signal"></i> {c.level}</span>}
+                        {c.event_date && !c.duration_hours && (
+                          <span style={{color:'#2D8CFF',fontWeight:600,fontSize:'11px'}}>
+                            <i className="fa-brands fa-zoom" style={{marginRight:'3px'}}></i>Live Zoom
+                          </span>
+                        )}
                       </div>
                       <div className="course-footer">
                         {free

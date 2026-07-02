@@ -6,6 +6,125 @@ import { getEnrollments, getRSVPs, getPayments } from '../lib/api.js';
 import AvatarUpload from '../components/AvatarUpload.jsx';
 import { supabase } from '../lib/supabase.js';
 
+/* ── Course Registrations Tab ── */
+function CourseRegistrationsTab({ navigate }) {
+  const [regs,    setRegs]    = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.rpc('get_my_course_registrations').then(({ data }) => {
+      setRegs(data || []);
+      setLoading(false);
+    });
+  }, []);
+
+  const isUpcoming = (d) => d && new Date(d) >= new Date();
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : null;
+
+  if (loading) return (
+    <div className="dash-card" style={{textAlign:'center',padding:'40px'}}>
+      <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',color:'var(--orange)'}}></i>
+    </div>
+  );
+
+  return (
+    <div className="dash-card">
+      <div className="dash-card-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        My Courses
+        <button className="btn btn-outline-blue btn-sm" onClick={() => navigate('/courses')}>
+          <i className="fa-solid fa-plus"></i> Browse More
+        </button>
+      </div>
+
+      {regs.length === 0 ? (
+        <div style={{textAlign:'center',padding:'40px 0',color:'var(--text-muted)'}}>
+          <i className="fa-solid fa-book-open" style={{fontSize:'32px',marginBottom:'12px',display:'block',opacity:.3}}></i>
+          <p>You haven't registered for any courses yet.</p>
+          <button className="btn btn-primary btn-sm" style={{marginTop:'12px'}} onClick={() => navigate('/courses')}>
+            <i className="fa-solid fa-graduation-cap"></i> Browse Courses
+          </button>
+        </div>
+      ) : regs.map((r, i) => {
+        const upcoming = isUpcoming(r.event_date);
+        const past     = r.event_date && !upcoming;
+
+        return (
+          <div key={i} style={{
+            display:'flex',alignItems:'center',gap:'16px',
+            padding:'14px 0',
+            borderBottom: i < regs.length-1 ? '1px solid var(--border)' : 'none',
+            flexWrap:'wrap',
+          }}>
+            {/* Course thumbnail / icon */}
+            {r.banner_url ? (
+              <img src={r.banner_url} alt="" style={{width:'56px',height:'40px',borderRadius:'6px',objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}}/>
+            ) : (
+              <div style={{width:'56px',height:'40px',borderRadius:'6px',background:'var(--blue-pale)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>📚</div>
+            )}
+
+            {/* Details */}
+            <div style={{flex:1,minWidth:'150px'}}>
+              <div style={{fontSize:'14px',fontWeight:700,color:'var(--blue)',marginBottom:'3px'}}>{r.course_title}</div>
+              <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                {r.category && <span>{r.category}</span>}
+                {r.event_date && (
+                  <span style={{color: upcoming ? 'var(--orange)' : 'var(--text-light)', fontWeight: upcoming ? 600 : 400}}>
+                    <i className="fa-regular fa-calendar" style={{marginRight:'3px'}}></i>
+                    {formatDate(r.event_date)}
+                    {r.event_time && ` · ${r.event_time}`}
+                  </span>
+                )}
+                <span style={{color:'var(--text-light)'}}>
+                  Registered {new Date(r.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+                </span>
+              </div>
+            </div>
+
+            {/* Status + Join button */}
+            <div style={{display:'flex',gap:'8px',alignItems:'center',flexShrink:0}}>
+              {past && (
+                <span style={{fontSize:'11px',color:'var(--text-light)',background:'var(--off-white)',padding:'3px 10px',borderRadius:'20px',border:'1px solid var(--border)'}}>
+                  Ended
+                </span>
+              )}
+              {upcoming && !r.zoom_link && (
+                <span style={{fontSize:'11px',color:'#F59E0B',fontWeight:600}}>
+                  <i className="fa-solid fa-clock" style={{marginRight:'4px'}}></i>Link coming soon
+                </span>
+              )}
+              {r.zoom_link && upcoming && (
+                <a href={r.zoom_link} target="_blank" rel="noopener noreferrer"
+                  style={{
+                    display:'inline-flex',alignItems:'center',gap:'7px',
+                    background:'#2D8CFF',color:'#fff',
+                    padding:'8px 18px',borderRadius:'8px',
+                    fontWeight:700,fontSize:'13px',textDecoration:'none',
+                    boxShadow:'0 3px 12px rgba(45,140,255,0.35)',
+                  }}>
+                  <i className="fa-brands fa-zoom" style={{fontSize:'15px'}}></i>
+                  Join Now
+                </a>
+              )}
+              {r.zoom_link && past && (
+                <a href={r.zoom_link} target="_blank" rel="noopener noreferrer"
+                  style={{
+                    display:'inline-flex',alignItems:'center',gap:'6px',
+                    background:'var(--off-white)',color:'var(--blue)',
+                    padding:'7px 14px',borderRadius:'8px',
+                    fontWeight:600,fontSize:'12px',textDecoration:'none',
+                    border:'1px solid var(--border)',
+                  }}>
+                  <i className="fa-solid fa-play"></i> Recording
+                </a>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── Referral Panel Component ── */
 function ReferralPanel({ profile }) {
   const [stats,         setStats]         = useState(null);
@@ -450,30 +569,7 @@ export default function DashboardPage() {
 
         {/* MY COURSES */}
         {tab === 'courses' && (
-          <div className="dash-card">
-            <div className="dash-card-title">My Courses</div>
-            {dataLoading
-              ? <div style={{textAlign:'center',padding:'24px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin"></i> Loading…</div>
-              : enrollments.length === 0
-              ? (
-                <div style={{textAlign:'center',padding:'40px 0',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-book-open" style={{fontSize:'32px',marginBottom:'12px',display:'block',opacity:.3}}></i>
-                  <p>No courses enrolled yet.</p>
-                  <button className="btn btn-secondary btn-sm" style={{marginTop:'12px'}} onClick={() => navigate('/courses')}>Browse Courses</button>
-                </div>
-              ) : enrollments.map((c,i) => (
-                <div className="my-course-item" key={i}>
-                  <div style={{flex:1}}>
-                    <div className="mci-title">{c.course_title}</div>
-                    <div className="mci-sub">{c.course_category} · Enrolled {new Date(c.enrolled_at).toLocaleDateString('en-IN')}</div>
-                    <div className="prog-track"><div className="prog-fill" style={{width:`${c.progress}%`}}></div></div>
-                    <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>{c.progress}% · {c.status}</div>
-                  </div>
-                  <button className="btn btn-outline-blue btn-sm">Continue</button>
-                </div>
-              ))
-            }
-          </div>
+          <CourseRegistrationsTab navigate={navigate} />
         )}
 
         {/* EVENTS */}

@@ -1,160 +1,131 @@
-// src/components/PromoPopup.jsx
-// Shows a promotional popup on first visit (once per session)
-// Admin can configure: image, title, link, which pages to show on
-
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-
-// ── CONFIGURE YOUR POPUP HERE ─────────────────────────────────
-// To update the popup: edit the PROMO object below and redeploy
-// To disable: set enabled: false
-const PROMO = {
-  enabled:   true,
-  title:     'ITR FILING MASTERY',
-  subtitle:  'Live Webinar — Free Registration',
-  // Use an image URL — upload your poster to Supabase storage or any CDN
-  // and paste the URL here. Leave empty to show text-only popup.
-  imageUrl:  '', // e.g. 'https://vygsubtfelavhmaaphul.supabase.co/storage/v1/object/public/assets/itr-webinar.jpg'
-  ctaLabel:  'Register Free Now',
-  ctaLink:   '/events',        // internal link
-  ctaExternal: false,          // set true + ctaHref for external URL
-  ctaHref:   '',               // e.g. 'https://forms.google.com/...'
-  // Show after this many ms on page load
-  delay:     1500,
-  // Session storage key — change this string to force popup to show again
-  sessionKey: 'fip_promo_itr_2026',
-};
-// ────────────────────────────────────────────────────────────────
+import { supabase } from '../lib/supabase.js';
 
 export default function PromoPopup() {
-  const [open, setOpen] = useState(false);
+  const [popups,  setPopups]  = useState([]);
+  const [current, setCurrent] = useState(0);
+  const [open,    setOpen]    = useState(false);
 
   useEffect(() => {
-    if (!PROMO.enabled) return;
-    // Only show once per session
-    if (sessionStorage.getItem(PROMO.sessionKey)) return;
-
-    const t = setTimeout(() => setOpen(true), PROMO.delay);
-    return () => clearTimeout(t);
+    // Load active popups from DB
+    supabase.from('popups')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => {
+        if (!data?.length) return;
+        // Show once per session per popup set
+        const key = 'fip_popups_' + data.map(p=>p.id).join('_').slice(0,20);
+        if (sessionStorage.getItem(key)) return;
+        setPopups(data);
+        setTimeout(() => setOpen(true), 1500);
+      });
   }, []);
 
   const handleClose = () => {
-    sessionStorage.setItem(PROMO.sessionKey, '1');
+    const key = 'fip_popups_' + popups.map(p=>p.id).join('_').slice(0,20);
+    sessionStorage.setItem(key, '1');
     setOpen(false);
   };
 
-  if (!open) return null;
+  const handleNext = () => {
+    if (current < popups.length - 1) setCurrent(c => c + 1);
+    else handleClose();
+  };
 
-  const ctaProps = PROMO.ctaExternal
-    ? { as:'a', href: PROMO.ctaHref, target:'_blank', rel:'noopener noreferrer' }
-    : { as: Link, to: PROMO.ctaLink };
+  const handlePrev = () => setCurrent(c => Math.max(0, c - 1));
+
+  if (!open || !popups.length) return null;
+
+  const popup = popups[current];
 
   return (
-    <div
-      style={{
-        position:'fixed',inset:0,
-        background:'rgba(0,0,0,0.65)',
-        zIndex:9999,
-        display:'flex',alignItems:'center',justifyContent:'center',
-        padding:'16px',
-        backdropFilter:'blur(3px)',
-        animation:'fadeIn 0.3s ease',
-      }}
-      onClick={handleClose}
-    >
-      <div
-        style={{
-          background:'#fff',
-          borderRadius:'16px',
-          overflow:'hidden',
-          maxWidth:'560px',
-          width:'100%',
-          boxShadow:'0 24px 80px rgba(0,0,0,0.4)',
-          animation:'slideUp 0.35s ease',
-          position:'relative',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Close button */}
-        <button
-          onClick={handleClose}
-          style={{
-            position:'absolute',top:'10px',right:'10px',zIndex:10,
-            width:'30px',height:'30px',borderRadius:'50%',
-            background:'rgba(0,0,0,0.45)',border:'none',
-            color:'#fff',fontSize:'14px',cursor:'pointer',
-            display:'flex',alignItems:'center',justifyContent:'center',
-            transition:'background 0.2s',
-          }}
-          onMouseEnter={e=>e.target.style.background='rgba(0,0,0,0.7)'}
-          onMouseLeave={e=>e.target.style.background='rgba(0,0,0,0.45)'}
-        >
-          ✕
-        </button>
+    <div style={{
+      position:'fixed',inset:0,
+      background:'rgba(0,0,0,0.7)',
+      zIndex:9999,
+      display:'flex',alignItems:'center',justifyContent:'center',
+      padding:'16px',
+      backdropFilter:'blur(4px)',
+      animation:'fadeIn 0.3s ease',
+    }} onClick={handleClose}>
+      <div style={{
+        background:'#fff',
+        borderRadius:'16px',
+        overflow:'hidden',
+        maxWidth:'540px',
+        width:'100%',
+        boxShadow:'0 24px 80px rgba(0,0,0,0.45)',
+        animation:'slideUp 0.35s ease',
+        position:'relative',
+      }} onClick={e => e.stopPropagation()}>
 
-        {/* Poster image */}
-        {PROMO.imageUrl ? (
-          <div style={{position:'relative'}}>
-            <img
-              src={PROMO.imageUrl}
-              alt={PROMO.title}
-              style={{width:'100%',display:'block',maxHeight:'420px',objectFit:'cover'}}
-            />
-            {/* CTA over image */}
-            <div style={{
-              position:'absolute',bottom:0,left:0,right:0,
-              background:'linear-gradient(transparent,rgba(0,0,0,0.8))',
-              padding:'32px 24px 20px',
-            }}>
-              {PROMO.ctaExternal
-                ? <a href={PROMO.ctaHref} target="_blank" rel="noopener noreferrer"
-                    onClick={handleClose}
-                    style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'15px',padding:'12px 32px',borderRadius:'8px',textDecoration:'none',boxShadow:'0 4px 16px rgba(242,101,34,0.45)'}}>
-                    {PROMO.ctaLabel} →
-                  </a>
-                : <Link to={PROMO.ctaLink} onClick={handleClose}
-                    style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'15px',padding:'12px 32px',borderRadius:'8px',textDecoration:'none',boxShadow:'0 4px 16px rgba(242,101,34,0.45)'}}>
-                    {PROMO.ctaLabel} →
-                  </Link>
-              }
-            </div>
-          </div>
-        ) : (
-          /* Text-only fallback if no image */
+        {/* Close */}
+        <button onClick={handleClose} style={{
+          position:'absolute',top:'10px',right:'10px',zIndex:10,
+          width:'30px',height:'30px',borderRadius:'50%',
+          background:'rgba(0,0,0,0.5)',border:'none',
+          color:'#fff',fontSize:'14px',cursor:'pointer',
+          display:'flex',alignItems:'center',justifyContent:'center',
+        }}>✕</button>
+
+        {/* Multiple popup indicator */}
+        {popups.length > 1 && (
           <div style={{
-            background:'linear-gradient(135deg,#1A3C6E 0%,#1B4A9E 100%)',
-            padding:'40px 32px',textAlign:'center',
+            position:'absolute',top:'10px',left:'50%',transform:'translateX(-50%)',
+            display:'flex',gap:'5px',zIndex:10,
           }}>
-            <div style={{fontSize:'11px',fontWeight:700,color:'rgba(255,208,155,0.7)',textTransform:'uppercase',letterSpacing:'2px',marginBottom:'10px'}}>
-              FIP Presents
-            </div>
-            <h2 style={{fontSize:'26px',fontWeight:900,color:'#fff',marginBottom:'6px',fontFamily:"'Playfair Display',serif",lineHeight:1.2}}>
-              {PROMO.title}
-            </h2>
-            <p style={{fontSize:'14px',color:'rgba(255,255,255,0.65)',marginBottom:'24px'}}>
-              {PROMO.subtitle}
-            </p>
-            {PROMO.ctaExternal
-              ? <a href={PROMO.ctaHref} target="_blank" rel="noopener noreferrer"
-                  onClick={handleClose}
-                  style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'14px',padding:'13px 32px',borderRadius:'9px',textDecoration:'none',boxShadow:'0 4px 20px rgba(242,101,34,0.4)'}}>
-                  {PROMO.ctaLabel} →
-                </a>
-              : <Link to={PROMO.ctaLink} onClick={handleClose}
-                  style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'14px',padding:'13px 32px',borderRadius:'9px',textDecoration:'none',boxShadow:'0 4px 20px rgba(242,101,34,0.4)'}}>
-                  {PROMO.ctaLabel} →
-                </Link>
-            }
-            <div style={{marginTop:'14px',fontSize:'12px',color:'rgba(255,255,255,0.35)',cursor:'pointer'}} onClick={handleClose}>
-              No thanks, close
-            </div>
+            {popups.map((_, i) => (
+              <div key={i} onClick={() => setCurrent(i)} style={{
+                width: i===current ? '18px' : '6px',
+                height:'6px',borderRadius:'3px',
+                background: i===current ? '#fff' : 'rgba(255,255,255,0.4)',
+                cursor:'pointer',transition:'all 0.3s',
+              }}/>
+            ))}
           </div>
         )}
+
+        {/* Image */}
+        <div style={{position:'relative'}}>
+          <img src={popup.image_url} alt={popup.title}
+            style={{width:'100%',display:'block',maxHeight:'440px',objectFit:'cover'}}/>
+
+          {/* Gradient overlay at bottom */}
+          <div style={{
+            position:'absolute',bottom:0,left:0,right:0,
+            background:'linear-gradient(transparent,rgba(0,0,0,0.75))',
+            padding:'40px 24px 20px',
+          }}>
+            {popup.title && (
+              <div style={{color:'#fff',fontSize:'16px',fontWeight:700,marginBottom:'12px',textShadow:'0 1px 3px rgba(0,0,0,0.5)'}}>{popup.title}</div>
+            )}
+            <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+              {popup.cta_link?.startsWith('http') ? (
+                <a href={popup.cta_link} target="_blank" rel="noopener noreferrer" onClick={handleClose}
+                  style={{background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'13px',padding:'10px 24px',borderRadius:'8px',textDecoration:'none',boxShadow:'0 4px 16px rgba(242,101,34,0.4)'}}>
+                  {popup.cta_label || 'Register Now'} →
+                </a>
+              ) : (
+                <Link to={popup.cta_link || '/courses'} onClick={handleClose}
+                  style={{background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'13px',padding:'10px 24px',borderRadius:'8px',textDecoration:'none',boxShadow:'0 4px 16px rgba(242,101,34,0.4)'}}>
+                  {popup.cta_label || 'Register Now'} →
+                </Link>
+              )}
+              {popups.length > 1 && current < popups.length - 1 && (
+                <button onClick={handleNext} style={{background:'rgba(255,255,255,0.2)',color:'#fff',border:'1px solid rgba(255,255,255,0.3)',padding:'10px 16px',borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:600}}>
+                  Next →
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       <style>{`
-        @keyframes fadeIn  { from { opacity:0 } to { opacity:1 } }
-        @keyframes slideUp { from { opacity:0; transform:translateY(24px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } }
+        @keyframes fadeIn  { from{opacity:0}to{opacity:1} }
+        @keyframes slideUp { from{opacity:0;transform:translateY(24px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)} }
       `}</style>
     </div>
   );

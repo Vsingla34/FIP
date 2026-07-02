@@ -76,6 +76,7 @@ export default function HomePage() {
   const { openModal } = useApp();
   const navigate = useNavigate();
   const [testimonials, setTestimonials] = useState(FALLBACK);
+  const [homeCourses,  setHomeCourses]  = useState([]);
 
   useEffect(() => {
     supabase
@@ -84,6 +85,15 @@ export default function HomePage() {
       .eq('status', 'approved')
       .order('reviewed_at', { ascending: false })
       .then(({ data }) => { if (data && data.length > 0) setTestimonials(data); });
+  }, []);
+
+  useEffect(() => {
+    supabase.from('courses')
+      .select('id, title, slug, category, price, level, instructor, free_for, status')
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .limit(3)
+      .then(({ data }) => { if (data?.length) setHomeCourses(data); });
   }, []);
 
   /* ── SLIDES CONFIG — replace image URLs when ready ── */
@@ -339,8 +349,8 @@ export default function HomePage() {
                   </div>
                   <div className="db-card">
                     <div className="db-card-label"><i className="fa-solid fa-graduation-cap"></i>&nbsp; Featured Course</div>
-                    <div className="db-card-title">Mastering GST Litigation — Sankalp 2026</div>
-                    <div className="db-card-meta">Enrolling Now &nbsp;·&nbsp; ₹999 &nbsp;·&nbsp; 6 Sessions</div>
+                    <div className="db-card-title">ITR Filing Mastery — Live Webinar</div>
+                    <div className="db-card-meta">Enrolling Now &nbsp;·&nbsp; Free &nbsp;·&nbsp; Live Session</div>
                   </div>
                 </div>
               </div>
@@ -444,21 +454,37 @@ export default function HomePage() {
             <Link to="/courses" className="btn btn-outline-blue">View All <i className="fa-solid fa-arrow-right"></i></Link>
           </div>
           <div className="course-grid">
-            {[
-              { bg:'ct-blue', emoji:'📑', tag:'tag-hot', tagLabel:'Hot', cat:'GST & Indirect Tax', title:'Mastering GST Litigation — Sankalp 2026', instr:'CA Gaurav Aggarwal', sessions:'6 Sessions', level:'Intermediate', price:'₹999', free:false },
-              { bg:'ct-teal', emoji:'🏛', tag:'tag-free', tagLabel:'Free for Members', cat:'Corporate Law', title:'NCLT & Corporate Insolvency Practice', instr:'Expert Panel', sessions:'4 Sessions', level:'Advanced', price:'Members Free', free:true },
-              { bg:'ct-orange', emoji:'📊', tag:null, tagLabel:null, cat:'Direct Tax', title:'Income Tax Search & Seizure — Practical Guide', instr:'Senior Practitioners', sessions:'5 Sessions', level:'Advanced', price:'₹1,499', free:false },
-            ].map((c,i) => (
-              <div className="course-card" key={i} onClick={() => navigate('/courses')} style={{cursor:'pointer'}}>
-                <div className={`course-thumb ${c.bg}`}><span>{c.emoji}</span>{c.tag&&<span className={`course-tag ${c.tag}`}>{c.tagLabel}</span>}</div>
+          {homeCourses.length === 0 && (
+            <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)',gridColumn:'1/-1'}}>
+              <i className="fa-solid fa-book-open" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+              <p>Courses coming soon. <Link to="/events" style={{color:'var(--orange)'}}>Check our events</Link> in the meantime!</p>
+            </div>
+          )}
+          
+            {homeCourses.map((c,i) => (
+              <div className="course-card" key={i} onClick={() => c.slug ? navigate(`/courses/${c.slug}`) : navigate('/courses')} style={{cursor:'pointer'}}>
+                <div className={`course-thumb ct-blue`}>
+                  <span>📚</span>
+                  {!c.price || c.price === 0
+                    ? <span className="course-tag tag-free">Free</span>
+                    : (c.free_for === 'members' || c.free_for === 'students')
+                    ? <span className="course-tag tag-free">Members Free</span>
+                    : <span className="course-tag tag-hot">Paid</span>
+                  }
+                </div>
                 <div className="course-body">
-                  <div className="course-cat">{c.cat}</div>
+                  <div className="course-cat">{c.category}</div>
                   <div className="course-title">{c.title}</div>
-                  <div className="course-instr"><i className="fa-solid fa-user-tie" style={{fontSize:'10px',color:'var(--text-light)'}}></i> {c.instr}</div>
-                  <div className="course-meta"><span><i className="fa-regular fa-clock"></i> {c.sessions}</span><span><i className="fa-solid fa-signal"></i> {c.level}</span></div>
+                  {c.instructor && <div className="course-instr"><i className="fa-solid fa-user-tie" style={{fontSize:'10px',color:'var(--text-light)',marginRight:'4px'}}></i>{c.instructor}</div>}
+                  <div className="course-meta">
+                    <span><i className="fa-solid fa-signal" style={{fontSize:'10px',marginRight:'3px'}}></i>{c.level || 'All Levels'}</span>
+                  </div>
                   <div className="course-footer">
-                    {c.free?<span className="course-price-free">{c.price}</span>:<span className="course-price">{c.price}</span>}
-                    <button className="c-enroll-btn" onClick={e=>{e.stopPropagation();navigate('/courses');}}>View Course</button>
+                    {!c.price || c.price === 0
+                      ? <span className="course-price-free">Free</span>
+                      : <span className="course-price">₹{c.price}</span>
+                    }
+                    <button className="c-enroll-btn" onClick={e=>{e.stopPropagation(); c.slug ? navigate(`/courses/${c.slug}`) : navigate('/courses');}}>View Course</button>
                   </div>
                 </div>
               </div>

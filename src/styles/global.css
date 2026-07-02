@@ -175,7 +175,7 @@ input,select,textarea{font-family:inherit;outline:none;}
 .course-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;}
 .course-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;transition:var(--t);cursor:pointer;display:flex;flex-direction:column;}
 .course-card:hover{border-color:var(--orange);box-shadow:var(--shadow-lg);transform:translateY(-4px);}
-.course-thumb{height:140px;position:relative;display:flex;align-items:center;justify-content:center;font-size:40px;}
+.course-thumb{height:140px;position:relative;display:flex;align-items:center;justify-content:center;font-size:40px;overflow:hidden;}
 .ct-blue{background:linear-gradient(135deg,var(--blue),var(--blue-mid));}
 .ct-teal{background:linear-gradient(135deg,#0A2A24,#0E4A3C);}
 .ct-orange{background:linear-gradient(135deg,#2A1404,#5A2A08);}
