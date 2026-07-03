@@ -80,7 +80,7 @@ export default function CourseDetailPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.full_name.trim() || !form.email.trim()) return;
+    if (!form.full_name.trim() || !form.email.trim() || !form.phone.trim()) return;
     setSubmitting(true);
 
     const { error } = await supabase.from('course_registrations').insert({
@@ -409,8 +409,8 @@ export default function CourseDetailPage() {
                       value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Phone Number <span style={{fontWeight:400,color:'var(--text-light)'}}>— optional</span></label>
-                    <input className="form-input" type="tel" placeholder="+91 XXXXX XXXXX"
+                    <label className="form-label">Phone Number *</label>
+                    <input className="form-input" type="tel" placeholder="+91 XXXXX XXXXX" required
                       value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/>
                   </div>
 

@@ -182,7 +182,7 @@ input,select,textarea{font-family:inherit;outline:none;}
 .ct-purple{background:linear-gradient(135deg,#1A0A2E,#2E1A50);}
 .ct-red{background:linear-gradient(135deg,#2A0A0A,#4A1010);}
 .ct-green{background:linear-gradient(135deg,#0A2010,#103A20);}
-.course-tag{position:absolute;top:12px;left:12px;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;}
+.course-tag{position:absolute;top:10px;right:10px;padding:4px 10px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;z-index:2;}
 .tag-hot{background:var(--orange);color:#fff;}
 .tag-free{background:var(--green);color:#fff;}
 .tag-new-c{background:#7B2FBE;color:#fff;}
@@ -620,11 +620,32 @@ footer{background:#0D1F3C;padding:56px 0 24px;}
 .cm-av-chair{background:var(--orange);color:#fff;}
 .cm-av-vice{background:var(--blue-mid);color:#fff;}
 .cm-av-member{background:var(--blue-pale);color:var(--blue);}
+/* ── Chairman / Chairperson — gold highlight ── */
+.cm-av-chairman{
+  background:linear-gradient(135deg,#B8860B,#DAA520);
+  color:#fff;
+  box-shadow:0 2px 8px rgba(184,134,11,0.35);
+}
+/* ── Co-Chairman / Co-Chairperson / Secretary — blue highlight ── */
+.cm-av-co{
+  background:linear-gradient(135deg,var(--blue),#1B4A9E);
+  color:#FFD09B;
+}
 .cm-name{font-size:13px;font-weight:600;color:var(--blue);line-height:1.2;}
-.cm-role{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
+.cm-role{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;}
 .cm-role-chair{color:var(--orange);}
 .cm-role-vice{color:var(--blue-soft);}
-.cm-role-member{color:var(--text-light);}
+.cm-role-member{color:var(--text-light);font-weight:600;}
+/* Chairman / Chairperson + Co-Chairman / Co-Chairperson — orange highlight */
+.cm-role-chairman,
+.cm-role-co {
+  color:var(--orange);
+  background:var(--orange-pale);
+  border:1px solid #F5C4A8;
+  padding:1px 8px;border-radius:10px;
+  display:inline-block;
+  font-weight:800;
+}
 .committee-filter-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:28px;}
 .committee-filter-bar .search-wrap{flex:1;min-width:220px;margin-bottom:0;}
 

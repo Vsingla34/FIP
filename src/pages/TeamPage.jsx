@@ -97,7 +97,16 @@ export default function TeamPage() {
                 ) : (
                   <div className="team-name">{t.name}</div>
                 )}
-                <div className="team-role">{t.role}</div>
+                {(() => {
+                  const r = (t.role||'').toLowerCase();
+                  const isTop = r.includes('chairman') || r.includes('chairperson') || r.includes('president') || r === 'vice chairman' || r === 'vice chairperson' || r.startsWith('co-chair');
+                  return (
+                    <div className={'team-role' + (isTop ? ' cm-role-chairman' : '')}
+                      style={isTop ? {fontSize:'11px',marginTop:'3px'} : {}}>
+                      {t.role}
+                    </div>
+                  );
+                })()}
                 <div className="team-qual">FIP Executive Committee</div>
                 <div className="team-socials">
                   <div className="team-sb" onClick={() => showToast('Opening LinkedIn…')}><i className="fa-brands fa-linkedin-in"></i></div>

@@ -157,16 +157,14 @@ export default function CoursesPage() {
                         <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(0,0,0,0.45) 100%)',borderRadius:'inherit'}}/>
                       )}
                       {/* Emoji only if no image */}
-                      {!(c.banner_url || c.thumbnail_url) && <span style={{position:'relative'}}>{emoji}</span>}
-                      {/* Tag always on top */}
-                      <span style={{position:'relative'}}>
-                        {free
-                          ? <span className="course-tag tag-free">{getFreeLabel(c)}</span>
-                          : c.created_at && (Date.now() - new Date(c.created_at) < 30*24*60*60*1000)
-                          ? <span className="course-tag tag-hot">New</span>
-                          : null
-                        }
-                      </span>
+                      {!(c.banner_url || c.thumbnail_url) && <span>{emoji}</span>}
+                      {/* Tag always top-right */}
+                      {free
+                        ? <span className="course-tag tag-free">{getFreeLabel(c)}</span>
+                        : c.created_at && (Date.now() - new Date(c.created_at) < 30*24*60*60*1000)
+                        ? <span className="course-tag tag-hot">New</span>
+                        : null
+                      }
                       {/* Date on image */}
                       {c.event_date && (
                         <div style={{position:'absolute',bottom:'10px',left:'12px',background:'rgba(0,0,0,0.55)',backdropFilter:'blur(4px)',color:'#fff',fontSize:'11px',fontWeight:700,padding:'4px 10px',borderRadius:'20px',display:'flex',alignItems:'center',gap:'5px'}}>

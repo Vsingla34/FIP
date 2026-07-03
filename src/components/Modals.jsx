@@ -20,6 +20,23 @@ export default function Modals() {
   const [forgotSent, setForgotSent] = useState(false);
   const [payStep,    setPayStep]    = useState(false);
   const [refCode,    setRefCode]    = useState('');
+  const [memPrices,  setMemPrices]  = useState({ standard: 500, renewal: 200 });
+
+  // Load live prices from site_settings
+  React.useEffect(() => {
+    supabase.from('site_settings').select('value').eq('key','membership').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          const v = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+          const std = Number(v.standard_price);
+          const ren = Number(v.renewal_price);
+          setMemPrices({
+            standard: std > 0 ? std : 500,
+            renewal:  ren > 0 ? ren : 200,
+          });
+        }
+      });
+  }, []);
 
   // Auto-fill referral code from URL ?ref= param
   React.useEffect(() => {
@@ -230,16 +247,16 @@ export default function Modals() {
             <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'16px 20px',marginBottom:'20px',textAlign:'left'}}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'6px'}}>
                 <span style={{color:'var(--text-muted)'}}>FIP Standard Membership</span>
-                <span style={{fontWeight:700}}>₹500</span>
+                <span style={{fontWeight:700}}>₹{memPrices.standard}</span>
               </div>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'6px'}}>
                 <span style={{color:'var(--text-muted)'}}>GST (18%)</span>
-                <span style={{fontWeight:700}}>₹90</span>
+                <span style={{fontWeight:700}}>₹{Math.round(memPrices.standard * 0.18)}</span>
               </div>
               <div style={{height:'1px',background:'var(--border)',margin:'8px 0'}}></div>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:'15px',fontWeight:800,color:'var(--blue)'}}>
                 <span>Total</span>
-                <span>₹590</span>
+                <span>₹{memPrices.standard + Math.round(memPrices.standard * 0.18)}</span>
               </div>
               <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'6px'}}>Valid for 1 year · Secure payment via Razorpay</div>
             </div>
@@ -250,6 +267,7 @@ export default function Modals() {
                   const success = await pay({
                     purchaseType: 'membership',
                     planName:     'Standard',
+                    planPrice:    memPrices.standard,
                     onSuccess:    () => { setPayStep(false); closeModal(); navigate('/dashboard'); },
                   });
                   if (!success) {
@@ -262,7 +280,7 @@ export default function Modals() {
                   console.error('Payment error:', err);
                 }
               }}>
-              <i className="fa-solid fa-lock"></i> Pay ₹590 & Activate Membership
+              <i className="fa-solid fa-lock"></i> Pay ₹{memPrices.standard + Math.round(memPrices.standard * 0.18)} & Activate Membership
             </button>
             <button className="btn btn-outline-blue btn-sm" style={{width:'100%',justifyContent:'center'}}
               onClick={() => { setPayStep(false); closeModal(); navigate('/membership'); }}>
@@ -395,7 +413,7 @@ export default function Modals() {
               </button>
               <button type="button" className={`reg-type-btn${regType==='member'?' active':''}`} onClick={() => setRegType('member')}>
                 <i className="fa-solid fa-id-badge"></i>
-                <div><div className="reg-type-label">FIP Member</div><div className="reg-type-desc">₹500/yr · Full access</div></div>
+                <div><div className="reg-type-label">FIP Member</div><div className="reg-type-desc">₹{memPrices.standard}/yr · Full access</div></div>
               </button>
             </div>
 
@@ -463,7 +481,7 @@ export default function Modals() {
                   ? <><i className="fa-solid fa-spinner fa-spin"></i> Creating account…</>
                   : regType === 'student'
                   ? <><i className="fa-solid fa-graduation-cap"></i> Create Free Student Account</>
-                  : <><i className="fa-solid fa-id-badge"></i> Create Account &amp; Pay ₹500</>
+                  : <><i className="fa-solid fa-id-badge"></i> Create Account &amp; Pay ₹{memPrices.standard}</>
                 }
               </button>
               <p style={{textAlign:'center',fontSize:'13px',color:'var(--text-muted)'}}>

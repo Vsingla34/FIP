@@ -5,12 +5,14 @@ import { supabase } from '../lib/supabase.js';
 import { committees as localCommittees } from '../data/index.js';
 
 const ROLE_STYLES = {
-  chairman:         { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
-  'co-chairman':    { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
-  chairperson:      { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
-  'co-chairperson': { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
-  secretary:        { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
-  member:           { avCls:'cm-av-member',   roleCls:'cm-role-member'   },
+  chairman:           { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
+  chairperson:        { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
+  'co-chairman':      { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
+  'co-chairperson':   { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
+  'vice chairman':    { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
+  'vice chairperson': { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
+  secretary:          { avCls:'cm-av-member',   roleCls:'cm-role-member'   },
+  member:             { avCls:'cm-av-member',   roleCls:'cm-role-member'   },
 };
 
 function getRoleStyle(role = '') {

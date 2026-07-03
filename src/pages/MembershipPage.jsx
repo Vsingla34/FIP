@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase.js';
+import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useRazorpay } from '../hooks/useRazorpay.js';
@@ -8,6 +10,22 @@ export default function MembershipPage() {
   const { user, profile } = useAuth();
   const { pay } = useRazorpay();
   const navigate = useNavigate();
+  const [prices, setPrices] = useState({ standard_price: 500, renewal_price: 200 });
+
+  useEffect(() => {
+    supabase.from('site_settings').select('value').eq('key','membership').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          const v = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+          const std = Number(v.standard_price);
+          const ren = Number(v.renewal_price);
+          setPrices({
+            standard_price: std > 0 ? std : 500,
+            renewal_price:  ren > 0 ? ren : 200,
+          });
+        }
+      });
+  }, []);
 
   const isActiveMember = profile?.membership_status === 'Active';
   const role = isActiveMember ? 'member' : (user ? 'student' : 'visitor');
@@ -18,25 +36,29 @@ export default function MembershipPage() {
 
     // Trigger real Razorpay payment
     const planName = planKey === 'renewal' ? 'Renewal' : 'Standard';
+    const planPrice = planKey === 'renewal' ? prices.renewal_price : prices.standard_price;
     await pay({
       purchaseType: 'membership',
       planName,
+      planPrice,
       onSuccess: () => navigate('/dashboard'),
     });
   };
 
   const allPlans = [
     {
-      tier:'Standard', name:'Standard', price:'₹500', period:'/year',
+      tier:'Standard', name:'Standard',
+      price: `₹${prices.standard_price}`, period:'/year',
       desc:'For new members', featured:false, key:'standard',
-      btnLabel:'Get Started', btnCls:'mem-btn-out',
+      btnLabel:`Get Started — ₹${prices.standard_price}`, btnCls:'mem-btn-out',
       showFor:['visitor','student'],
       features:['Access to member directory','Event RSVP & reminders','1 Committee membership','Monthly newsletter','CPE webinar access','Digital membership certificate'],
     },
     {
-      tier:'Renewal', name:'Renewal', price:'₹200', period:'/year',
+      tier:'Renewal', name:'Renewal',
+      price: `₹${prices.renewal_price}`, period:'/year',
       desc:'For renewing members', featured:true, key:'renewal',
-      btnLabel:'Renew Now', btnCls:'mem-btn-solid',
+      btnLabel:`Renew Now — ₹${prices.renewal_price}`, btnCls:'mem-btn-solid',
       showFor:['member'],
       features:['All Standard benefits','Priority event registration','2 Committee memberships','Mentorship programme access','Resource library full access','Annual conference pass'],
     },

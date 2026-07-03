@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -36,6 +37,31 @@ const CATEGORIES = Object.keys(CATEGORY_ICONS);
 /* ─────────────────────────────────────────
    ADMIN PAGE
 ───────────────────────────────────────── */
+/* ── Helper: collapsible activity section ── */
+function ActivitySection({ icon, color, title, count, children }) {
+  const [open, setOpen] = React.useState(true);
+  return (
+    <div style={{border:'1px solid var(--border)',borderRadius:'var(--radius-md)',overflow:'hidden'}}>
+      <div style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 14px',background:'var(--off-white)',cursor:'pointer',userSelect:'none'}}
+        onClick={() => setOpen(o => !o)}>
+        <div style={{width:'28px',height:'28px',borderRadius:'6px',background:color+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <i className={'fa-solid ' + icon} style={{fontSize:'12px',color}}></i>
+        </div>
+        <span style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',flex:1}}>{title}</span>
+        <span style={{fontSize:'11px',fontWeight:700,color:count>0?color:'var(--text-light)',background:count>0?color+'15':'var(--border)',padding:'2px 8px',borderRadius:'10px'}}>{count}</span>
+        <i className={'fa-solid fa-chevron-' + (open?'up':'down')} style={{fontSize:'10px',color:'var(--text-light)'}}></i>
+      </div>
+      {open && (
+        <div style={{padding:'4px 14px 10px'}}>{children}</div>
+      )}
+    </div>
+  );
+}
+
+function EmptyActivity({ text }) {
+  return <div style={{textAlign:'center',padding:'14px 0',fontSize:'12px',color:'var(--text-light)'}}>{text}</div>;
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState('dashboard');
 
@@ -76,6 +102,32 @@ export default function AdminPage() {
 
   /* ── role / status changes ── */
   const [committeeModal, setCommitteeModal] = useState(null);
+  const [memberDetail,   setMemberDetail]   = useState(null);
+  const [memberActivity, setMemberActivity] = useState(null); // { payments, courses, rsvps, referrals }
+  const [activityLoading, setActivityLoading] = useState(false);
+
+  const openMemberDetail = async (m) => {
+    setMemberDetail(m);
+    setMemberActivity(null);
+    setActivityLoading(true);
+    try {
+      const [paymentsRes, coursesRes, rsvpsRes, referralsRes, blogRes] = await Promise.all([
+        supabase.from('payments').select('item_name,total_amount,status,created_at').eq('user_id', m.id).order('created_at',{ascending:false}).limit(10),
+        supabase.from('course_registrations').select('course_title,status,created_at').eq('user_id', m.id).order('created_at',{ascending:false}).limit(10),
+        supabase.from('event_rsvps').select('full_name,status,created_at,event_id').eq('user_id', m.id).order('created_at',{ascending:false}).limit(10),
+        supabase.from('referrals').select('status,created_at,reward_given').eq('referrer_id', m.id).order('created_at',{ascending:false}),
+        supabase.from('blog_posts').select('title,status,created_at').eq('author_id', m.id).order('created_at',{ascending:false}).limit(10),
+      ]);
+      setMemberActivity({
+        payments:   paymentsRes.data  || [],
+        courses:    coursesRes.data   || [],
+        rsvps:      rsvpsRes.data     || [],
+        referrals:  referralsRes.data || [],
+        blogs:      blogRes.data      || [],
+      });
+    } catch(e) { console.error('Activity load error:', e); }
+    setActivityLoading(false);
+  };
   const [cmForm, setCmForm] = useState({ committee_name:'', committee_role:'Member' });
 
   const COMMITTEES = [
@@ -301,6 +353,40 @@ export default function AdminPage() {
     showToast('CSV downloaded!');
   };
 
+  const downloadMembersExcel = function(membersList) {
+    var headers = ['Full Name', 'Email', 'Phone', 'Profession', 'City', 'Role', 'Account Type', 'Membership Status', 'Membership End', 'Joined'];
+    var rows = membersList.map(function(m) {
+      return [
+        m.full_name || '',
+        m.email || '',
+        m.phone || '',
+        m.profession || '',
+        m.city || '',
+        m.role || '',
+        m.account_type || '',
+        m.membership_status || '',
+        m.membership_end || '',
+        m.created_at ? new Date(m.created_at).toLocaleDateString('en-IN') : '',
+      ];
+    });
+    var allRows = [headers].concat(rows);
+    var csvLines = allRows.map(function(row) {
+      return row.map(function(cell) {
+        return '"' + String(cell).split('"').join('""') + '"';
+      }).join(',');
+    });
+    var csvContent = csvLines.join('\n');
+    var blob = new Blob([csvContent], { type: 'text/csv' });
+    var url  = URL.createObjectURL(blob);
+    var date = new Date().toISOString().slice(0,10);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'FIP_Members_' + date + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Members CSV downloaded!');
+  };
+
   const loadCourseEnrollments = async (course) => {
     setCourseEnrollmentsLoading(true);
     const { data } = await supabase.rpc('admin_get_course_registrations', { p_course_id: course.id });
@@ -510,6 +596,43 @@ export default function AdminPage() {
     setPopups(p => p.map(x => x.id===id ? {...x, is_active:val} : x));
   };
 
+  /* ── membership settings state ── */
+  const [memSettings,     setMemSettings]     = useState(null);
+  const [memSettingsLoading, setMemSettingsLoading] = useState(false);
+  const [memForm,         setMemForm]         = useState({
+    standard_price: 500,
+    renewal_price:  200,
+    validity_months: 12,
+    membership_start_date: '',
+    membership_end_date:   '',
+    description: '',
+  });
+  const [memSaving, setMemSaving] = useState(false);
+
+  useEffect(() => {
+    if (tab !== 'membership_settings') return;
+    setMemSettingsLoading(true);
+    supabase.from('site_settings').select('*').eq('key', 'membership').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          const v = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+          setMemForm(f => ({ ...f, ...v }));
+        }
+        setMemSettingsLoading(false);
+      });
+  }, [tab]);
+
+  const saveMembershipSettings = async () => {
+    setMemSaving(true);
+    const { error } = await supabase.from('site_settings').upsert(
+      { key: 'membership', value: memForm, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+    setMemSaving(false);
+    if (!error) showToast('Membership settings saved!');
+    else showToast('Error: ' + error.message, true);
+  };
+
   /* ── contacts state ── */
   const [contacts,       setContacts]       = useState([]);
   const [contactsLoading,setContactsLoading]= useState(false);
@@ -644,16 +767,42 @@ export default function AdminPage() {
     }
   };
 
-  /* ── Dashboard summary stats ── */
-  const totalRevenue = members.length * 1200; // placeholder formula until live payments table is wired
-  const upcomingEventsCount = 7;
-  const courseEnrollmentsCount = 214;
+  /* ── Dashboard live stats ── */
+  const [dashStats,       setDashStats]       = useState({ revenue:0, events:0, enrollments:0, activeMembers:0 });
+  const [recentPayments,  setRecentPayments]  = useState([]);
+  const [dashLoading,     setDashLoading]     = useState(false);
 
-  const recentPayments = [
-    { memberName: 'CA Priya S.',  plan: 'Standard', amount: 500, status: 'Paid' },
-    { memberName: 'CS Ravi K.',   plan: 'Renewal',  amount: 200, status: 'Pending' },
-    { memberName: 'CA Anjali M.', plan: 'Standard', amount: 500, status: 'Paid' },
-  ];
+  useEffect(() => {
+    if (tab !== 'dashboard') return;
+    setDashLoading(true);
+    Promise.all([
+      // Revenue this year (paid payments)
+      supabase.from('payments').select('total_amount').eq('status','paid')
+        .gte('created_at', new Date(new Date().getFullYear(), 0, 1).toISOString()),
+      // Active events count
+      supabase.from('events').select('id', { count:'exact', head:true }).in('status',['upcoming','ongoing']),
+      // Course registrations count
+      supabase.from('course_registrations').select('id', { count:'exact', head:true }),
+      // Total profiles count
+      supabase.from('profiles').select('id', { count:'exact', head:true }),
+      // Active members count
+      supabase.from('profiles').select('id', { count:'exact', head:true }).eq('membership_status','Active'),
+      // Recent payments with profile join
+      supabase.from('payments').select('total_amount,status,item_name,created_at,user_id,profiles(full_name)')
+        .order('created_at', { ascending:false }).limit(8),
+    ]).then(([revRes, evRes, courseRes, totalMembRes, activeMembRes, payRes]) => {
+      const revenue = (revRes.data||[]).reduce((s,p) => s + (Number(p.total_amount)||0), 0);
+      setDashStats({
+        revenue,
+        events:        evRes.count       || 0,
+        enrollments:   courseRes.count   || 0,
+        totalMembers:  totalMembRes.count || 0,
+        activeMembers: activeMembRes.count || 0,
+      });
+      setRecentPayments(payRes.data || []);
+      setDashLoading(false);
+    });
+  }, [tab]);
 
   /* ── nav items ── */
   const navItems = [
@@ -768,6 +917,9 @@ export default function AdminPage() {
           <button className={`admin-nav-v2${tab==='contacts'?' active':''}`} onClick={() => setTab('contacts')}>
             <i className="fa-solid fa-envelope"></i> Contact Messages
           </button>
+          <button className={`admin-nav-v2${tab==='membership_settings'?' active':''}`} onClick={() => setTab('membership_settings')}>
+            <i className="fa-solid fa-id-card"></i> Membership
+          </button>
           <button className={`admin-nav-v2${tab==='popups'?' active':''}`} onClick={() => setTab('popups')}>
             <i className="fa-solid fa-rectangle-ad"></i> Popups
           </button>
@@ -788,43 +940,43 @@ export default function AdminPage() {
           {/* ═══ DASHBOARD ═══ */}
           {tab === 'dashboard' && (
             <>
-              <h2 className="admin-page-title">Dashboard Overview</h2>
+              <h2 className="admin-page-title">Dashboard Overview {dashLoading && <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'14px',color:'var(--text-light)',marginLeft:'8px'}}></i>}</h2>
 
               {/* Stat cards row — matches reference exactly */}
               <div className="dboard-stats-row">
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-blue"><i className="fa-solid fa-users"></i></div>
-                  <div className="dboard-stat-val">{totalMembers.toLocaleString('en-IN')}</div>
+                  <div className="dboard-stat-val">{dashStats.totalMembers || totalMembers}</div>
                   <div className="dboard-stat-lbl">Total Members</div>
                   <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> +48 this month
+                    <i className="fa-solid fa-arrow-up"></i> {dashStats.activeMembers} active
                   </div>
                 </div>
 
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-orange"><i className="fa-solid fa-indian-rupee-sign"></i></div>
-                  <div className="dboard-stat-val">₹{(totalRevenue/100000).toFixed(1)}L</div>
+                  <div className="dboard-stat-val">{dashStats.revenue >= 100000 ? `₹${(dashStats.revenue/100000).toFixed(1)}L` : `₹${dashStats.revenue.toLocaleString('en-IN')}`}</div>
                   <div className="dboard-stat-lbl">Revenue This Year</div>
                   <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> +12% vs last year
+                    <i className="fa-solid fa-arrow-up"></i> Paid payments only
                   </div>
                 </div>
 
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-green"><i className="fa-solid fa-calendar-check"></i></div>
-                  <div className="dboard-stat-val">{upcomingEventsCount}</div>
+                  <div className="dboard-stat-val">{dashStats.events}</div>
                   <div className="dboard-stat-lbl">Active Events</div>
                   <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> 3 this month
+                    <i className="fa-solid fa-arrow-up"></i> Upcoming & ongoing
                   </div>
                 </div>
 
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-purple"><i className="fa-solid fa-graduation-cap"></i></div>
-                  <div className="dboard-stat-val">{courseEnrollmentsCount}</div>
-                  <div className="dboard-stat-lbl">Course Enrollments</div>
+                  <div className="dboard-stat-val">{dashStats.enrollments}</div>
+                  <div className="dboard-stat-lbl">Course Registrations</div>
                   <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> +31 this week
+                    <i className="fa-solid fa-arrow-up"></i> All time
                   </div>
                 </div>
               </div>
@@ -872,16 +1024,18 @@ export default function AdminPage() {
                         <tr><th>Member</th><th>Plan</th><th>Amount</th><th>Status</th></tr>
                       </thead>
                       <tbody>
-                        {recentPayments.length === 0 ? (
+                        {dashLoading ? (
+                          <tr><td colSpan={4} style={{textAlign:'center',padding:'24px',color:'var(--text-light)'}}><i className="fa-solid fa-spinner fa-spin"></i></td></tr>
+                        ) : recentPayments.length === 0 ? (
                           <tr><td colSpan={4} style={{textAlign:'center',padding:'24px',color:'var(--text-light)'}}>No payments yet</td></tr>
                         ) : recentPayments.map((p,i) => (
                           <tr key={i}>
                             <td>
-                              <div className="dboard-table-name">{p.memberName}</div>
+                              <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
                             </td>
-                            <td className="dboard-table-muted">{p.plan}</td>
+                            <td className="dboard-table-muted" style={{fontSize:'11px',maxWidth:'100px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.item_name}</td>
                             <td>
-                              <span style={{color:'var(--orange)',fontWeight:700}}>₹{p.amount}</span>
+                              <span style={{color:'var(--orange)',fontWeight:700}}>₹{p.total_amount}</span>
                             </td>
                             <td>
                               <span className={`dboard-pill ${p.status==='Paid'?'pill-green':'pill-orange'}`}>
@@ -935,6 +1089,10 @@ export default function AdminPage() {
             <div className="admin-form-card">
               <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
                 <span>All Members <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({filteredMembers.length})</span></span>
+                <button className="btn btn-sm" style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
+                  onClick={() => downloadMembersExcel(filteredMembers)}>
+                  <i className="fa-solid fa-file-excel"></i> Download Excel ({filteredMembers.length})
+                </button>
               </div>
 
               {/* Search */}
@@ -992,6 +1150,11 @@ export default function AdminPage() {
                           </td>
                           <td>
                             <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                              {/* View details */}
+                              <button className="admin-btn" style={{background:'var(--blue)',color:'#fff',border:'none'}}
+                                onClick={() => openMemberDetail(m)}>
+                                <i className="fa-solid fa-eye"></i> View
+                              </button>
                               {m.role!=='admin'
                                 ? <button className="admin-btn admin-btn-orange" onClick={()=>handleRoleChange(m.id,'admin')}><i className="fa-solid fa-shield-halved"></i> Make Admin</button>
                                 : <button className="admin-btn admin-btn-danger" onClick={()=>handleRoleChange(m.id,'member')}><i className="fa-solid fa-user"></i> Make Member</button>
@@ -1831,6 +1994,124 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* ═══ MEMBERSHIP SETTINGS ═══ */}
+          {tab === 'membership_settings' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title">Membership Plan Settings</div>
+              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>
+                Configure membership pricing, validity period and membership dates. These values are used across the site.
+              </p>
+
+              {memSettingsLoading ? (
+                <div style={{textAlign:'center',padding:'40px'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',color:'var(--orange)'}}></i></div>
+              ) : (
+                <>
+                  {/* Pricing section */}
+                  <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'var(--radius-md)',padding:'16px 20px',marginBottom:'20px'}}>
+                    <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'6px'}}>
+                      <i className="fa-solid fa-indian-rupee-sign"></i> Pricing
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Standard Membership Price (₹) *</label>
+                        <input className="form-input" type="number" min="0" placeholder="500"
+                          value={memForm.standard_price}
+                          onChange={e=>setMemForm(f=>({...f,standard_price:Number(e.target.value)}))}/>
+                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>For new members joining FIP</div>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Renewal Membership Price (₹) *</label>
+                        <input className="form-input" type="number" min="0" placeholder="200"
+                          value={memForm.renewal_price}
+                          onChange={e=>setMemForm(f=>({...f,renewal_price:Number(e.target.value)}))}/>
+                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>For existing members renewing</div>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Validity Period (months)</label>
+                        <input className="form-input" type="number" min="1" max="60" placeholder="12"
+                          value={memForm.validity_months}
+                          onChange={e=>setMemForm(f=>({...f,validity_months:Number(e.target.value)}))}/>
+                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>How long membership lasts after payment</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Membership period */}
+                  <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'16px 20px',marginBottom:'20px'}}>
+                    <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'6px'}}>
+                      <i className="fa-solid fa-calendar"></i> Membership Year
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Membership Period Start</label>
+                        <input className="form-input" type="date"
+                          value={memForm.membership_start_date}
+                          onChange={e=>setMemForm(f=>({...f,membership_start_date:e.target.value}))}/>
+                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>e.g. 01-04-2025 (financial year start)</div>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Membership Period End</label>
+                        <input className="form-input" type="date"
+                          value={memForm.membership_end_date}
+                          onChange={e=>setMemForm(f=>({...f,membership_end_date:e.target.value}))}/>
+                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>e.g. 31-03-2026 (financial year end)</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div style={{marginBottom:'20px'}}>
+                    <label className="form-label">Membership Description</label>
+                    <textarea className="form-textarea"
+                      placeholder="Describe what members get with their FIP membership…"
+                      value={memForm.description}
+                      onChange={e=>setMemForm(f=>({...f,description:e.target.value}))}
+                      style={{minHeight:'120px'}}/>
+                    <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>This can be shown on the membership page</div>
+                  </div>
+
+                  {/* Preview */}
+                  <div style={{background:'linear-gradient(135deg,#1A3C6E,#1B4A9E)',borderRadius:'var(--radius-lg)',padding:'20px 24px',marginBottom:'20px',color:'#fff'}}>
+                    <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'10px'}}>Preview</div>
+                    <div style={{display:'flex',gap:'24px',flexWrap:'wrap'}}>
+                      <div>
+                        <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>New Member</div>
+                        <div style={{fontSize:'28px',fontWeight:900,color:'#FFD09B'}}>₹{memForm.standard_price}<span style={{fontSize:'14px',fontWeight:400,color:'rgba(255,255,255,0.45)'}}>/yr</span></div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>Renewal</div>
+                        <div style={{fontSize:'28px',fontWeight:900,color:'#FFD09B'}}>₹{memForm.renewal_price}<span style={{fontSize:'14px',fontWeight:400,color:'rgba(255,255,255,0.45)'}}>/yr</span></div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>Validity</div>
+                        <div style={{fontSize:'28px',fontWeight:900,color:'#FFD09B'}}>{memForm.validity_months}<span style={{fontSize:'14px',fontWeight:400,color:'rgba(255,255,255,0.45)'}}> months</span></div>
+                      </div>
+                      {memForm.membership_start_date && memForm.membership_end_date && (
+                        <div>
+                          <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>Period</div>
+                          <div style={{fontSize:'14px',fontWeight:700,color:'#fff'}}>
+                            {new Date(memForm.membership_start_date).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit',year:'numeric'})}
+                            {' – '}
+                            {new Date(memForm.membership_end_date).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit',year:'numeric'})}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                    <button className="btn btn-primary" onClick={saveMembershipSettings} disabled={memSaving}>
+                      {memSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-check"></i> Save Settings</>}
+                    </button>
+
+                  </div>
+
+
+                </>
+              )}
+            </div>
+          )}
+
           {/* ═══ POPUPS ═══ */}
           {tab === 'popups' && (
             <div className="admin-form-card">
@@ -2130,7 +2411,179 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── Committee Assignment Modal ── */}
+      {/* ── Member Detail Modal ── */}
+      {memberDetail && (
+        <div className="modal-overlay" onClick={() => { setMemberDetail(null); setMemberActivity(null); }}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'640px',maxHeight:'90vh',overflowY:'auto'}}>
+            <button className="modal-close" onClick={() => { setMemberDetail(null); setMemberActivity(null); }}>&#x2715;</button>
+
+            {/* ── Profile header ── */}
+            <div style={{display:'flex',alignItems:'center',gap:'16px',marginBottom:'20px',paddingBottom:'16px',borderBottom:'1px solid var(--border)'}}>
+              <div style={{
+                width:'60px',height:'60px',borderRadius:'50%',flexShrink:0,
+                background: memberDetail.avatar_url ? 'transparent' : 'linear-gradient(135deg,var(--blue),#1B4A9E)',
+                display:'flex',alignItems:'center',justifyContent:'center',
+                fontSize:'18px',fontWeight:800,color:'#FFD09B',overflow:'hidden',
+                border: memberDetail.is_committee_member ? '2px solid #FFD700' : '2px solid var(--border)',
+              }}>
+                {memberDetail.avatar_url
+                  ? <img src={memberDetail.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                  : (memberDetail.full_name||'M').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()
+                }
+              </div>
+              <div style={{flex:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'3px'}}>
+                  <span style={{fontSize:'17px',fontWeight:800,color:'var(--blue)'}}>{memberDetail.full_name}</span>
+                  {memberDetail.is_committee_member && <span className="gold-badge"><i className="fa-solid fa-crown"></i> Committee</span>}
+                  {memberDetail.role === 'admin' && <span style={{fontSize:'10px',fontWeight:700,background:'var(--orange)',color:'#fff',padding:'2px 8px',borderRadius:'10px'}}>Admin</span>}
+                </div>
+                <div style={{fontSize:'12px',color:'var(--text-muted)'}}>{memberDetail.email}</div>
+                {memberDetail.profession && <div style={{fontSize:'12px',color:'var(--text-light)'}}>{memberDetail.profession}</div>}
+              </div>
+              <span className={'status-pill ' + (memberDetail.membership_status==='Active' ? 'sp-active' : 'sp-rejected')}>
+                {memberDetail.membership_status || 'Inactive'}
+              </span>
+            </div>
+
+            {/* ── Info grid ── */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'20px'}}>
+              {[
+                { label:'Phone',           val: memberDetail.phone },
+                { label:'City',            val: memberDetail.city },
+                { label:'Designation',     val: memberDetail.designation },
+                { label:'Organisation',    val: memberDetail.organisation },
+                { label:'Account Type',    val: memberDetail.account_type },
+                { label:'Membership Plan', val: memberDetail.membership_plan },
+                { label:'Membership End',  val: memberDetail.membership_end ? new Date(memberDetail.membership_end).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : null },
+                { label:'Committee',       val: memberDetail.committee_name },
+                { label:'Committee Role',  val: memberDetail.committee_role },
+                { label:'Joined',          val: memberDetail.created_at ? new Date(memberDetail.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}) : null },
+                { label:'Member ID',       val: memberDetail.profile_slug ? 'FIP-' + (memberDetail.profile_slug.split('-').pop()||'').toUpperCase() : memberDetail.id?.slice(0,8).toUpperCase() },
+                { label:'Referral Code',   val: null },
+              ].filter(r => r.val).map((r,i) => (
+                <div key={i} style={{background:'var(--off-white)',borderRadius:'8px',padding:'9px 12px',border:'1px solid var(--border)'}}>
+                  <div style={{fontSize:'9px',fontWeight:700,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'3px'}}>{r.label}</div>
+                  <div style={{fontSize:'13px',color:'var(--blue)',fontWeight:600}}>{r.val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Activity sections ── */}
+            {activityLoading ? (
+              <div style={{textAlign:'center',padding:'24px',color:'var(--text-muted)'}}>
+                <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'20px',display:'block',marginBottom:'8px',color:'var(--orange)'}}></i>
+                Loading activity…
+              </div>
+            ) : memberActivity && (
+              <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
+
+                {/* Payments */}
+                <ActivitySection icon="fa-credit-card" color="var(--green)" title="Payments" count={memberActivity.payments.length}>
+                  {memberActivity.payments.length === 0
+                    ? <EmptyActivity text="No payments yet"/>
+                    : memberActivity.payments.map((p,i) => (
+                      <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                        <div>
+                          <div style={{fontSize:'13px',fontWeight:600,color:'var(--blue)'}}>{p.item_name}</div>
+                          <div style={{fontSize:'11px',color:'var(--text-light)'}}>{new Date(p.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                          <span style={{fontSize:'13px',fontWeight:700,color:'var(--green)'}}>₹{p.total_amount}</span>
+                          <span className={'status-pill ' + (p.status==='paid'?'sp-active':'sp-rejected')} style={{fontSize:'10px',padding:'2px 8px'}}>{p.status}</span>
+                        </div>
+                      </div>
+                    ))
+                  }
+                </ActivitySection>
+
+                {/* Course Registrations */}
+                <ActivitySection icon="fa-graduation-cap" color="var(--blue)" title="Course Registrations" count={memberActivity.courses.length}>
+                  {memberActivity.courses.length === 0
+                    ? <EmptyActivity text="No course registrations"/>
+                    : memberActivity.courses.map((c,i) => (
+                      <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                        <div style={{fontSize:'13px',fontWeight:600,color:'var(--blue)'}}>{c.course_title}</div>
+                        <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                          <span style={{fontSize:'11px',color:'var(--text-light)'}}>{new Date(c.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
+                          <span className="status-pill sp-active" style={{fontSize:'10px',padding:'2px 8px'}}>{c.status||'registered'}</span>
+                        </div>
+                      </div>
+                    ))
+                  }
+                </ActivitySection>
+
+                {/* Event RSVPs */}
+                <ActivitySection icon="fa-calendar-check" color="var(--orange)" title="Event RSVPs" count={memberActivity.rsvps.length}>
+                  {memberActivity.rsvps.length === 0
+                    ? <EmptyActivity text="No event RSVPs"/>
+                    : memberActivity.rsvps.map((r,i) => (
+                      <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                        <div style={{fontSize:'13px',fontWeight:600,color:'var(--blue)'}}>{r.full_name || 'RSVP'}</div>
+                        <span style={{fontSize:'11px',color:'var(--text-light)'}}>{new Date(r.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span>
+                      </div>
+                    ))
+                  }
+                </ActivitySection>
+
+                {/* Referrals */}
+                <ActivitySection icon="fa-gift" color="#B8860B" title="Referrals" count={memberActivity.referrals.length}>
+                  {memberActivity.referrals.length === 0
+                    ? <EmptyActivity text="No referrals yet"/>
+                    : (
+                      <div style={{display:'flex',gap:'12px',flexWrap:'wrap',padding:'8px 0'}}>
+                        <div style={{textAlign:'center'}}>
+                          <div style={{fontSize:'22px',fontWeight:800,color:'var(--blue)'}}>{memberActivity.referrals.length}</div>
+                          <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Total</div>
+                        </div>
+                        <div style={{textAlign:'center'}}>
+                          <div style={{fontSize:'22px',fontWeight:800,color:'var(--green)'}}>{memberActivity.referrals.filter(r=>r.status==='completed'||r.status==='rewarded').length}</div>
+                          <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Converted</div>
+                        </div>
+                        <div style={{textAlign:'center'}}>
+                          <div style={{fontSize:'22px',fontWeight:800,color:'#B8860B'}}>{memberActivity.referrals.filter(r=>r.reward_given).length}</div>
+                          <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Rewarded</div>
+                        </div>
+                      </div>
+                    )
+                  }
+                </ActivitySection>
+
+                {/* Blog Posts */}
+                {memberActivity.blogs.length > 0 && (
+                  <ActivitySection icon="fa-pen-nib" color="#7C3AED" title="Blog Posts" count={memberActivity.blogs.length}>
+                    {memberActivity.blogs.map((b,i) => (
+                      <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                        <div style={{fontSize:'13px',fontWeight:600,color:'var(--blue)',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginRight:'8px'}}>{b.title}</div>
+                        <span className={'status-pill ' + (b.status==='approved'?'sp-active':b.status==='pending'?'sp-pending':'sp-rejected')} style={{fontSize:'10px',padding:'2px 8px',flexShrink:0}}>{b.status}</span>
+                      </div>
+                    ))}
+                  </ActivitySection>
+                )}
+              </div>
+            )}
+
+            {/* Footer links */}
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'20px',paddingTop:'16px',borderTop:'1px solid var(--border)'}}>
+              {memberDetail.linkedin_url && (
+                <a href={memberDetail.linkedin_url} target="_blank" rel="noopener"
+                  style={{display:'inline-flex',alignItems:'center',gap:'6px',background:'#0077B5',color:'#fff',padding:'7px 14px',borderRadius:'7px',textDecoration:'none',fontSize:'12px',fontWeight:600}}>
+                  <i className="fa-brands fa-linkedin-in"></i> LinkedIn
+                </a>
+              )}
+              {memberDetail.profile_slug && (
+                <a href={'/member/' + memberDetail.profile_slug} target="_blank" rel="noopener"
+                  style={{display:'inline-flex',alignItems:'center',gap:'6px',background:'var(--blue-pale)',color:'var(--blue)',padding:'7px 14px',borderRadius:'7px',textDecoration:'none',fontSize:'12px',fontWeight:600,border:'1px solid #C0CDE8'}}>
+                  <i className="fa-solid fa-user"></i> View Profile
+                </a>
+              )}
+              <button style={{marginLeft:'auto',background:'none',border:'1px solid var(--border)',padding:'7px 14px',borderRadius:'7px',fontSize:'12px',color:'var(--text-muted)',cursor:'pointer'}}
+                onClick={() => { setMemberDetail(null); setMemberActivity(null); }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+            {/* ── Committee Assignment Modal ── */}
       {committeeModal && (
         <div className="modal-overlay" onClick={() => setCommitteeModal(null)}>
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'460px'}}>
