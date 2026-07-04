@@ -19,6 +19,7 @@ export default function Modals() {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
   const [payStep,    setPayStep]    = useState(false);
+  const [paySuccess, setPaySuccess] = useState(null); // { name, amount, plan }
   const [refCode,    setRefCode]    = useState('');
   const [memPrices,  setMemPrices]  = useState({ standard: 500, renewal: 200 });
 
@@ -225,15 +226,88 @@ export default function Modals() {
   };
 
   return (
-    <div className="modal-overlay" onClick={(!otpStep && !payStep) ? closeModal : undefined}>
+    <div className="modal-overlay" onClick={(!otpStep && !payStep && !paySuccess) ? closeModal : undefined}>
       <div className="modal-box" onClick={e => e.stopPropagation()}>
-        {!otpStep && !payStep && (
+        {!otpStep && !payStep && !paySuccess && (
           <button className="modal-close" onClick={() => { closeModal(); clearError(); setOtpStep(false); }}>&#x2715;</button>
         )}
 
         {/* ══════════════════════════════════
             PAYMENT STEP (after member OTP)
         ══════════════════════════════════ */}
+        {/* ══ PAYMENT SUCCESS SCREEN ══ */}
+        {paySuccess && (
+          <div style={{textAlign:'center',padding:'16px 8px'}}>
+            {/* Animated checkmark */}
+            <div style={{
+              width:'80px',height:'80px',borderRadius:'50%',
+              background:'linear-gradient(135deg,#16A34A,#22C55E)',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              margin:'0 auto 20px',
+              boxShadow:'0 8px 32px rgba(34,197,94,0.35)',
+              animation:'popIn 0.4s cubic-bezier(0.175,0.885,0.32,1.275)',
+            }}>
+              <i className="fa-solid fa-check" style={{fontSize:'32px',color:'#fff'}}></i>
+            </div>
+
+            <div style={{fontSize:'22px',fontWeight:900,color:'var(--blue)',marginBottom:'6px',fontFamily:"'Playfair Display',serif"}}>
+              Payment Successful! 🎉
+            </div>
+            <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,marginBottom:'20px'}}>
+              Welcome to FIP! Your membership is now <strong style={{color:'var(--green)'}}>Active</strong>.
+            </p>
+
+            {/* Receipt */}
+            <div style={{background:'linear-gradient(135deg,#1A3C6E,#1B4A9E)',borderRadius:'14px',padding:'18px 20px',marginBottom:'20px',textAlign:'left'}}>
+              <div style={{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'1.5px',marginBottom:'10px'}}>Payment Receipt</div>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}>
+                <span style={{fontSize:'13px',color:'rgba(255,255,255,0.7)'}}>FIP {paySuccess.plan} Membership</span>
+                <span style={{fontSize:'13px',fontWeight:700,color:'#FFD09B'}}>₹{paySuccess.amount}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}>
+                <span style={{fontSize:'13px',color:'rgba(255,255,255,0.7)'}}>Validity</span>
+                <span style={{fontSize:'13px',color:'rgba(255,255,255,0.8)'}}>1 Year</span>
+              </div>
+              <div style={{borderTop:'1px solid rgba(255,255,255,0.15)',paddingTop:'10px',marginTop:'4px'}}>
+                <div style={{fontSize:'12px',color:'rgba(255,255,255,0.5)'}}>
+                  <i className="fa-solid fa-envelope" style={{marginRight:'6px',color:'#FFD09B'}}></i>
+                  A confirmation email has been sent to your inbox
+                </div>
+              </div>
+            </div>
+
+            {/* What's unlocked */}
+            <div style={{background:'var(--green-pale)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:'10px',padding:'14px 16px',marginBottom:'20px',textAlign:'left'}}>
+              <div style={{fontSize:'12px',fontWeight:700,color:'#15803D',marginBottom:'8px'}}>
+                <i className="fa-solid fa-unlock" style={{marginRight:'6px'}}></i>
+                You now have access to:
+              </div>
+              {['Member Directory','Exclusive Events & RSVPs','Job Board','Committee Memberships','Webinars & Courses','Digital Certificate'].map((item,i) => (
+                <div key={i} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'12px',color:'#166534',padding:'3px 0'}}>
+                  <i className="fa-solid fa-circle-check" style={{color:'#22C55E',fontSize:'11px',flexShrink:0}}></i>
+                  {item}
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:'flex',gap:'10px',justifyContent:'center',flexWrap:'wrap'}}>
+              <button className="btn btn-primary" onClick={() => { setPaySuccess(null); closeModal(); navigate('/dashboard'); }}>
+                <i className="fa-solid fa-gauge-high"></i> Go to Dashboard
+              </button>
+              <button className="btn btn-outline-blue btn-sm" onClick={() => { setPaySuccess(null); closeModal(); }}>
+                Close
+              </button>
+            </div>
+
+            <style>{`
+              @keyframes popIn {
+                from { transform: scale(0.5); opacity: 0; }
+                to   { transform: scale(1);   opacity: 1; }
+              }
+            `}</style>
+          </div>
+        )}
+
         {payStep && (
           <div style={{textAlign:'center',padding:'8px 0'}}>
             <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'linear-gradient(135deg,#B8860B,#FFD700)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px'}}>
@@ -268,7 +342,14 @@ export default function Modals() {
                     purchaseType: 'membership',
                     planName:     'Standard',
                     planPrice:    memPrices.standard,
-                    onSuccess:    () => { setPayStep(false); closeModal(); navigate('/dashboard'); },
+                    onSuccess:    () => {
+                      setPayStep(false);
+                      setPaySuccess({
+                        name:   profile?.full_name || user?.email || 'Member',
+                        amount: memPrices.standard + Math.round(memPrices.standard * 0.18),
+                        plan:   'Standard',
+                      });
+                    },
                   });
                   if (!success) {
                     setPayStep(false);

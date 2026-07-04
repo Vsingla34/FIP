@@ -596,6 +596,59 @@ export default function AdminPage() {
     setPopups(p => p.map(x => x.id===id ? {...x, is_active:val} : x));
   };
 
+  /* ── certificates state ── */
+  const [certCourses,    setCertCourses]    = useState([]);
+  const [certCourseId,   setCertCourseId]   = useState('');
+  const [certTemplateUrl,setCertTemplateUrl]= useState('');
+  const [certList,       setCertList]       = useState([]);
+  const [certLoading,    setCertLoading]    = useState(false);
+  const [certGenerating, setCertGenerating] = useState(false);
+  const [certResult,     setCertResult]     = useState(null);
+  const [certRegCount,   setCertRegCount]   = useState(0);
+
+  useEffect(() => {
+    if (tab !== 'certificates') return;
+    // Load published courses
+    supabase.from('courses').select('id,title,event_date').eq('status','published')
+      .order('created_at',{ascending:false})
+      .then(({ data }) => setCertCourses(data || []));
+    // Load issued certs
+    supabase.rpc('admin_get_certificates').then(({ data }) => setCertList(data || []));
+  }, [tab]);
+
+  const loadCertCourse = async (cId) => {
+    setCertCourseId(cId);
+    setCertResult(null);
+    if (!cId) { setCertRegCount(0); return; }
+    const { count } = await supabase.from('course_registrations')
+      .select('id', { count:'exact', head:true }).eq('course_id', cId);
+    setCertRegCount(count || 0);
+  };
+
+  const generateCertificates = async () => {
+    if (!certCourseId || !certTemplateUrl) {
+      showToast('Select a course and enter a template image URL.', true);
+      return;
+    }
+    setCertGenerating(true); setCertResult(null);
+    try {
+      const res = await fetch('/api/generate-certificates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId: certCourseId, templateUrl: certTemplateUrl, sendEmails: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setCertResult(data);
+      // Refresh cert list
+      supabase.rpc('admin_get_certificates').then(({ data: d }) => setCertList(d || []));
+      showToast('Certificates generated and emailed!');
+    } catch (err) {
+      showToast('Error: ' + err.message, true);
+    }
+    setCertGenerating(false);
+  };
+
   /* ── membership settings state ── */
   const [memSettings,     setMemSettings]     = useState(null);
   const [memSettingsLoading, setMemSettingsLoading] = useState(false);
@@ -916,6 +969,9 @@ export default function AdminPage() {
           <div className="admin-nav-group-label">Settings</div>
           <button className={`admin-nav-v2${tab==='contacts'?' active':''}`} onClick={() => setTab('contacts')}>
             <i className="fa-solid fa-envelope"></i> Contact Messages
+          </button>
+          <button className={`admin-nav-v2${tab==='certificates'?' active':''}`} onClick={() => setTab('certificates')}>
+            <i className="fa-solid fa-certificate"></i> Certificates
           </button>
           <button className={`admin-nav-v2${tab==='membership_settings'?' active':''}`} onClick={() => setTab('membership_settings')}>
             <i className="fa-solid fa-id-card"></i> Membership
@@ -1991,6 +2047,182 @@ export default function AdminPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ═══ CERTIFICATES ═══ */}
+          {tab === 'certificates' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title">Certificate Generation</div>
+              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>
+                Generate and email certificates to all registered participants of a course.
+              </p>
+
+              {/* Step 1: Select course */}
+              <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'var(--radius-md)',padding:'20px',marginBottom:'16px'}}>
+                <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'14px',display:'flex',alignItems:'center',gap:'8px'}}>
+                  <div style={{width:'24px',height:'24px',borderRadius:'50%',background:'var(--blue)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:800}}>1</div>
+                  Select Course
+                </div>
+                <div className="form-row">
+                  <div className="form-group" style={{flex:2}}>
+                    <label className="form-label">Course *</label>
+                    <select className="form-select" value={certCourseId} onChange={e => loadCertCourse(e.target.value)}>
+                      <option value="">— Select a course —</option>
+                      {certCourses.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.title} {c.event_date ? '(' + new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) + ')' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {certCourseId && (
+                    <div style={{display:'flex',alignItems:'flex-end',paddingBottom:'2px'}}>
+                      <div style={{background:'var(--green)',color:'#fff',borderRadius:'var(--radius-md)',padding:'10px 16px',fontSize:'13px',fontWeight:700,whiteSpace:'nowrap'}}>
+                        <i className="fa-solid fa-users" style={{marginRight:'6px'}}></i>
+                        {certRegCount} Registered
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Step 2: Template URL */}
+              <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'20px',marginBottom:'16px'}}>
+                <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'14px',display:'flex',alignItems:'center',gap:'8px'}}>
+                  <div style={{width:'24px',height:'24px',borderRadius:'50%',background:'var(--blue)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:800}}>2</div>
+                  Certificate Template
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Upload Certificate Template *</label>
+                  <div style={{display:'flex',gap:'10px',alignItems:'flex-start',flexWrap:'wrap'}}>
+                    <label style={{
+                      display:'inline-flex',alignItems:'center',gap:'8px',
+                      background:'var(--blue)',color:'#fff',
+                      padding:'10px 18px',borderRadius:'var(--radius-md)',
+                      cursor:'pointer',fontSize:'13px',fontWeight:700,flexShrink:0,
+                    }}>
+                      <i className="fa-solid fa-upload"></i>
+                      {certTemplateUrl ? 'Change Template' : 'Upload Template (PNG/JPG)'}
+                      <input type="file" accept="image/png,image/jpeg,image/jpg" style={{display:'none'}}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setCertTemplateUrl('uploading');
+                          const fileName = 'templates/' + Date.now() + '_' + file.name.replace(/[^a-z0-9._]/gi,'_');
+                          const { error } = await supabase.storage.from('certificates').upload(fileName, file, { upsert:true });
+                          if (error) { showToast('Upload failed: ' + error.message, true); setCertTemplateUrl(''); return; }
+                          const { data: urlData } = supabase.storage.from('certificates').getPublicUrl(fileName);
+                          setCertTemplateUrl(urlData.publicUrl);
+                          showToast('Template uploaded!');
+                        }}/>
+                    </label>
+                    {certTemplateUrl === 'uploading' && (
+                      <div style={{display:'flex',alignItems:'center',gap:'8px',color:'var(--text-muted)',fontSize:'13px',padding:'10px 0'}}>
+                        <i className="fa-solid fa-spinner fa-spin" style={{color:'var(--orange)'}}></i> Uploading…
+                      </div>
+                    )}
+                    {certTemplateUrl && certTemplateUrl !== 'uploading' && (
+                      <div style={{display:'flex',alignItems:'center',gap:'8px',color:'var(--green)',fontSize:'12px',fontWeight:600,padding:'10px 0'}}>
+                        <i className="fa-solid fa-circle-check"></i> Template ready
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Preview */}
+                  {certTemplateUrl && certTemplateUrl !== 'uploading' && (
+                    <div style={{marginTop:'12px',position:'relative',display:'inline-block'}}>
+                      <img src={certTemplateUrl} alt="Template preview"
+                        style={{maxWidth:'100%',maxHeight:'220px',objectFit:'contain',border:'1px solid var(--border)',borderRadius:'8px',display:'block'}}
+                        onError={e=>e.target.style.display='none'}/>
+                      <button onClick={() => setCertTemplateUrl('')}
+                        style={{position:'absolute',top:'6px',right:'6px',background:'rgba(0,0,0,0.5)',color:'#fff',border:'none',borderRadius:'50%',width:'22px',height:'22px',cursor:'pointer',fontSize:'11px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div style={{background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:'8px',padding:'12px',marginTop:'12px',fontSize:'12px',color:'#92400E'}}>
+                  <i className="fa-solid fa-circle-info" style={{marginRight:'6px'}}></i>
+                  The system will automatically place the participant's <strong>name</strong>, <strong>course title</strong>, and <strong>date</strong> on the template.
+                  Make sure your template has blank spaces at roughly 52%, 61%, and 73% from the top for these fields.
+                </div>
+              </div>
+
+              {/* Generate button */}
+              <div style={{marginBottom:'24px'}}>
+                <button className="btn btn-primary"
+                  onClick={generateCertificates}
+                  disabled={certGenerating || !certCourseId || !certTemplateUrl || certTemplateUrl === 'uploading' || certRegCount === 0}
+                  style={{fontSize:'14px',padding:'13px 28px'}}>
+                  {certGenerating
+                    ? <><i className="fa-solid fa-spinner fa-spin"></i> Generating & Emailing…</>
+                    : <><i className="fa-solid fa-certificate"></i> Generate & Email Certificates ({certRegCount})</>
+                  }
+                </button>
+                {certRegCount === 0 && certCourseId && (
+                  <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>No registrations for this course yet.</span>
+                )}
+              </div>
+
+              {/* Result */}
+              {certResult && (
+                <div style={{background:certResult.failed===0?'var(--green-pale)':'#FEF3C7',border:`1px solid ${certResult.failed===0?'var(--green)':'#FCD34D'}`,borderRadius:'var(--radius-md)',padding:'16px 20px',marginBottom:'24px'}}>
+                  <div style={{fontSize:'14px',fontWeight:700,color:certResult.failed===0?'var(--green)':'#92400E',marginBottom:'8px'}}>
+                    {certResult.failed === 0
+                      ? <><i className="fa-solid fa-circle-check" style={{marginRight:'6px'}}></i>All certificates generated and emailed!</>
+                      : <><i className="fa-solid fa-triangle-exclamation" style={{marginRight:'6px'}}></i>Partially completed</>
+                    }
+                  </div>
+                  <div style={{fontSize:'13px',color:'var(--text-muted)',display:'flex',gap:'16px',flexWrap:'wrap'}}>
+                    <span>✅ Generated: <strong>{certResult.generated}</strong></span>
+                    <span>❌ Failed: <strong>{certResult.failed}</strong></span>
+                    <span>Total: <strong>{certResult.total}</strong></span>
+                  </div>
+                </div>
+              )}
+
+              {/* Issued certificates list */}
+              <div className="admin-form-title" style={{fontSize:'15px',marginTop:'8px'}}>
+                Issued Certificates
+                <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400,marginLeft:'8px'}}>({certList.length})</span>
+              </div>
+              {certList.length === 0 ? (
+                <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-certificate" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+                  No certificates issued yet.
+                </div>
+              ) : (
+                <div style={{overflowX:'auto'}}>
+                  <table className="dboard-table">
+                    <thead><tr><th>Recipient</th><th>Email</th><th>Issued On</th><th>Email Sent</th><th>Certificate</th></tr></thead>
+                    <tbody>
+                      {certList.slice(0,50).map((c,i) => (
+                        <tr key={i}>
+                          <td><div className="dboard-table-name">{c.recipient_name}</div></td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{c.recipient_email}</td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{new Date(c.issued_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</td>
+                          <td style={{textAlign:'center'}}>
+                            {c.email_sent
+                              ? <span style={{color:'var(--green)',fontWeight:700,fontSize:'12px'}}><i className="fa-solid fa-check"></i> Sent</span>
+                              : <span style={{color:'var(--text-light)',fontSize:'12px'}}>—</span>
+                            }
+                          </td>
+                          <td>
+                            {c.certificate_url
+                              ? <a href={c.certificate_url} target="_blank" rel="noopener"
+                                  style={{fontSize:'12px',color:'var(--blue)',fontWeight:600,textDecoration:'none'}}>
+                                  <i className="fa-solid fa-download" style={{marginRight:'4px'}}></i>Download
+                                </a>
+                              : <span style={{fontSize:'12px',color:'var(--text-light)'}}>—</span>
+                            }
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

@@ -34,79 +34,86 @@ function membershipEmailHTML({ name, plan, amount, gst, total, validFrom, validU
 
   <!-- Header -->
   <div style="background:linear-gradient(135deg,#1A3C6E 0%,#1B4A9E 100%);border-radius:16px 16px 0 0;padding:40px;text-align:center;position:relative;overflow:hidden;">
-    <div style="position:absolute;top:-30px;right:-30px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.06);"></div>
+    <div style="position:absolute;top:-30px;right:-30px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,0.05);"></div>
     <div style="position:absolute;bottom:-20px;left:20px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,0.04);"></div>
-    <div style="font-size:32px;font-weight:900;color:#fff;letter-spacing:3px;margin-bottom:2px;">FIP</div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.45);letter-spacing:2px;text-transform:uppercase;">Federation of Indian Professionals</div>
-    <div style="margin-top:20px;font-size:36px;">🎉</div>
-    <h1 style="font-size:26px;font-weight:800;color:#fff;margin:8px 0 4px;">Welcome to FIP, ${firstName}!</h1>
-    <p style="font-size:14px;color:rgba(255,255,255,0.65);margin:0;">Your membership is officially active.</p>
+    <div style="font-size:32px;font-weight:900;color:#fff;letter-spacing:3px;margin-bottom:2px;position:relative;">FIP</div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.45);letter-spacing:2px;text-transform:uppercase;position:relative;">Federation of Indian Professionals</div>
+    <div style="margin-top:24px;font-size:52px;position:relative;">🎉</div>
+    <h1 style="font-size:28px;font-weight:900;color:#fff;margin:10px 0 6px;position:relative;">Welcome to FIP, ${firstName}!</h1>
+    <p style="font-size:15px;color:rgba(255,255,255,0.7);margin:0;position:relative;">Your membership is officially active. We're thrilled to have you!</p>
   </div>
 
-  <!-- Member ID card -->
-  <div style="background:linear-gradient(135deg,#B8860B,#DAA520);padding:20px 32px;text-align:center;">
-    <div style="font-size:10px;color:rgba(255,255,255,0.65);text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;">Your FIP Member ID</div>
-    <div style="font-size:28px;font-weight:900;color:#fff;letter-spacing:4px;font-family:monospace;">${memberId}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:4px;">Keep this safe — use it for all FIP communications</div>
+  <!-- Member ID golden strip -->
+  <div style="background:linear-gradient(90deg,#B8860B,#DAA520,#B8860B);padding:18px 32px;text-align:center;">
+    <div style="font-size:10px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:2px;margin-bottom:5px;">Your FIP Member ID</div>
+    <div style="font-size:26px;font-weight:900;color:#fff;letter-spacing:4px;font-family:monospace;">${memberId}</div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:4px;">Use this ID in all FIP communications</div>
   </div>
 
   <!-- Body -->
   <div style="background:#fff;padding:36px 40px;">
-    <p style="font-size:16px;color:#1A3C6E;font-weight:700;margin:0 0 8px;">Dear ${name},</p>
-    <p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 20px;">
-      It's a privilege to welcome you into the <strong>Federation of Indian Professionals</strong> — 
-      a community of 3,000+ Chartered Accountants, Company Secretaries, CMAs and Advocates committed 
-      to professional excellence and mutual growth.
+
+    <!-- Warm personal message -->
+    <p style="font-size:16px;color:#1A3C6E;font-weight:700;margin:0 0 10px;">Dear ${name},</p>
+    <p style="font-size:14px;color:#4B5563;line-height:1.9;margin:0 0 16px;">
+      On behalf of the entire FIP family, we extend a heartfelt welcome to you! 
+      You've just joined <strong>India's most vibrant professional community</strong> — 
+      3,000+ Chartered Accountants, Company Secretaries, Cost Accountants and Advocates 
+      who share your commitment to excellence and growth.
     </p>
-    <p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 24px;">
-      Your <strong style="color:#1A3C6E;">${plan} Membership</strong> is now active and you have 
-      full access to everything FIP has to offer.
+    <p style="font-size:14px;color:#4B5563;line-height:1.9;margin:0 0 24px;">
+      Your journey with FIP begins today. We look forward to seeing you at our events, 
+      engaging with you on committees, and celebrating your professional milestones together.
     </p>
 
-    <!-- What you get grid -->
-    <div style="background:#F8FAFF;border-radius:12px;padding:20px 24px;margin:0 0 24px;border:1px solid #E0E7FF;">
-      <div style="font-size:12px;font-weight:700;color:#1A3C6E;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px;">✨ Your Member Benefits</div>
+    <!-- Membership card -->
+    <div style="background:linear-gradient(135deg,#1A3C6E,#1B4A9E);border-radius:14px;padding:22px 24px;color:#fff;margin:0 0 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+        <div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Membership Type</div>
+          <div style="font-size:20px;font-weight:900;color:#FFD09B;">${plan} Member</div>
+        </div>
+        <div style="font-size:22px;font-weight:900;color:rgba(255,255,255,0.12);letter-spacing:2px;">FIP</div>
+      </div>
+      <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:12px;display:flex;justify-content:space-between;">
+        <div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:3px;">Member ID</div>
+          <div style="font-size:13px;font-weight:800;color:#fff;letter-spacing:1.5px;font-family:monospace;">${memberId}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:3px;">Valid Until</div>
+          <div style="font-size:13px;font-weight:700;color:#FFD09B;">${formatDate(validUntil)}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- What you've unlocked -->
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:20px 22px;margin:0 0 24px;">
+      <div style="font-size:13px;font-weight:800;color:#15803D;margin-bottom:14px;">
+        🔓 Your Member Benefits Are Now Active
+      </div>
       <table width="100%" style="border-collapse:collapse;">
         <tr>
-          <td style="padding:5px 0;font-size:13px;color:#374151;width:50%;">✅ Member Directory Access</td>
-          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Event Priority Registration</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;width:50%;">✅ Member Directory Access</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;">✅ Priority Event Registration</td>
         </tr>
         <tr>
-          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Exclusive Job Board</td>
-          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Committee Membership</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;">✅ Exclusive Job Board</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;">✅ Committee Membership</td>
         </tr>
         <tr>
-          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Webinars & CPE Courses</td>
-          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Networking Events</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;">✅ Webinars & CPE Courses</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;">✅ Networking Events</td>
         </tr>
         <tr>
-          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Digital Certificate</td>
-          <td style="padding:5px 0;font-size:13px;color:#374151;">✅ Monthly Newsletter</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;">✅ Digital Certificate</td>
+          <td style="padding:5px 0;font-size:13px;color:#166534;">✅ Monthly Newsletter</td>
         </tr>
       </table>
     </div>
 
-    <!-- Membership card -->
-    <div style="background:linear-gradient(135deg,#1A3C6E,#1B4A9E);border-radius:12px;padding:22px 24px;color:#fff;margin:0 0 24px;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-        <div>
-          <div style="font-size:10px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1px;">Membership Type</div>
-          <div style="font-size:18px;font-weight:800;color:#FFD09B;">${plan} Member</div>
-        </div>
-        <div style="font-size:24px;font-weight:900;color:rgba(255,255,255,0.15);letter-spacing:2px;">FIP</div>
-      </div>
-      <div style="border-top:1px solid rgba(255,255,255,0.15);padding-top:12px;">
-        <div style="font-size:10px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Member ID</div>
-        <div style="font-size:16px;font-weight:800;color:#fff;letter-spacing:2px;font-family:monospace;">${memberId}</div>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:rgba(255,255,255,0.6);">
-        <span>From: <strong style="color:#FFD09B;">${formatDate(validFrom)}</strong></span>
-        <span>Until: <strong style="color:#FFD09B;">${formatDate(validUntil)}</strong></span>
-      </div>
-    </div>
-
     <!-- Payment receipt -->
-    <div style="background:#F9FAFB;border-radius:10px;padding:18px 20px;border:1px solid #E5E7EB;margin:0 0 24px;">
+    <div style="background:#F9FAFB;border-radius:10px;padding:18px 20px;border:1px solid #E5E7EB;margin:0 0 28px;">
       <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">🧾 Payment Receipt</div>
       <div style="display:flex;justify-content:space-between;font-size:13px;color:#6B7280;padding:7px 0;border-bottom:1px solid #E5E7EB;">
         <span>${plan} Membership</span><span>₹${amount}</span>
@@ -114,36 +121,40 @@ function membershipEmailHTML({ name, plan, amount, gst, total, validFrom, validU
       <div style="display:flex;justify-content:space-between;font-size:13px;color:#6B7280;padding:7px 0;border-bottom:1px solid #E5E7EB;">
         <span>GST @ 18%</span><span>₹${gst}</span>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;color:#1A3C6E;padding:10px 0 4px;">
+      <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:900;color:#1A3C6E;padding:10px 0 4px;">
         <span>Total Paid</span><span>₹${total}</span>
       </div>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #E5E7EB;font-size:11px;color:#9CA3AF;line-height:1.8;">
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #E5E7EB;font-size:11px;color:#9CA3AF;line-height:1.9;">
         <div><strong>Payment ID:</strong> ${paymentId}</div>
         <div><strong>Order ID:</strong> ${orderId}</div>
         <div><strong>Member ID:</strong> ${memberId}</div>
+        <div><strong>Valid From:</strong> ${formatDate(validFrom)} &nbsp;→&nbsp; <strong>Until:</strong> ${formatDate(validUntil)}</div>
       </div>
     </div>
 
     <!-- CTA -->
-    <div style="text-align:center;margin:28px 0 8px;">
-      <a href="https://www.fipin.org/dashboard" 
-        style="display:inline-block;background:linear-gradient(135deg,#F26122,#E05010);color:#fff;text-decoration:none;padding:15px 40px;border-radius:10px;font-weight:800;font-size:15px;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(242,97,34,0.35);">
+    <div style="text-align:center;margin:0 0 8px;">
+      <a href="https://www.fipin.org/dashboard"
+        style="display:inline-block;background:linear-gradient(135deg,#F26122,#E05010);color:#fff;text-decoration:none;padding:16px 44px;border-radius:12px;font-weight:900;font-size:16px;letter-spacing:0.3px;box-shadow:0 6px 20px rgba(242,97,34,0.35);">
         Explore Your Dashboard →
       </a>
     </div>
-    <p style="text-align:center;font-size:12px;color:#9CA3AF;margin:12px 0 0;">
-      Questions? Reach us at <a href="mailto:fippresidentoffice@gmail.com" style="color:#1A3C6E;font-weight:600;">fippresidentoffice@gmail.com</a> or WhatsApp <strong>+91 99998 30938</strong>
+    <p style="text-align:center;font-size:13px;color:#9CA3AF;margin:14px 0 0;">
+      Questions? Write to us at 
+      <a href="mailto:fippresidentoffice@gmail.com" style="color:#1A3C6E;font-weight:600;">fippresidentoffice@gmail.com</a> 
+      or WhatsApp <strong>+91 99998 30938</strong>
     </p>
   </div>
 
   <!-- Footer -->
-  <div style="background:#1A3C6E;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;">
-    <div style="font-size:14px;font-weight:700;color:#FFD09B;margin-bottom:6px;">Connect · Collaborate · Conquer</div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.45);">© 2026 Federation of Indian Professionals · www.fipin.org</div>
-    <div style="display:flex;justify-content:center;gap:16px;margin-top:12px;">
+  <div style="background:#1A3C6E;border-radius:0 0 16px 16px;padding:26px 40px;text-align:center;">
+    <div style="font-size:15px;font-weight:800;color:#FFD09B;margin-bottom:6px;">Connect · Collaborate · Conquer</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.4);">© 2026 Federation of Indian Professionals · www.fipin.org</div>
+    <div style="display:flex;justify-content:center;gap:20px;margin-top:12px;">
       <a href="https://www.fipin.org" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Website</a>
       <a href="https://www.fipin.org/events" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Events</a>
       <a href="https://www.fipin.org/dashboard" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Dashboard</a>
+      <a href="https://www.fipin.org/courses" style="color:rgba(255,255,255,0.4);font-size:11px;text-decoration:none;">Courses</a>
     </div>
   </div>
 
@@ -151,6 +162,7 @@ function membershipEmailHTML({ name, plan, amount, gst, total, validFrom, validU
 </body>
 </html>`;
 }
+
 
 function courseEmailHTML({ name, courseTitle, amount, gst, total, paymentId, orderId, memberId, profession }) {
   const firstName = name.split(' ')[0];
