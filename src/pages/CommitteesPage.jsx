@@ -5,13 +5,16 @@ import { supabase } from '../lib/supabase.js';
 import { committees as localCommittees } from '../data/index.js';
 
 const ROLE_STYLES = {
+  president:          { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
   chairman:           { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
   chairperson:        { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
+  'vice president':   { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
   'co-chairman':      { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
   'co-chairperson':   { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
   'vice chairman':    { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
   'vice chairperson': { avCls:'cm-av-co',       roleCls:'cm-role-co'       },
   secretary:          { avCls:'cm-av-member',   roleCls:'cm-role-member'   },
+  treasurer:          { avCls:'cm-av-member',   roleCls:'cm-role-member'   },
   member:             { avCls:'cm-av-member',   roleCls:'cm-role-member'   },
 };
 
