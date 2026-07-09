@@ -367,15 +367,22 @@ export default async function handler(req, res) {
       } catch (e) { console.warn('Referral complete failed:', e.message); }
 
     } else if (payment.purchase_type === 'course') {
-      await supabaseAdmin.from('course_enrollments').upsert({
-        user_id:         userId,
-        course_title:    payment.item_name,
-        course_category: payment.item_ref_id,
-        price_paid:      payment.total_amount,
-        amount_paid:     payment.total_amount,
-        payment_id:      payment.id,
-        status:          'Enrolled',
-      }, { onConflict: 'user_id,course_title' });
+      // Look up the course_id from the item_ref_id (course slug)
+      const { data: course } = await supabaseAdmin
+        .from('courses').select('id').eq('slug', payment.item_ref_id).maybeSingle();
+
+      const { error: regError } = await supabaseAdmin
+        .from('course_registrations')
+        .upsert({
+          user_id:   userId,
+          course_id: course?.id || null,
+          status:    'registered',
+        }, { onConflict: 'user_id,course_id', ignoreDuplicates: true });
+
+      if (regError) {
+        console.error('course_registrations upsert error:', regError.message);
+        // Don't fail — payment is already marked paid
+      }
     }
 
     // 5. Fetch user profile for email

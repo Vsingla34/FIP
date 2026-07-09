@@ -69,6 +69,8 @@ export default function AdminPage() {
   const [members,        setMembers]        = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [memberSearch,   setMemberSearch]   = useState('');
+  const [memberSubTab,   setMemberSubTab]   = useState('all');   // 'all' | 'students' | 'members'
+  const [openActionMenu, setOpenActionMenu] = useState(null);    // member id whose ⋮ menu is open
 
   /* committees state */
   const [committees,    setCommittees]    = useState(loadCommittees);
@@ -825,6 +827,10 @@ export default function AdminPage() {
   const [recentPayments,  setRecentPayments]  = useState([]);
   const [dashLoading,     setDashLoading]     = useState(false);
 
+  /* ── All Payments tab ── */
+  const [allPayments,        setAllPayments]        = useState([]);
+  const [allPaymentsLoading, setAllPaymentsLoading] = useState(false);
+
   useEffect(() => {
     if (tab !== 'dashboard') return;
     setDashLoading(true);
@@ -857,6 +863,18 @@ export default function AdminPage() {
     });
   }, [tab]);
 
+  /* ── Load all payments when tab opens ── */
+  useEffect(() => {
+    if (tab !== 'payments') return;
+    setAllPaymentsLoading(true);
+    supabase
+      .from('payments')
+      .select('total_amount,status,item_name,created_at,user_id,profiles(full_name)')
+      .order('created_at', { ascending: false })
+      .limit(200)
+      .then(({ data }) => { setAllPayments(data || []); setAllPaymentsLoading(false); });
+  }, [tab]);
+
   /* ── nav items ── */
   const navItems = [
     { id:'dashboard',    icon:'fa-chart-line',   label:'Dashboard' },
@@ -869,12 +887,20 @@ export default function AdminPage() {
   const totalMembers  = members.length;
   const activeMembers = members.filter(m => m.membership_status === 'Active').length;
   const adminCount    = members.filter(m => m.role === 'admin').length;
-  const filteredMembers = members.filter(m =>
+
+  const matchesSearch = (m) =>
     !memberSearch ||
     m.full_name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
     m.email?.toLowerCase().includes(memberSearch.toLowerCase()) ||
-    m.profession?.toLowerCase().includes(memberSearch.toLowerCase())
-  );
+    m.profession?.toLowerCase().includes(memberSearch.toLowerCase());
+
+  const allUsers     = members.filter(matchesSearch);
+  const studentUsers = members.filter(m => (m.account_type||'').toLowerCase() === 'student' && matchesSearch(m));
+  const paidMembers  = members.filter(m => (m.account_type||'').toLowerCase() !== 'student' && m.membership_status === 'Active' && matchesSearch(m));
+
+  const filteredMembers = memberSubTab === 'students' ? studentUsers
+    : memberSubTab === 'members' ? paidMembers
+    : allUsers;
 
   const getRoleStyle = (role) => {
     const r = (role||'').toLowerCase();
@@ -1143,12 +1169,37 @@ export default function AdminPage() {
           {/* ═══ MEMBERS ═══ */}
           {tab === 'members' && (
             <div className="admin-form-card">
+              {/* Header row */}
               <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
-                <span>All Members <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({filteredMembers.length})</span></span>
+                <span>Users <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({allUsers.length} total)</span></span>
                 <button className="btn btn-sm" style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
                   onClick={() => downloadMembersExcel(filteredMembers)}>
                   <i className="fa-solid fa-file-excel"></i> Download Excel ({filteredMembers.length})
                 </button>
+              </div>
+
+              {/* Sub-tabs */}
+              <div style={{display:'flex',gap:'8px',marginBottom:'18px',flexWrap:'wrap'}}>
+                {[
+                  { id:'all',      label:'All Users',  count: allUsers.length },
+                  { id:'students', label:'Students',   count: studentUsers.length },
+                  { id:'members',  label:'Members',    count: paidMembers.length },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setMemberSubTab(t.id)}
+                    style={{
+                      padding:'6px 16px', borderRadius:'20px', fontSize:'12px', fontWeight:700,
+                      cursor:'pointer', border:'1.5px solid',
+                      background: memberSubTab===t.id ? 'var(--blue)' : 'transparent',
+                      color:      memberSubTab===t.id ? '#fff'        : 'var(--text-muted)',
+                      borderColor:memberSubTab===t.id ? 'var(--blue)' : 'var(--border)',
+                      transition:'all 0.15s',
+                    }}>
+                    {t.label}
+                    <span style={{marginLeft:'6px',background:memberSubTab===t.id?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.08)',padding:'1px 7px',borderRadius:'10px'}}>
+                      {t.count}
+                    </span>
+                  </button>
+                ))}
               </div>
 
               {/* Search */}
@@ -1167,6 +1218,11 @@ export default function AdminPage() {
                   {memberSearch ? 'No members match your search.' : 'No members yet.'}
                 </div>
               ) : (
+                <>
+                {/* Transparent overlay — closes ⋮ menu when clicking outside */}
+                {openActionMenu && (
+                  <div style={{position:'fixed',inset:0,zIndex:199}} onClick={() => setOpenActionMenu(null)}/>
+                )}
                 <div style={{overflowX:'auto'}}>
                   <table className="admin-table">
                     <thead>
@@ -1204,39 +1260,81 @@ export default function AdminPage() {
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
                             {m.created_at?new Date(m.created_at).toLocaleDateString('en-IN'):'—'}
                           </td>
-                          <td>
-                            <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-                              {/* View details */}
-                              <button className="admin-btn" style={{background:'var(--blue)',color:'#fff',border:'none'}}
-                                onClick={() => openMemberDetail(m)}>
-                                <i className="fa-solid fa-eye"></i> View
-                              </button>
-                              {m.role!=='admin'
-                                ? <button className="admin-btn admin-btn-orange" onClick={()=>handleRoleChange(m.id,'admin')}><i className="fa-solid fa-shield-halved"></i> Make Admin</button>
-                                : <button className="admin-btn admin-btn-danger" onClick={()=>handleRoleChange(m.id,'member')}><i className="fa-solid fa-user"></i> Make Member</button>
-                              }
-                              {m.membership_status!=='Active'
-                                ? <button className="admin-btn admin-btn-primary" onClick={()=>handleStatusChange(m.id,'Active')}>Activate</button>
-                                : <button className="admin-btn" style={{background:'var(--off-white)',color:'var(--text-muted)',border:'1px solid var(--border)'}} onClick={()=>handleStatusChange(m.id,'Inactive')}>Deactivate</button>
-                              }
-                              {/* Committee assignment */}
-                              {!m.is_committee_member
-                                ? <button className="admin-btn" style={{background:'linear-gradient(135deg,#B8860B,#DAA520)',color:'#fff',border:'none'}}
-                                    onClick={() => setCommitteeModal(m)}>
-                                    <i className="fa-solid fa-crown"></i> Assign
-                                  </button>
-                                : <button className="admin-btn" style={{background:'rgba(184,134,11,0.1)',color:'#8B6000',border:'1px solid #DAA520'}}
-                                    onClick={() => handleRemoveCommittee(m.id)}>
-                                    <i className="fa-solid fa-crown"></i> {m.committee_role?.split('-')[0] || 'Member'}
-                                  </button>
-                              }
-                            </div>
+                          <td style={{position:'relative'}}>
+                            {/* ⋮ three-dot trigger */}
+                            <button
+                              onClick={e => { e.stopPropagation(); setOpenActionMenu(openActionMenu === m.id ? null : m.id); }}
+                              style={{
+                                width:'32px', height:'32px', borderRadius:'8px',
+                                background: openActionMenu===m.id ? 'var(--blue-pale)' : 'var(--off-white)',
+                                border:'1px solid var(--border)', cursor:'pointer',
+                                fontSize:'16px', fontWeight:900, color:'var(--blue)',
+                                display:'flex', alignItems:'center', justifyContent:'center',
+                                lineHeight:1, letterSpacing:'0px',
+                              }}
+                              title="Actions"
+                            >⋮</button>
+
+                            {/* Dropdown */}
+                            {openActionMenu === m.id && (
+                              <div style={{
+                                position:'absolute', right:0, top:'38px', zIndex:200,
+                                background:'var(--surface)', border:'1px solid var(--border)',
+                                borderRadius:'10px', boxShadow:'0 6px 24px rgba(0,0,0,0.13)',
+                                minWidth:'190px', overflow:'hidden',
+                              }}>
+                                {/* View */}
+                                <button onClick={() => { openMemberDetail(m); setOpenActionMenu(null); }}
+                                  style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'var(--blue)',fontWeight:600}}>
+                                  <i className="fa-solid fa-eye" style={{width:'14px',color:'var(--blue)'}}></i> View Details
+                                </button>
+                                <div style={{height:'1px',background:'var(--border)',margin:'0 10px'}}/>
+
+                                {/* Role toggle */}
+                                {m.role !== 'admin'
+                                  ? <button onClick={() => { handleRoleChange(m.id,'admin'); setOpenActionMenu(null); }}
+                                      style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'var(--orange-dark)',fontWeight:600}}>
+                                      <i className="fa-solid fa-shield-halved" style={{width:'14px',color:'var(--orange)'}}></i> Make Admin
+                                    </button>
+                                  : <button onClick={() => { handleRoleChange(m.id,'member'); setOpenActionMenu(null); }}
+                                      style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'#C0392B',fontWeight:600}}>
+                                      <i className="fa-solid fa-user" style={{width:'14px',color:'#C0392B'}}></i> Make Member
+                                    </button>
+                                }
+
+                                {/* Status toggle */}
+                                {m.membership_status !== 'Active'
+                                  ? <button onClick={() => { handleStatusChange(m.id,'Active'); setOpenActionMenu(null); }}
+                                      style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'var(--green)',fontWeight:600}}>
+                                      <i className="fa-solid fa-circle-check" style={{width:'14px',color:'var(--green)'}}></i> Activate
+                                    </button>
+                                  : <button onClick={() => { handleStatusChange(m.id,'Inactive'); setOpenActionMenu(null); }}
+                                      style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'var(--text-muted)',fontWeight:600}}>
+                                      <i className="fa-solid fa-ban" style={{width:'14px'}}></i> Deactivate
+                                    </button>
+                                }
+                                <div style={{height:'1px',background:'var(--border)',margin:'0 10px'}}/>
+
+                                {/* Committee */}
+                                {!m.is_committee_member
+                                  ? <button onClick={() => { setCommitteeModal(m); setOpenActionMenu(null); }}
+                                      style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'#8B6000',fontWeight:600}}>
+                                      <i className="fa-solid fa-crown" style={{width:'14px',color:'#DAA520'}}></i> Assign Committee
+                                    </button>
+                                  : <button onClick={() => { handleRemoveCommittee(m.id); setOpenActionMenu(null); }}
+                                      style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'#8B6000',fontWeight:600}}>
+                                      <i className="fa-solid fa-crown" style={{width:'14px',color:'#DAA520'}}></i> Remove Committee
+                                    </button>
+                                }
+                              </div>
+                            )}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           )}
@@ -1413,10 +1511,10 @@ export default function AdminPage() {
                       {courseEnrollments.map((e,i) => (
                         <tr key={i}>
                           <td>
-                            <div className="dboard-table-name">{e.full_name}</div>
-                            <div className="dboard-table-sub">{e.email}</div>
+                            <div className="dboard-table-name">{e.full_name || '—'}</div>
                           </td>
-                          <td className="dboard-table-muted" style={{fontSize:'12px'}}>{e.phone || '—'}</td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{e.email || '—'}</td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{e.phone || '—'}</td>
                           <td>
                             <span className={`dboard-pill ${e.status==='attended'?'pill-green':'pill-orange'}`}>
                               {e.status || 'registered'}
@@ -1432,30 +1530,63 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* ═══ PAYMENTS (placeholder) ═══ */}
+          {/* ═══ PAYMENTS ═══ */}
           {tab === 'payments' && (
             <div className="admin-form-card">
-              <div className="admin-form-title">All Payments</div>
-              <div className="dboard-table-wrap">
-                <table className="dboard-table">
-                  <thead><tr><th>Member</th><th>Plan</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead>
-                  <tbody>
-                    {recentPayments.map((p,i) => (
-                      <tr key={i}>
-                        <td><div className="dboard-table-name">{p.memberName}</div></td>
-                        <td className="dboard-table-muted">{p.plan}</td>
-                        <td style={{color:'var(--orange)',fontWeight:700}}>₹{p.amount}</td>
-                        <td className="dboard-table-muted">—</td>
-                        <td><span className={`dboard-pill ${p.status==='Paid'?'pill-green':'pill-orange'}`}>{p.status}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+                <span>All Payments
+                  <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400,marginLeft:'8px'}}>
+                    ({allPayments.length})
+                  </span>
+                </span>
+                <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                  <span style={{fontSize:'13px',color:'var(--green)',fontWeight:700}}>
+                    ₹{allPayments.filter(p=>p.status==='paid').reduce((s,p)=>s+(Number(p.total_amount)||0),0).toLocaleString('en-IN')} collected
+                  </span>
+                </div>
               </div>
-              <p style={{fontSize:'12px',color:'var(--text-light)',marginTop:'16px'}}>
-                <i className="fa-solid fa-info-circle" style={{marginRight:'5px'}}></i>
-                Connect Razorpay to see live transaction data here.
-              </p>
+
+              {allPaymentsLoading ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading payments…
+                </div>
+              ) : allPayments.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-indian-rupee-sign" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
+                  No payments recorded yet.
+                </div>
+              ) : (
+                <div style={{overflowX:'auto'}}>
+                  <table className="dboard-table">
+                    <thead>
+                      <tr><th>Member</th><th>Item / Plan</th><th>Amount</th><th>Date</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {allPayments.map((p,i) => (
+                        <tr key={i}>
+                          <td>
+                            <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
+                          </td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                            {p.item_name || '—'}
+                          </td>
+                          <td>
+                            <span style={{color:'var(--orange)',fontWeight:700}}>₹{Number(p.total_amount||0).toLocaleString('en-IN')}</span>
+                          </td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                            {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}
+                          </td>
+                          <td>
+                            <span className={`dboard-pill ${p.status==='paid'?'pill-green':p.status==='failed'?'pill-red':'pill-orange'}`}>
+                              {p.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
