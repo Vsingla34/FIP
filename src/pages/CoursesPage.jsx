@@ -30,10 +30,11 @@ export default function CoursesPage() {
   const { openModal, showToast } = useApp();
   const navigate = useNavigate();
 
-  const [courses,  setCourses]  = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [search,   setSearch]   = useState('');
-  const [filter,   setFilter]   = useState('All');
+  const [courses,    setCourses]    = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [search,     setSearch]     = useState('');
+  const [filter,     setFilter]     = useState('All');
+  const [courseTab,  setCourseTab]  = useState('upcoming'); // 'upcoming' | 'past'
 
   /* Load live courses from Supabase only — no hardcoded fallback */
   useEffect(() => {
@@ -51,7 +52,20 @@ export default function CoursesPage() {
   /* derive filter categories from real data */
   const categories = ['All', ...new Set(courses.map(c => c.category).filter(Boolean))];
 
-  const filtered = courses.filter(c => {
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // Upcoming: no event_date (evergreen) OR event_date is today/future
+  const upcomingCourses = courses.filter(c =>
+    !c.event_date || new Date(c.event_date) >= today
+  );
+  // Past: event_date exists and is strictly before today
+  const pastCourses = courses.filter(c =>
+    c.event_date && new Date(c.event_date) < today
+  );
+
+  const activeCourses = courseTab === 'past' ? pastCourses : upcomingCourses;
+
+  const filtered = activeCourses.filter(c => {
     const matchCat  = filter === 'All' || c.category === filter;
     const matchSearch = !search ||
       c.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -111,6 +125,27 @@ export default function CoursesPage() {
 
       <section className="section section-alt">
         <div className="container">
+
+          {/* ── Upcoming / Past tabs ── */}
+          <div className="blog-tabs" style={{marginBottom:'20px'}}>
+            <button
+              className={`blog-tab${courseTab==='upcoming'?' active':''}`}
+              onClick={() => { setCourseTab('upcoming'); setFilter('All'); }}>
+              <i className="fa-solid fa-calendar-days"></i> Upcoming
+              <span style={{marginLeft:'6px',background:'rgba(255,255,255,0.2)',padding:'1px 7px',borderRadius:'10px',fontSize:'11px'}}>
+                {upcomingCourses.length}
+              </span>
+            </button>
+            <button
+              className={`blog-tab${courseTab==='past'?' active':''}`}
+              onClick={() => { setCourseTab('past'); setFilter('All'); }}>
+              <i className="fa-solid fa-clock-rotate-left"></i> Past Courses
+              <span style={{marginLeft:'6px',background:'rgba(255,255,255,0.2)',padding:'1px 7px',borderRadius:'10px',fontSize:'11px'}}>
+                {pastCourses.length}
+              </span>
+            </button>
+          </div>
+
           <div className="search-wrap">
             <i className="fa-solid fa-magnifying-glass"></i>
             <input type="search" placeholder="Search — GST, NCLT, Income Tax, Company Law…"
@@ -134,7 +169,9 @@ export default function CoursesPage() {
               <i className="fa-solid fa-book-open" style={{fontSize:'36px',display:'block',marginBottom:'12px',opacity:.3}}></i>
               {courses.length === 0
                 ? 'No courses published yet. Check back soon.'
-                : 'No courses match your search.'}
+                : courseTab === 'past'
+                ? 'No past courses found.'
+                : 'No upcoming courses match your search.'}
             </div>
           ) : (
             <div className="course-grid">

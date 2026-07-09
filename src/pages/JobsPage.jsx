@@ -35,6 +35,15 @@ export default function JobsPage() {
   const isActiveMember = profile?.membership_status === 'Active';
   const canApply       = profile?.account_type === 'member' && isActiveMember;
 
+  /* ── Show membership gate modal when non-member clicks Apply ── */
+  const [memberGate, setMemberGate] = useState(false);
+
+  const handleApplyClick = (job) => {
+    if (!user) { setMemberGate(true); return; }
+    if (!canApply) { setMemberGate(true); return; }
+    setApplyJob(job); setCoverNote(''); setResumeUrl('');
+  };
+
   /* ── Load approved jobs ── */
   useEffect(() => {
     supabase.from('jobs').select('*')
@@ -123,39 +132,6 @@ export default function JobsPage() {
   };
 
   const statusColor = { pending:'#F59E0B', approved:'var(--green)', rejected:'#EF4444', active:'var(--green)' };
-
-  // Visitors see a locked screen
-  if (!user) return (
-    <>
-      <div className="page-hero">
-        <div className="container">
-          <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Jobs</span></div>
-          <h1>Job & Opportunity Board</h1>
-          <p>Exclusive listings from FIP member firms — jobs, freelance briefs, and collaboration opportunities.</p>
-        </div>
-      </div>
-      <section className="section section-alt">
-        <div className="container" style={{maxWidth:'520px',margin:'0 auto',textAlign:'center',padding:'60px 20px'}}>
-          <div style={{width:'72px',height:'72px',borderRadius:'50%',background:'var(--blue-pale)',border:'2px solid var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',fontSize:'28px'}}>
-            <i className="fa-solid fa-lock" style={{color:'var(--blue)'}}></i>
-          </div>
-          <h2 style={{fontSize:'22px',fontWeight:700,color:'var(--blue)',marginBottom:'8px',fontFamily:"'Playfair Display',serif"}}>Members Only</h2>
-          <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,marginBottom:'28px'}}>
-            The FIP Job Board is exclusively for registered members and students.
-            Create a free account or log in to browse opportunities.
-          </p>
-          <div style={{display:'flex',gap:'12px',justifyContent:'center',flexWrap:'wrap'}}>
-            <button className="btn btn-primary" onClick={() => openModal('register', { defaultType:'student' })}>
-              <i className="fa-solid fa-user-plus"></i> Create Free Account
-            </button>
-            <button className="btn btn-outline-blue" onClick={() => openModal('login')}>
-              <i className="fa-solid fa-sign-in-alt"></i> Log In
-            </button>
-          </div>
-        </div>
-      </section>
-    </>
-  );
 
   return (
     <>
@@ -273,19 +249,13 @@ export default function JobsPage() {
                         </div>
 
                         <div className="job-card-footer">
-                          {canApply ? (
-                            applied ? (
-                              <span style={{fontSize:'13px',fontWeight:700,color:'var(--green)',display:'flex',alignItems:'center',gap:'5px'}}>
-                                <i className="fa-solid fa-check-circle"></i> Applied
-                              </span>
-                            ) : (
-                              <button className="btn btn-primary btn-sm" onClick={() => { setApplyJob(job); setCoverNote(''); setResumeUrl(''); }}>
-                                <i className="fa-solid fa-paper-plane"></i> Apply Now
-                              </button>
-                            )
+                          {applied ? (
+                            <span style={{fontSize:'13px',fontWeight:700,color:'var(--green)',display:'flex',alignItems:'center',gap:'5px'}}>
+                              <i className="fa-solid fa-check-circle"></i> Applied
+                            </span>
                           ) : (
-                            <button className="btn btn-outline-blue btn-sm" onClick={() => openModal(user ? 'login' : 'register')}>
-                              <i className="fa-solid fa-lock"></i> {user ? 'Upgrade to Apply' : 'Sign In to Apply'}
+                            <button className="btn btn-primary btn-sm" onClick={() => handleApplyClick(job)}>
+                              <i className="fa-solid fa-paper-plane"></i> Apply Now
                             </button>
                           )}
                           {job.contact_email && (
@@ -470,6 +440,42 @@ export default function JobsPage() {
                 {submitting ? <><i className="fa-solid fa-spinner fa-spin"></i> Submitting…</> : <><i className="fa-solid fa-paper-plane"></i> Submit Application</>}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ════════════ MEMBERSHIP GATE MODAL ════════════ */}
+      {memberGate && (
+        <div className="modal-overlay" onClick={() => setMemberGate(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'460px',textAlign:'center'}}>
+            <button className="modal-close" onClick={() => setMemberGate(false)}>&#x2715;</button>
+            <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'linear-gradient(135deg,var(--blue),#1B4A9E)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px'}}>
+              <i className="fa-solid fa-crown" style={{color:'#FFD09B'}}></i>
+            </div>
+            <div className="modal-title" style={{marginBottom:'8px'}}>
+              {!user ? 'Sign In to Apply' : 'Active Membership Required'}
+            </div>
+            <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.75,marginBottom:'24px'}}>
+              {!user
+                ? 'You need to be a registered FIP member to apply for jobs. Create your free account or log in to get started.'
+                : 'Only Active FIP Members can apply for job listings. Upgrade your membership to access the Job Board and hundreds of exclusive opportunities.'
+              }
+            </p>
+            <div style={{display:'flex',gap:'10px',justifyContent:'center',flexWrap:'wrap'}}>
+              {!user ? (
+                <>
+                  <button className="btn btn-primary" onClick={() => { setMemberGate(false); openModal('register'); }}>
+                    <i className="fa-solid fa-user-plus"></i> Join FIP Free
+                  </button>
+                  <button className="btn btn-outline-blue" onClick={() => { setMemberGate(false); openModal('login'); }}>
+                    <i className="fa-solid fa-sign-in-alt"></i> Log In
+                  </button>
+                </>
+              ) : (
+                <button className="btn btn-primary" onClick={() => { setMemberGate(false); openModal('register'); }}>
+                  <i className="fa-solid fa-crown"></i> Upgrade to Active Member
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

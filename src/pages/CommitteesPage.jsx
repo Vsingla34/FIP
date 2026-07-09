@@ -36,8 +36,8 @@ export default function CommitteesPage() {
   const { showToast } = useApp();
   const navigate = useNavigate();
   const [filter,    setFilter]    = useState('All');
-  const [dbSlugs,   setDbSlugs]   = useState({}); // profile_slug -> true (for members registered in system)
-  const [liveExtra, setLiveExtra] = useState([]); // newly assigned members from DB
+  const [dbSlugs,   setDbSlugs]   = useState({});
+  const [liveExtra, setLiveExtra] = useState([]);
 
   useEffect(() => {
     supabase.rpc('get_committee_members').then(({ data }) => {
@@ -148,5 +148,3 @@ export default function CommitteesPage() {
     </>
   );
 }
-
-

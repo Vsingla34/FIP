@@ -5,24 +5,6 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { committees as defaultCommittees } from '../data/index.js';
 
-/* ─────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────── */
-const STORAGE_KEY = 'fip_committees';
-
-function loadCommittees() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : defaultCommittees;
-  } catch { return defaultCommittees; }
-}
-
-function saveCommittees(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  // also dispatch event so CommitteesPage reacts
-  window.dispatchEvent(new Event('committees-updated'));
-}
-
 const ROLE_OPTIONS   = ['President','Vice President','Chairman','Co-Chairman','Co-Chairperson','Secretary','Treasurer','Member'];
 const CATEGORY_ICONS = {
   Governance:'fa-solid fa-sitemap', Media:'fa-solid fa-mobile-screen-button',
@@ -73,7 +55,7 @@ export default function AdminPage() {
   const [openActionMenu, setOpenActionMenu] = useState(null);    // member id whose ⋮ menu is open
 
   /* committees state */
-  const [committees,    setCommittees]    = useState(loadCommittees);
+  const [committees,    setCommittees]    = useState(defaultCommittees);
   const [editModal,     setEditModal]     = useState(null); // { mode:'committee'|'member', committeeId, memberIdx? }
   const [confirmDelete, setConfirmDelete] = useState(null); // { type, committeeId, memberIdx? }
 
@@ -96,9 +78,6 @@ export default function AdminPage() {
       })
       .finally(() => setLoadingMembers(false));
   }, [tab]);
-
-  /* ── persist committees ── */
-  useEffect(() => { saveCommittees(committees); }, [committees]);
 
   const handleSignOut = async () => { await signOut(); navigate('/'); };
 
@@ -131,14 +110,6 @@ export default function AdminPage() {
     setActivityLoading(false);
   };
   const [cmForm, setCmForm] = useState({ committee_name:'', committee_role:'Member' });
-
-  const COMMITTEES = [
-    'Executive Committee','Editorial & Social Media Committee','Members Development Committee',
-    'Indirect Tax Committee','Direct Tax Committee','Accounting Standard & Audit Assurance Committee',
-    'Global Capability Center (GCC) Committee','Financial Market Committee',
-    'Artificial Intelligence Committee','MSME, Startup & Valuation Committee',
-    'Students Development Committee',
-  ];
 
   const handleAssignCommittee = async () => {
     if (!cmForm.committee_name || !committeeModal) return;
@@ -2962,7 +2933,7 @@ export default function AdminPage() {
               <label className="form-label">Committee</label>
               <select className="form-select" value={cmForm.committee_name} onChange={e=>setCmForm(f=>({...f,committee_name:e.target.value}))}>
                 <option value="">Select committee…</option>
-                {COMMITTEES.map(c => <option key={c}>{c}</option>)}
+                {committees.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
               </select>
             </div>
             <div className="form-group">

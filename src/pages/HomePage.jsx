@@ -89,7 +89,7 @@ export default function HomePage() {
 
   useEffect(() => {
     supabase.from('courses')
-      .select('id, title, slug, category, price, level, instructor, free_for, status')
+      .select('id, title, slug, category, price, level, instructor, free_for, status, banner_url, thumbnail_url, event_date, event_time')
       .eq('status', 'published')
       .order('created_at', { ascending: false })
       .limit(3)
@@ -461,16 +461,40 @@ export default function HomePage() {
             </div>
           )}
           
-            {homeCourses.map((c,i) => (
+            {homeCourses.map((c,i) => {
+              const bgCls = ['ct-blue','ct-teal','ct-orange','ct-purple','ct-green','ct-red'][i % 6];
+              const emoji = c.category?.toLowerCase().includes('gst') ? '📑'
+                : c.category?.toLowerCase().includes('tax') ? '📊'
+                : c.category?.toLowerCase().includes('audit') ? '🔍'
+                : c.category?.toLowerCase().includes('finance') ? '📈'
+                : c.category?.toLowerCase().includes('law') ? '⚖️' : '📚';
+              return (
               <div className="course-card" key={i} onClick={() => c.slug ? navigate(`/courses/${c.slug}`) : navigate('/courses')} style={{cursor:'pointer'}}>
-                <div className={`course-thumb ct-blue`}>
-                  <span>📚</span>
+                <div className={`course-thumb ${bgCls}`} style={
+                  c.banner_url
+                    ? { backgroundImage:`url('${c.banner_url}')`, backgroundSize:'cover', backgroundPosition:'center', padding:0 }
+                    : {}
+                }>
+                  {/* Dark overlay for image cards */}
+                  {c.banner_url && (
+                    <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(0,0,0,0.45) 100%)',borderRadius:'inherit'}}/>
+                  )}
+                  {/* Emoji fallback when no image */}
+                  {!c.banner_url && <span>{emoji}</span>}
+                  {/* Free / Paid tag */}
                   {!c.price || c.price === 0
                     ? <span className="course-tag tag-free">Free</span>
                     : (c.free_for === 'members' || c.free_for === 'students')
                     ? <span className="course-tag tag-free">Members Free</span>
                     : <span className="course-tag tag-hot">Paid</span>
                   }
+                  {/* Event date badge */}
+                  {c.event_date && (
+                    <div style={{position:'absolute',bottom:'10px',left:'12px',background:'rgba(0,0,0,0.55)',backdropFilter:'blur(4px)',color:'#fff',fontSize:'11px',fontWeight:700,padding:'4px 10px',borderRadius:'20px',display:'flex',alignItems:'center',gap:'5px'}}>
+                      <i className="fa-regular fa-calendar" style={{color:'#FFD09B'}}></i>
+                      {new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+                    </div>
+                  )}
                 </div>
                 <div className="course-body">
                   <div className="course-cat">{c.category}</div>
@@ -488,7 +512,8 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       </section>
