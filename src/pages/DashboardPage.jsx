@@ -125,6 +125,157 @@ function CourseRegistrationsTab({ navigate }) {
   );
 }
 
+/* ── Certificates Tab ── */
+function CertificatesTab({ userEmail, profile }) {
+  const [certs,   setCerts]   = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Only load for users who have a proper FIP profile
+  useEffect(() => {
+    if (!userEmail || !profile?.id) return;
+    supabase
+      .from('certificates')
+      .select('id, certificate_url, created_at, email_sent, template_url, courses(title, event_date)')
+      .contains('recipient_email', [userEmail])
+      .order('created_at', { ascending: false })
+      .then(({ data }) => { setCerts(data || []); setLoading(false); });
+  }, [userEmail, profile?.id]);
+
+  // User has no FIP account profile — shouldn't happen on dashboard but guard anyway
+  if (!profile?.id) return (
+    <div className="dash-card" style={{textAlign:'center', padding:'48px 0'}}>
+      <i className="fa-solid fa-lock" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3,color:'var(--blue)'}}></i>
+      <p style={{fontWeight:600,color:'var(--blue)',marginBottom:'6px'}}>FIP Account Required</p>
+      <p style={{fontSize:'13px',color:'var(--text-muted)',maxWidth:'280px',margin:'0 auto'}}>
+        Certificate downloads are only available to registered FIP members.
+      </p>
+    </div>
+  );
+
+  if (loading) return (
+    <div className="dash-card" style={{textAlign:'center',padding:'40px'}}>
+      <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',color:'var(--orange)'}}></i>
+    </div>
+  );
+
+  return (
+    <div className="dash-card">
+      <div className="dash-card-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        My Certificates
+        <span style={{fontSize:'12px',fontWeight:400,color:'var(--text-muted)'}}>
+          {certs.length} certificate{certs.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {certs.length === 0 ? (
+        <div style={{textAlign:'center',padding:'48px 0',color:'var(--text-muted)'}}>
+          <div style={{width:'72px',height:'72px',borderRadius:'50%',background:'var(--blue-pale)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:'28px'}}>
+            <i className="fa-solid fa-certificate" style={{color:'var(--blue)',opacity:.5}}></i>
+          </div>
+          <p style={{fontWeight:600,color:'var(--blue)',marginBottom:'6px'}}>No certificates yet</p>
+          <p style={{fontSize:'13px',lineHeight:1.6,maxWidth:'280px',margin:'0 auto'}}>
+            Certificates from completed courses and webinars will appear here for download.
+          </p>
+        </div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+          {certs.map((c, i) => {
+            const courseTitle = c.courses?.title || 'FIP Course';
+            const eventDate   = c.courses?.event_date
+              ? new Date(c.courses.event_date).toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' })
+              : null;
+            const issuedDate  = new Date(c.created_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+            const style       = c.template_url;
+            const styleColors = {
+              classic:      { bg:'#F8F6F0', accent:'#C9A84C', text:'#1A3C6E' },
+              modern:       { bg:'#FFFFFF', accent:'#F26122', text:'#1A3C6E' },
+              professional: { bg:'#0F2044', accent:'#DAA520', text:'#FFFFFF' },
+            };
+            const sc = styleColors[style] || styleColors.classic;
+
+            return (
+              <div key={c.id || i} style={{
+                display:'flex', alignItems:'center', gap:'16px',
+                padding:'16px', borderRadius:'var(--radius-lg)',
+                border:'1px solid var(--border)',
+                background:'var(--surface)',
+                flexWrap:'wrap',
+              }}>
+                {/* Certificate mini-preview */}
+                <div style={{
+                  width:'72px', height:'52px', borderRadius:'8px',
+                  background: sc.bg,
+                  border: `2px solid ${sc.accent}`,
+                  display:'flex', flexDirection:'column',
+                  alignItems:'center', justifyContent:'center',
+                  gap:'4px', flexShrink:0, overflow:'hidden',
+                  boxShadow:'0 2px 8px rgba(0,0,0,0.08)',
+                }}>
+                  <i className="fa-solid fa-certificate" style={{fontSize:'18px', color: sc.accent}}></i>
+                  <div style={{fontSize:'6px', fontWeight:700, color: sc.text, textAlign:'center', lineHeight:1.2, padding:'0 4px'}}>
+                    CERTIFICATE
+                  </div>
+                </div>
+
+                {/* Details */}
+                <div style={{flex:1, minWidth:'150px'}}>
+                  <div style={{fontSize:'14px', fontWeight:700, color:'var(--blue)', marginBottom:'3px'}}>
+                    {courseTitle}
+                  </div>
+                  <div style={{fontSize:'12px', color:'var(--text-muted)', display:'flex', gap:'10px', flexWrap:'wrap'}}>
+                    {eventDate && (
+                      <span>
+                        <i className="fa-regular fa-calendar" style={{marginRight:'3px'}}></i>
+                        {eventDate}
+                      </span>
+                    )}
+                    <span>
+                      <i className="fa-solid fa-award" style={{marginRight:'3px',color:'var(--orange)'}}></i>
+                      Issued {issuedDate}
+                    </span>
+                    {c.email_sent && (
+                      <span style={{color:'var(--green)'}}>
+                        <i className="fa-solid fa-envelope-circle-check" style={{marginRight:'3px'}}></i>
+                        Emailed
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Download button */}
+                {c.certificate_url ? (
+                  <a
+                    href={c.certificate_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download
+                    style={{
+                      display:'inline-flex', alignItems:'center', gap:'7px',
+                      background:'var(--blue)', color:'#fff',
+                      padding:'9px 18px', borderRadius:'8px',
+                      fontWeight:700, fontSize:'13px', textDecoration:'none',
+                      flexShrink:0, boxShadow:'0 2px 8px rgba(26,60,110,0.2)',
+                      transition:'background .15s',
+                    }}
+                    onMouseOver={e => e.currentTarget.style.background='#0F2A5E'}
+                    onMouseOut={e  => e.currentTarget.style.background='var(--blue)'}
+                  >
+                    <i className="fa-solid fa-download"></i> Download PDF
+                  </a>
+                ) : (
+                  <span style={{fontSize:'12px',color:'var(--text-light)',fontStyle:'italic'}}>
+                    Processing…
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Referral Panel Component ── */
 function ReferralPanel({ profile }) {
   const [stats,         setStats]         = useState(null);
@@ -421,12 +572,13 @@ export default function DashboardPage() {
     : '—';
 
   const navItems = [
-    { id:'overview', icon:'fa-gauge-high',     label:'Overview' },
-    { id:'courses',  icon:'fa-book-open',      label:'My Courses' },
-    { id:'events',   icon:'fa-calendar-check', label:'Events' },
-    { id:'referral', icon:'fa-gift',           label:'Refer & Earn' },
-    { id:'payments', icon:'fa-receipt',        label:'Payments' },
-    { id:'settings', icon:'fa-gear',           label:'Settings' },
+    { id:'overview',      icon:'fa-gauge-high',     label:'Overview' },
+    { id:'courses',       icon:'fa-book-open',      label:'My Courses' },
+    { id:'certificates',  icon:'fa-certificate',    label:'Certificates' },
+    { id:'events',        icon:'fa-calendar-check', label:'Events' },
+    { id:'referral',      icon:'fa-gift',           label:'Refer & Earn' },
+    { id:'payments',      icon:'fa-receipt',        label:'Payments' },
+    { id:'settings',      icon:'fa-gear',           label:'Settings' },
   ];
 
   /* full-page spinner while session restores */
@@ -570,6 +722,11 @@ export default function DashboardPage() {
         {/* MY COURSES */}
         {tab === 'courses' && (
           <CourseRegistrationsTab navigate={navigate} />
+        )}
+
+        {/* CERTIFICATES */}
+        {tab === 'certificates' && (
+          <CertificatesTab userEmail={user?.email} profile={profile} />
         )}
 
         {/* EVENTS */}

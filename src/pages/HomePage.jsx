@@ -137,23 +137,44 @@ export default function HomePage() {
   const dragOffset  = useRef(0);
   const [dragX, setDragX] = useState(0);
 
+  /* refs that are ALWAYS current — avoid stale closures in timer callbacks */
+  const slideIdxRef  = useRef(0);
+  const slidesLenRef = useRef(1);
+  const goTimer      = useRef(null);   // inner 320ms animation timeout
+
+  slideIdxRef.current  = slideIdx;
+  slidesLenRef.current = SLIDES.length;
+
   const goTo = (idx) => {
+    if (idx === slideIdxRef.current) return;   // already on this slide
+    clearTimeout(goTimer.current);             // cancel any in-flight animation
+    clearTimeout(slideTimer.current);          // cancel auto-advance (effect will reset it)
     setSlideAnim('out');
     setDragX(0);
-    setTimeout(() => {
+    goTimer.current = setTimeout(() => {
       setSlideIdx(idx);
       setSlideAnim('in');
     }, 320);
   };
 
-  const next = () => goTo((slideIdx + 1) % SLIDES.length);
-  const prev = () => goTo((slideIdx - 1 + SLIDES.length) % SLIDES.length);
+  /* next/prev read from refs — never stale even inside timer callbacks */
+  const next = () => {
+    const len = slidesLenRef.current;
+    if (len <= 1) return;
+    goTo((slideIdxRef.current + 1) % len);
+  };
+  const prev = () => {
+    const len = slidesLenRef.current;
+    if (len <= 1) return;
+    goTo((slideIdxRef.current - 1 + len) % len);
+  };
 
-  /* auto-advance every 5s — pauses on interaction */
+  /* auto-advance every 5s — starts only after DB slides have loaded */
   useEffect(() => {
+    if (SLIDES.length <= 1) return;
     slideTimer.current = setTimeout(next, 5000);
     return () => clearTimeout(slideTimer.current);
-  }, [slideIdx]);
+  }, [slideIdx, dbSlides.length]);
 
   /* ── Touch / Mouse drag handlers ── */
   const onDragStart = (clientX, clientY) => {
@@ -180,7 +201,12 @@ export default function HomePage() {
     const threshold = 60;
     if (dragOffset.current < -threshold)      next();
     else if (dragOffset.current > threshold)  prev();
-    else { setDragX(0); slideTimer.current = setTimeout(next, 5000); }
+    else {
+      setDragX(0);
+      // No manual timer here — useEffect([slideIdx]) resets it automatically
+      // Just restart it cleanly via a tiny state nudge if needed
+      slideTimer.current = setTimeout(next, 5000);
+    }
     dragOffset.current = 0;
   };
 
