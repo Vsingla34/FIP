@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { committees as defaultCommittees } from '../data/index.js';
+import * as XLSX from 'xlsx';
 
 const ROLE_OPTIONS   = ['President','Vice President','Chairman','Co-Chairman','Co-Chairperson','Secretary','Treasurer','Member'];
 const CATEGORY_ICONS = {
@@ -570,58 +571,88 @@ export default function AdminPage() {
   };
 
   /* ── certificates state ── */
-  const [certCourses,    setCertCourses]    = useState([]);
-  const [certCourseId,   setCertCourseId]   = useState('');
-  const [certTemplateUrl,setCertTemplateUrl]= useState('');
-  const [certList,       setCertList]       = useState([]);
-  const [certLoading,    setCertLoading]    = useState(false);
-  const [certGenerating, setCertGenerating] = useState(false);
-  const [certResult,     setCertResult]     = useState(null);
-  const [certRegCount,   setCertRegCount]   = useState(0);
+  const [certCourses,     setCertCourses]     = useState([]);
+  const [certCourseId,    setCertCourseId]    = useState('');
+  const [certList,        setCertList]        = useState([]);
+  const [certGenerating,  setCertGenerating]  = useState(false);
+  const [certResult,      setCertResult]      = useState(null);
+
+  // Excel recipient upload
+  const [certRecipients,  setCertRecipients]  = useState([]);   // [{name,email}]
+  const [certExcelName,   setCertExcelName]   = useState('');   // file name for display
+
+  // Template selection
+  const [certTemplateMode,  setCertTemplateMode]  = useState('classic');  // 'classic'|'modern'|'professional'|'custom'
+  const [certTemplateUrl,   setCertTemplateUrl]   = useState('');         // only used when mode='custom'
+
+  const DEFAULT_TEMPLATES = [
+    { id:'classic',      label:'Classic Blue',     desc:'Formal design — navy border, gold name',   bg:'#F8F6F0', accent:'#C9A84C', text:'#1A3C6E' },
+    { id:'modern',       label:'Modern Orange',    desc:'Clean white with FIP orange accents',       bg:'#FFFFFF', accent:'#F26122', text:'#1A3C6E' },
+    { id:'professional', label:'Dark Professional',desc:'Premium dark navy with gold lettering',     bg:'#0F2044', accent:'#DAA520', text:'#FFFFFF' },
+  ];
 
   useEffect(() => {
     if (tab !== 'certificates') return;
-    // Load published courses
     supabase.from('courses').select('id,title,event_date').eq('status','published')
       .order('created_at',{ascending:false})
       .then(({ data }) => setCertCourses(data || []));
-    // Load issued certs
     supabase.rpc('admin_get_certificates').then(({ data }) => setCertList(data || []));
   }, [tab]);
 
-  const loadCertCourse = async (cId) => {
+  const loadCertCourse = (cId) => {
     setCertCourseId(cId);
     setCertResult(null);
-    if (!cId) { setCertRegCount(0); return; }
-    const { count } = await supabase.from('course_registrations')
-      .select('id', { count:'exact', head:true }).eq('course_id', cId);
-    setCertRegCount(count || 0);
+  };
+
+  /* Parse Excel / CSV file into [{name, email}] */
+  const parseExcelFile = async (file) => {
+    const buffer = await file.arrayBuffer();
+    const wb   = XLSX.read(buffer, { type: 'array' });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    if (!rows.length) { showToast('Excel file is empty.', true); return []; }
+    const headers = rows[0].map(h => String(h||'').toLowerCase().trim());
+    const nameIdx  = headers.findIndex(h => h.includes('name'));
+    const emailIdx = headers.findIndex(h => h.includes('email') || h.includes('mail'));
+    if (nameIdx === -1 || emailIdx === -1) {
+      showToast('Excel must have a "Name" column and an "Email" column.', true);
+      return [];
+    }
+    return rows.slice(1)
+      .filter(r => r[nameIdx] && r[emailIdx])
+      .map(r => ({ name: String(r[nameIdx]).trim(), email: String(r[emailIdx]).trim() }))
+      .filter(r => r.name && r.email.includes('@'));
   };
 
   const generateCertificates = async () => {
-    if (!certCourseId || !certTemplateUrl) {
-      showToast('Select a course and enter a template image URL.', true);
-      return;
+    if (!certCourseId) { showToast('Please select a course.', true); return; }
+    if (!certRecipients.length) { showToast('Please upload an Excel file with recipients.', true); return; }
+    if (certTemplateMode === 'custom' && !certTemplateUrl) {
+      showToast('Please upload a custom template image.', true); return;
     }
     setCertGenerating(true); setCertResult(null);
     try {
       const res = await fetch('/api/generate-certificates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ courseId: certCourseId, templateUrl: certTemplateUrl, sendEmails: true }),
+        body: JSON.stringify({
+          courseId:      certCourseId,
+          recipients:    certRecipients,
+          templateStyle: certTemplateMode,
+          templateUrl:   certTemplateMode === 'custom' ? certTemplateUrl : null,
+          sendEmails:    true,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+      if (!res.ok) throw new Error(data.error || 'Generation failed');
       setCertResult(data);
-      // Refresh cert list
       supabase.rpc('admin_get_certificates').then(({ data: d }) => setCertList(d || []));
-      showToast('Certificates generated and emailed!');
+      showToast(`${data.generated} certificates sent!`);
     } catch (err) {
       showToast('Error: ' + err.message, true);
     }
     setCertGenerating(false);
   };
-
   /* ── membership settings state ── */
   const [memSettings,     setMemSettings]     = useState(null);
   const [memSettingsLoading, setMemSettingsLoading] = useState(false);
@@ -802,6 +833,14 @@ export default function AdminPage() {
   const [allPayments,        setAllPayments]        = useState([]);
   const [allPaymentsLoading, setAllPaymentsLoading] = useState(false);
 
+  /* ── Slides tab ── */
+  const SLIDE_ACTIONS = ['join','courses','events','webinars','committees','directory','about','membership'];
+  const emptySlide = { image_url:'', badge:'', title:'', subtitle:'', description:'', btn_label:'', btn_action:'join', tag:'', sort_order:0, is_active:true };
+  const [slides,       setSlides]       = useState([]);
+  const [slidesLoading,setSlidesLoading]= useState(false);
+  const [slideForm,    setSlideForm]    = useState(emptySlide);
+  const [slideSaving,  setSlideSaving]  = useState(false);
+
   useEffect(() => {
     if (tab !== 'dashboard') return;
     setDashLoading(true);
@@ -844,6 +883,14 @@ export default function AdminPage() {
       .order('created_at', { ascending: false })
       .limit(200)
       .then(({ data }) => { setAllPayments(data || []); setAllPaymentsLoading(false); });
+  }, [tab]);
+
+  /* ── Load slides when tab opens ── */
+  useEffect(() => {
+    if (tab !== 'slides') return;
+    setSlidesLoading(true);
+    supabase.from('slides').select('*').order('sort_order', { ascending: true })
+      .then(({ data }) => { setSlides(data || []); setSlidesLoading(false); });
   }, [tab]);
 
   /* ── nav items ── */
@@ -956,6 +1003,9 @@ export default function AdminPage() {
           </button>
           <button className={`admin-nav-v2${tab==='jobs'?' active':''}`} onClick={() => setTab('jobs')}>
             <i className="fa-solid fa-briefcase"></i> Jobs
+          </button>
+          <button className={`admin-nav-v2${tab==='slides'?' active':''}`} onClick={() => setTab('slides')}>
+            <i className="fa-solid fa-image"></i> Hero Slides
           </button>
 
           <div className="admin-nav-group-label">Finance</div>
@@ -1498,6 +1548,200 @@ export default function AdminPage() {
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ═══ HERO SLIDES ═══ */}
+          {tab === 'slides' && (
+            <div>
+              <h2 className="admin-page-title">Hero Slides</h2>
+              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>
+                Slide 1 (the main FIP hero) is fixed. Add image slides below — they appear after it in the carousel.
+              </p>
+
+              {/* ── Add Slide Form ── */}
+              <div className="admin-form-card" style={{marginBottom:'28px'}}>
+                <div className="admin-form-title" style={{marginBottom:'16px'}}>
+                  <i className="fa-solid fa-plus-circle" style={{color:'var(--orange)',marginRight:'8px'}}></i>
+                  Add New Slide
+                </div>
+
+                {/* Image URL + preview */}
+                <div className="form-group" style={{marginBottom:'12px'}}>
+                  <label className="form-label">Image URL <span style={{color:'var(--orange)'}}>*</span></label>
+                  <input className="form-input" placeholder="https://… or /image.jpg"
+                    value={slideForm.image_url}
+                    onChange={e => setSlideForm(f => ({...f, image_url: e.target.value}))}/>
+                  {slideForm.image_url && (
+                    <div style={{marginTop:'10px',borderRadius:'10px',overflow:'hidden',height:'140px',background:'#000'}}>
+                      <img src={slideForm.image_url} alt="preview" onError={e => e.target.style.display='none'}
+                        style={{width:'100%',height:'100%',objectFit:'cover',opacity:.85}}/>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'12px'}}>
+                  <div className="form-group">
+                    <label className="form-label">Badge text <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(top label)</span></label>
+                    <input className="form-input" placeholder="e.g. Community Events"
+                      value={slideForm.badge}
+                      onChange={e => setSlideForm(f => ({...f, badge: e.target.value}))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Tag <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(small pill)</span></label>
+                    <input className="form-input" placeholder="e.g. Coming Soon"
+                      value={slideForm.tag}
+                      onChange={e => setSlideForm(f => ({...f, tag: e.target.value}))}/>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{marginBottom:'12px'}}>
+                  <label className="form-label">Title <span style={{color:'var(--orange)'}}>*</span></label>
+                  <input className="form-input" placeholder="Main headline for this slide"
+                    value={slideForm.title}
+                    onChange={e => setSlideForm(f => ({...f, title: e.target.value}))}/>
+                </div>
+
+                <div className="form-group" style={{marginBottom:'12px'}}>
+                  <label className="form-label">Subtitle</label>
+                  <input className="form-input" placeholder="Sub-headline line"
+                    value={slideForm.subtitle}
+                    onChange={e => setSlideForm(f => ({...f, subtitle: e.target.value}))}/>
+                </div>
+
+                <div className="form-group" style={{marginBottom:'12px'}}>
+                  <label className="form-label">Description</label>
+                  <textarea className="form-textarea" rows={3} placeholder="Short description shown on the slide"
+                    value={slideForm.description}
+                    onChange={e => setSlideForm(f => ({...f, description: e.target.value}))}
+                    style={{minHeight:'70px'}}/>
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 80px',gap:'12px',marginBottom:'20px'}}>
+                  <div className="form-group">
+                    <label className="form-label">Button Label</label>
+                    <input className="form-input" placeholder="e.g. Join FIP"
+                      value={slideForm.btn_label}
+                      onChange={e => setSlideForm(f => ({...f, btn_label: e.target.value}))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Button Action</label>
+                    <select className="form-select" value={slideForm.btn_action}
+                      onChange={e => setSlideForm(f => ({...f, btn_action: e.target.value}))}>
+                      {SLIDE_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Order</label>
+                    <input className="form-input" type="number" min="0" placeholder="0"
+                      value={slideForm.sort_order}
+                      onChange={e => setSlideForm(f => ({...f, sort_order: Number(e.target.value)}))}/>
+                  </div>
+                </div>
+
+                <div style={{display:'flex',alignItems:'center',gap:'16px',flexWrap:'wrap'}}>
+                  <button className="btn btn-primary"
+                    disabled={slideSaving || !slideForm.image_url.trim() || !slideForm.title.trim()}
+                    onClick={async () => {
+                      setSlideSaving(true);
+                      const { data, error } = await supabase.from('slides').insert([{
+                        image_url:   slideForm.image_url.trim(),
+                        badge:       slideForm.badge.trim() || null,
+                        title:       slideForm.title.trim(),
+                        subtitle:    slideForm.subtitle.trim() || null,
+                        description: slideForm.description.trim() || null,
+                        btn_label:   slideForm.btn_label.trim() || null,
+                        btn_action:  slideForm.btn_action,
+                        tag:         slideForm.tag.trim() || null,
+                        sort_order:  slideForm.sort_order,
+                        is_active:   true,
+                      }]).select();
+                      setSlideSaving(false);
+                      if (error) { alert('Error: ' + error.message); return; }
+                      setSlides(prev => [...prev, data[0]].sort((a,b) => a.sort_order - b.sort_order));
+                      setSlideForm(emptySlide);
+                    }}>
+                    {slideSaving
+                      ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</>
+                      : <><i className="fa-solid fa-plus"></i> Add Slide</>}
+                  </button>
+                  <label style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'var(--text-muted)',cursor:'pointer'}}>
+                    <input type="checkbox" checked={slideForm.is_active}
+                      onChange={e => setSlideForm(f => ({...f, is_active: e.target.checked}))}/>
+                    Active (visible on homepage)
+                  </label>
+                </div>
+              </div>
+
+              {/* ── Existing Slides List ── */}
+              <div className="admin-form-card">
+                <div className="admin-form-title" style={{marginBottom:'16px'}}>
+                  Current Slides
+                  <span style={{fontSize:'12px',fontWeight:400,color:'var(--text-muted)',marginLeft:'8px'}}>
+                    ({slides.length} slides + 1 fixed hero)
+                  </span>
+                </div>
+
+                {slidesLoading ? (
+                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
+                    <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'22px',display:'block',marginBottom:'8px'}}></i>
+                    Loading slides…
+                  </div>
+                ) : slides.length === 0 ? (
+                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
+                    <i className="fa-solid fa-image" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+                    No slides added yet. Add one above.
+                  </div>
+                ) : (
+                  <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+                    {slides.map((s, idx) => (
+                      <div key={s.id} style={{display:'flex',gap:'16px',alignItems:'center',background:'var(--off-white)',borderRadius:'10px',padding:'12px 14px',border:'1px solid var(--border)'}}>
+
+                        {/* Thumbnail */}
+                        <div style={{width:'90px',height:'56px',borderRadius:'8px',overflow:'hidden',flexShrink:0,background:'#111'}}>
+                          <img src={s.image_url} alt={s.title}
+                            onError={e => { e.target.style.display='none'; }}
+                            style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                        </div>
+
+                        {/* Info */}
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:700,fontSize:'14px',color:'var(--blue)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                            {idx + 2}. {s.title}
+                          </div>
+                          <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'3px',display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                            {s.badge && <span><i className="fa-solid fa-tag" style={{marginRight:'3px'}}></i>{s.badge}</span>}
+                            {s.btn_action && <span><i className="fa-solid fa-arrow-pointer" style={{marginRight:'3px'}}></i>{s.btn_action}</span>}
+                            <span>Order: {s.sort_order}</span>
+                          </div>
+                        </div>
+
+                        {/* Active toggle */}
+                        <label style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'12px',color:'var(--text-muted)',cursor:'pointer',flexShrink:0}}>
+                          <input type="checkbox" checked={s.is_active}
+                            onChange={async (e) => {
+                              const checked = e.target.checked;
+                              await supabase.from('slides').update({ is_active: checked }).eq('id', s.id);
+                              setSlides(prev => prev.map(x => x.id===s.id ? {...x, is_active: checked} : x));
+                            }}/>
+                          {s.is_active ? 'Active' : 'Hidden'}
+                        </label>
+
+                        {/* Delete */}
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm(`Delete slide "${s.title}"?`)) return;
+                            await supabase.from('slides').delete().eq('id', s.id);
+                            setSlides(prev => prev.filter(x => x.id !== s.id));
+                          }}
+                          style={{background:'#FEE2E2',color:'#C0392B',border:'1px solid #F5BDBA',borderRadius:'8px',padding:'6px 10px',cursor:'pointer',flexShrink:0,fontSize:'13px'}}>
+                          <i className="fa-solid fa-trash"></i>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -2154,58 +2398,174 @@ export default function AdminPage() {
 
           {/* ═══ CERTIFICATES ═══ */}
           {tab === 'certificates' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title">Certificate Generation</div>
+            <div>
+              <h2 className="admin-page-title">Certificate Generation</h2>
               <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>
-                Generate and email certificates to all registered participants of a course.
+                Upload an Excel file with participant names and emails, choose a template, and send certificates in one click.
               </p>
 
-              {/* Step 1: Select course */}
+              {/* ── STEP 1: Select Course ── */}
               <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'var(--radius-md)',padding:'20px',marginBottom:'16px'}}>
                 <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'14px',display:'flex',alignItems:'center',gap:'8px'}}>
                   <div style={{width:'24px',height:'24px',borderRadius:'50%',background:'var(--blue)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:800}}>1</div>
                   Select Course
                 </div>
-                <div className="form-row">
-                  <div className="form-group" style={{flex:2}}>
-                    <label className="form-label">Course *</label>
-                    <select className="form-select" value={certCourseId} onChange={e => loadCertCourse(e.target.value)}>
-                      <option value="">— Select a course —</option>
-                      {certCourses.map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.title} {c.event_date ? '(' + new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) + ')' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {certCourseId && (
-                    <div style={{display:'flex',alignItems:'flex-end',paddingBottom:'2px'}}>
-                      <div style={{background:'var(--green)',color:'#fff',borderRadius:'var(--radius-md)',padding:'10px 16px',fontSize:'13px',fontWeight:700,whiteSpace:'nowrap'}}>
-                        <i className="fa-solid fa-users" style={{marginRight:'6px'}}></i>
-                        {certRegCount} Registered
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <select className="form-select" style={{maxWidth:'480px'}} value={certCourseId} onChange={e => loadCertCourse(e.target.value)}>
+                  <option value="">— Select a course —</option>
+                  {certCourses.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}{c.event_date ? ' (' + new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) + ')' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Step 2: Template URL */}
+              {/* ── STEP 2: Upload Excel ── */}
               <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'20px',marginBottom:'16px'}}>
                 <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'14px',display:'flex',alignItems:'center',gap:'8px'}}>
                   <div style={{width:'24px',height:'24px',borderRadius:'50%',background:'var(--blue)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:800}}>2</div>
-                  Certificate Template
+                  Upload Recipients Excel
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Upload Certificate Template *</label>
-                  <div style={{display:'flex',gap:'10px',alignItems:'flex-start',flexWrap:'wrap'}}>
-                    <label style={{
-                      display:'inline-flex',alignItems:'center',gap:'8px',
-                      background:'var(--blue)',color:'#fff',
-                      padding:'10px 18px',borderRadius:'var(--radius-md)',
-                      cursor:'pointer',fontSize:'13px',fontWeight:700,flexShrink:0,
+
+                <div style={{display:'flex',gap:'12px',alignItems:'center',flexWrap:'wrap',marginBottom:'12px'}}>
+                  <label style={{display:'inline-flex',alignItems:'center',gap:'8px',background:'#217346',color:'#fff',padding:'10px 18px',borderRadius:'var(--radius-md)',cursor:'pointer',fontSize:'13px',fontWeight:700,flexShrink:0}}>
+                    <i className="fa-solid fa-file-excel"></i>
+                    {certExcelName ? 'Change File' : 'Upload Excel / CSV'}
+                    <input type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setCertExcelName(file.name);
+                        setCertRecipients([]);
+                        const parsed = await parseExcelFile(file);
+                        setCertRecipients(parsed);
+                        if (parsed.length) showToast(parsed.length + ' recipients loaded from file.');
+                      }}/>
+                  </label>
+                  {certExcelName && (
+                    <span style={{fontSize:'13px',color:'var(--text-muted)'}}>
+                      <i className="fa-solid fa-file-excel" style={{color:'#217346',marginRight:'5px'}}></i>
+                      {certExcelName}
+                    </span>
+                  )}
+                  {certRecipients.length > 0 && (
+                    <span style={{fontSize:'13px',fontWeight:700,color:'var(--green)',display:'flex',alignItems:'center',gap:'5px'}}>
+                      <i className="fa-solid fa-circle-check"></i> {certRecipients.length} recipients loaded
+                    </span>
+                  )}
+                </div>
+
+                <div style={{fontSize:'11px',color:'var(--text-muted)',background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:'8px',padding:'10px 12px',display:'flex',gap:'8px'}}>
+                  <i className="fa-solid fa-circle-info" style={{color:'#92400E',flexShrink:0,marginTop:'1px'}}></i>
+                  <span>Your Excel file must have a <strong>Name</strong> column and an <strong>Email</strong> column (header row required). Both .xlsx and .csv formats are supported.</span>
+                </div>
+
+                {/* Recipients preview table */}
+                {certRecipients.length > 0 && (
+                  <div style={{marginTop:'14px'}}>
+                    <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',marginBottom:'8px'}}>Preview — first 5 recipients:</div>
+                    <div style={{overflowX:'auto'}}>
+                      <table className="dboard-table" style={{fontSize:'12px'}}>
+                        <thead><tr><th>#</th><th>Name</th><th>Email</th></tr></thead>
+                        <tbody>
+                          {certRecipients.slice(0,5).map((r,i) => (
+                            <tr key={i}>
+                              <td style={{color:'var(--text-muted)',width:'36px'}}>{i+1}</td>
+                              <td style={{fontWeight:600}}>{r.name}</td>
+                              <td style={{color:'var(--text-muted)'}}>{r.email}</td>
+                            </tr>
+                          ))}
+                          {certRecipients.length > 5 && (
+                            <tr>
+                              <td colSpan={3} style={{textAlign:'center',color:'var(--text-muted)',fontStyle:'italic',padding:'8px'}}>
+                                … and {certRecipients.length - 5} more
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <button style={{marginTop:'8px',fontSize:'11px',color:'#C0392B',background:'none',border:'none',cursor:'pointer',padding:0}}
+                      onClick={() => { setCertRecipients([]); setCertExcelName(''); }}>
+                      <i className="fa-solid fa-xmark" style={{marginRight:'4px'}}></i>Clear recipients
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ── STEP 3: Choose Template ── */}
+              <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'20px',marginBottom:'20px'}}>
+                <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'16px',display:'flex',alignItems:'center',gap:'8px'}}>
+                  <div style={{width:'24px',height:'24px',borderRadius:'50%',background:'var(--blue)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:800}}>3</div>
+                  Choose Certificate Template
+                </div>
+
+                {/* Default templates grid */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))',gap:'12px',marginBottom:'16px'}}>
+                  {DEFAULT_TEMPLATES.map(t => (
+                    <div key={t.id}
+                      onClick={() => setCertTemplateMode(t.id)}
+                      style={{
+                        border: certTemplateMode===t.id ? '2px solid var(--orange)' : '2px solid var(--border)',
+                        borderRadius:'10px', overflow:'hidden', cursor:'pointer',
+                        transition:'border-color .15s',
+                        boxShadow: certTemplateMode===t.id ? '0 0 0 3px rgba(242,97,34,0.15)' : 'none',
+                      }}>
+                      {/* Mini certificate preview */}
+                      <div style={{height:'110px',background:t.bg,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'10px',gap:'5px',position:'relative'}}>
+                        <div style={{width:'90%',height:'2px',background:t.accent,opacity:.7,borderRadius:'1px'}}/>
+                        <div style={{fontSize:'8px',fontWeight:700,color:t.text,fontFamily:'Georgia,serif',textAlign:'center',letterSpacing:'.5px'}}>
+                          CERTIFICATE OF COMPLETION
+                        </div>
+                        <div style={{fontSize:'11px',fontWeight:700,color:t.accent,fontFamily:'Georgia,serif',fontStyle:'italic'}}>
+                          Recipient Name
+                        </div>
+                        <div style={{fontSize:'7px',color:t.text,opacity:.7,textAlign:'center',fontFamily:'Georgia,serif'}}>Course Title</div>
+                        <div style={{width:'90%',height:'1px',background:t.accent,opacity:.4,borderRadius:'1px'}}/>
+                        {certTemplateMode===t.id && (
+                          <div style={{position:'absolute',top:'6px',right:'6px',width:'18px',height:'18px',borderRadius:'50%',background:'var(--orange)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                            <i className="fa-solid fa-check" style={{fontSize:'9px',color:'#fff'}}></i>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{padding:'8px 10px',background:'var(--surface)',borderTop:'1px solid var(--border)'}}>
+                        <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)'}}>{t.label}</div>
+                        <div style={{fontSize:'10px',color:'var(--text-muted)',marginTop:'2px'}}>{t.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Custom upload option */}
+                  <div
+                    onClick={() => setCertTemplateMode('custom')}
+                    style={{
+                      border: certTemplateMode==='custom' ? '2px solid var(--orange)' : '2px dashed var(--border)',
+                      borderRadius:'10px', overflow:'hidden', cursor:'pointer',
+                      transition:'border-color .15s',
+                      boxShadow: certTemplateMode==='custom' ? '0 0 0 3px rgba(242,97,34,0.15)' : 'none',
                     }}>
+                    <div style={{height:'110px',background:'var(--blue-pale)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'8px',position:'relative'}}>
+                      <i className="fa-solid fa-upload" style={{fontSize:'22px',color:'var(--blue)',opacity:.6}}></i>
+                      <span style={{fontSize:'11px',color:'var(--blue)',fontWeight:600}}>Custom Template</span>
+                      {certTemplateMode==='custom' && (
+                        <div style={{position:'absolute',top:'6px',right:'6px',width:'18px',height:'18px',borderRadius:'50%',background:'var(--orange)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                          <i className="fa-solid fa-check" style={{fontSize:'9px',color:'#fff'}}></i>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{padding:'8px 10px',background:'var(--surface)',borderTop:'1px solid var(--border)'}}>
+                      <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)'}}>Custom Image</div>
+                      <div style={{fontSize:'10px',color:'var(--text-muted)',marginTop:'2px'}}>Upload your own design</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Custom template upload — only shown when custom is selected */}
+                {certTemplateMode === 'custom' && (
+                  <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'10px',padding:'16px'}}>
+                    <label style={{display:'inline-flex',alignItems:'center',gap:'8px',background:'var(--blue)',color:'#fff',padding:'10px 18px',borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:700}}>
                       <i className="fa-solid fa-upload"></i>
-                      {certTemplateUrl ? 'Change Template' : 'Upload Template (PNG/JPG)'}
+                      {certTemplateUrl && certTemplateUrl !== 'uploading' ? 'Change Template' : 'Upload Template Image'}
                       <input type="file" accept="image/png,image/jpeg,image/jpg" style={{display:'none'}}
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
@@ -2220,72 +2580,66 @@ export default function AdminPage() {
                         }}/>
                     </label>
                     {certTemplateUrl === 'uploading' && (
-                      <div style={{display:'flex',alignItems:'center',gap:'8px',color:'var(--text-muted)',fontSize:'13px',padding:'10px 0'}}>
-                        <i className="fa-solid fa-spinner fa-spin" style={{color:'var(--orange)'}}></i> Uploading…
-                      </div>
+                      <span style={{marginLeft:'12px',fontSize:'13px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{marginRight:'5px'}}></i>Uploading…</span>
                     )}
                     {certTemplateUrl && certTemplateUrl !== 'uploading' && (
-                      <div style={{display:'flex',alignItems:'center',gap:'8px',color:'var(--green)',fontSize:'12px',fontWeight:600,padding:'10px 0'}}>
-                        <i className="fa-solid fa-circle-check"></i> Template ready
+                      <div style={{marginTop:'12px',position:'relative',display:'inline-block'}}>
+                        <img src={certTemplateUrl} alt="Template preview"
+                          style={{maxWidth:'100%',maxHeight:'200px',objectFit:'contain',border:'1px solid var(--border)',borderRadius:'8px',display:'block'}}
+                          onError={e=>e.target.style.display='none'}/>
+                        <button onClick={() => setCertTemplateUrl('')}
+                          style={{position:'absolute',top:'5px',right:'5px',background:'rgba(0,0,0,0.5)',color:'#fff',border:'none',borderRadius:'50%',width:'22px',height:'22px',cursor:'pointer',fontSize:'11px',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                       </div>
                     )}
-                  </div>
-
-                  {/* Preview */}
-                  {certTemplateUrl && certTemplateUrl !== 'uploading' && (
-                    <div style={{marginTop:'12px',position:'relative',display:'inline-block'}}>
-                      <img src={certTemplateUrl} alt="Template preview"
-                        style={{maxWidth:'100%',maxHeight:'220px',objectFit:'contain',border:'1px solid var(--border)',borderRadius:'8px',display:'block'}}
-                        onError={e=>e.target.style.display='none'}/>
-                      <button onClick={() => setCertTemplateUrl('')}
-                        style={{position:'absolute',top:'6px',right:'6px',background:'rgba(0,0,0,0.5)',color:'#fff',border:'none',borderRadius:'50%',width:'22px',height:'22px',cursor:'pointer',fontSize:'11px',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                        ✕
-                      </button>
+                    <div style={{marginTop:'10px',fontSize:'11px',color:'#5B4500',background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:'6px',padding:'8px 10px'}}>
+                      <i className="fa-solid fa-circle-info" style={{marginRight:'5px'}}></i>
+                      Leave blank spaces at ~52% (name), ~61% (course), ~73% (date) from the top of your template.
                     </div>
-                  )}
-                </div>
-                <div style={{background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:'8px',padding:'12px',marginTop:'12px',fontSize:'12px',color:'#92400E'}}>
-                  <i className="fa-solid fa-circle-info" style={{marginRight:'6px'}}></i>
-                  The system will automatically place the participant's <strong>name</strong>, <strong>course title</strong>, and <strong>date</strong> on the template.
-                  Make sure your template has blank spaces at roughly 52%, 61%, and 73% from the top for these fields.
-                </div>
+                  </div>
+                )}
               </div>
 
-              {/* Generate button */}
+              {/* ── GENERATE BUTTON ── */}
               <div style={{marginBottom:'24px'}}>
                 <button className="btn btn-primary"
                   onClick={generateCertificates}
-                  disabled={certGenerating || !certCourseId || !certTemplateUrl || certTemplateUrl === 'uploading' || certRegCount === 0}
+                  disabled={certGenerating || !certCourseId || !certRecipients.length || (certTemplateMode==='custom' && (!certTemplateUrl||certTemplateUrl==='uploading'))}
                   style={{fontSize:'14px',padding:'13px 28px'}}>
                   {certGenerating
-                    ? <><i className="fa-solid fa-spinner fa-spin"></i> Generating & Emailing…</>
-                    : <><i className="fa-solid fa-certificate"></i> Generate & Email Certificates ({certRegCount})</>
+                    ? <><i className="fa-solid fa-spinner fa-spin"></i> Generating &amp; Emailing…</>
+                    : <><i className="fa-solid fa-certificate"></i> Generate &amp; Email Certificates ({certRecipients.length})</>
                   }
                 </button>
-                {certRegCount === 0 && certCourseId && (
-                  <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>No registrations for this course yet.</span>
-                )}
+                {!certCourseId && <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>Select a course first.</span>}
+                {certCourseId && !certRecipients.length && <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>Upload an Excel file with recipients.</span>}
               </div>
 
               {/* Result */}
               {certResult && (
-                <div style={{background:certResult.failed===0?'var(--green-pale)':'#FEF3C7',border:`1px solid ${certResult.failed===0?'var(--green)':'#FCD34D'}`,borderRadius:'var(--radius-md)',padding:'16px 20px',marginBottom:'24px'}}>
+                <div style={{background:certResult.failed===0?'#ECFDF5':'#FEF3C7',border:`1px solid ${certResult.failed===0?'#6EE7B7':'#FCD34D'}`,borderRadius:'var(--radius-md)',padding:'16px 20px',marginBottom:'24px'}}>
                   <div style={{fontSize:'14px',fontWeight:700,color:certResult.failed===0?'var(--green)':'#92400E',marginBottom:'8px'}}>
-                    {certResult.failed === 0
-                      ? <><i className="fa-solid fa-circle-check" style={{marginRight:'6px'}}></i>All certificates generated and emailed!</>
+                    {certResult.failed===0
+                      ? <><i className="fa-solid fa-circle-check" style={{marginRight:'6px'}}></i>All certificates sent successfully!</>
                       : <><i className="fa-solid fa-triangle-exclamation" style={{marginRight:'6px'}}></i>Partially completed</>
                     }
                   </div>
                   <div style={{fontSize:'13px',color:'var(--text-muted)',display:'flex',gap:'16px',flexWrap:'wrap'}}>
-                    <span>✅ Generated: <strong>{certResult.generated}</strong></span>
+                    <span>✅ Sent: <strong>{certResult.generated}</strong></span>
                     <span>❌ Failed: <strong>{certResult.failed}</strong></span>
                     <span>Total: <strong>{certResult.total}</strong></span>
                   </div>
+                  {certResult.results?.filter(r=>!r.success).length > 0 && (
+                    <div style={{marginTop:'10px',fontSize:'12px',color:'#C0392B'}}>
+                      {certResult.results.filter(r=>!r.success).map((r,i) => (
+                        <div key={i}><i className="fa-solid fa-xmark" style={{marginRight:'4px'}}></i>{r.name} ({r.email}) — {r.error}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Issued certificates list */}
-              <div className="admin-form-title" style={{fontSize:'15px',marginTop:'8px'}}>
+              {/* Issued Certificates List */}
+              <div style={{fontSize:'15px',fontWeight:700,color:'var(--blue)',marginBottom:'12px'}}>
                 Issued Certificates
                 <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400,marginLeft:'8px'}}>({certList.length})</span>
               </div>
@@ -2297,23 +2651,22 @@ export default function AdminPage() {
               ) : (
                 <div style={{overflowX:'auto'}}>
                   <table className="dboard-table">
-                    <thead><tr><th>Recipient</th><th>Email</th><th>Issued On</th><th>Email Sent</th><th>Certificate</th></tr></thead>
+                    <thead><tr><th>Recipient</th><th>Email</th><th>Course</th><th>Sent</th><th>Certificate</th></tr></thead>
                     <tbody>
                       {certList.slice(0,50).map((c,i) => (
                         <tr key={i}>
                           <td><div className="dboard-table-name">{c.recipient_name}</div></td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{c.recipient_email}</td>
-                          <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{new Date(c.issued_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.course_title || '—'}</td>
                           <td style={{textAlign:'center'}}>
                             {c.email_sent
-                              ? <span style={{color:'var(--green)',fontWeight:700,fontSize:'12px'}}><i className="fa-solid fa-check"></i> Sent</span>
+                              ? <span style={{color:'var(--green)',fontWeight:700,fontSize:'12px'}}><i className="fa-solid fa-check"></i></span>
                               : <span style={{color:'var(--text-light)',fontSize:'12px'}}>—</span>
                             }
                           </td>
                           <td>
                             {c.certificate_url
-                              ? <a href={c.certificate_url} target="_blank" rel="noopener"
-                                  style={{fontSize:'12px',color:'var(--blue)',fontWeight:600,textDecoration:'none'}}>
+                              ? <a href={c.certificate_url} target="_blank" rel="noopener" style={{fontSize:'12px',color:'var(--blue)',fontWeight:600,textDecoration:'none'}}>
                                   <i className="fa-solid fa-download" style={{marginRight:'4px'}}></i>Download
                                 </a>
                               : <span style={{fontSize:'12px',color:'var(--text-light)'}}>—</span>

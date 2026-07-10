@@ -91,136 +91,41 @@ export default function HomePage() {
     supabase.from('courses')
       .select('id, title, slug, category, price, level, instructor, free_for, status, banner_url, thumbnail_url, event_date, event_time')
       .eq('status', 'published')
-      .order('created_at', { ascending: false })
-      .limit(3)
-      .then(({ data }) => { if (data?.length) setHomeCourses(data); });
+      .order('event_date', { ascending: true })
+      .then(({ data }) => {
+        if (!data?.length) return;
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        // Only upcoming: no event_date (evergreen) OR event_date >= today
+        const upcoming = data.filter(c => !c.event_date || new Date(c.event_date) >= today);
+        setHomeCourses(upcoming.slice(0, 3));
+      });
   }, []);
 
-  /* ── SLIDES CONFIG — replace image URLs when ready ── */
+  /* ── Hero slides — fetched from Supabase ── */
+  const [dbSlides, setDbSlides] = useState([]);
+  useEffect(() => {
+    supabase.from('slides')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => setDbSlides(data || []));
+  }, []);
+
+  // Slide 1 is always the fixed hero component.
+  // DB slides follow as image slides (index 1, 2, 3…)
   const SLIDES = [
-    {
-      type: 'hero', // Slide 1 — hero section
-    },
-    {
-      // Slide 2 — image 1.png
-      type: 'image',
-      image: '/image%201.png',
-      badge: 'FIP Highlights',
-      title: "Building India's Finest Professional Network",
-      subtitle: 'Connect · Collaborate · Conquer',
-      desc: "FIP brings together the brightest minds in Chartered Accountancy, Company Secretaryship, Cost Accounting and Law.",
-      btnLabel: 'Join FIP — ₹500/yr',
-      btnAction: 'join',
-      tag: '3,000+ Members',
-    },
-    {
-      // Slide 3 — image 2.jpeg
-      type: 'image',
-      image: '/image%202.jpg',
-      badge: 'Community Events',
-      title: 'Chartered Walk & Talk',
-      subtitle: 'Every Sunday · India Gate, New Delhi',
-      desc: 'Morning walks at India Gate, War Memorial and Firoz Shah Road. Networking meets wellness — free for all members.',
-      btnLabel: 'RSVP Now',
-      btnAction: 'rsvp',
-      tag: 'Every Sunday',
-    },
-    {
-      // Slide 4 — image 3.jpeg
-      type: 'image',
-      image: '/image%203.jpg',
-      badge: 'Professional Growth',
-      title: 'Expert-Led Certificate Programmes',
-      subtitle: 'ICAI CPE Eligible · Practical & Case-Study Driven',
-      desc: 'From GST Litigation to IBC Practice — our courses are built for working professionals who want to stay ahead.',
-      btnLabel: 'Browse Courses',
-      btnAction: 'courses',
-      tag: '15+ Programmes',
-    },
-    {
-      // Slide 5 — image 4.jpeg
-      type: 'image',
-      image: '/image%204.jpg',
-      badge: 'Flagship Event',
-      title: 'GST Conclave 2026',
-      subtitle: "India's Largest GST Summit",
-      desc: 'Following the success of our Le Meridien Conclave, 500+ professionals gather for a full-day indirect tax summit.',
-      btnLabel: 'Know More',
-      btnAction: 'events',
-      tag: 'Coming Soon',
-    },
-    {
-      // Slide 6 — image 5.jpeg
-      type: 'image',
-      image: '/image%205.jpg',
-      badge: 'Exclusive Access',
-      title: 'Rashtrapati Bhawan Visit',
-      subtitle: 'Parliament & Heritage Experience',
-      desc: "FIP members get exclusive guided access to India's most prestigious landmarks. Limited seats, RSVP required.",
-      btnLabel: 'RSVP Now',
-      btnAction: 'rsvp',
-      tag: 'Jan 2026',
-    },
-    {
-      // Slide 7 — image 6.jpeg
-      type: 'image',
-      image: '/image%206.jpg',
-      badge: 'Knowledge Sessions',
-      title: 'Expert Webinars & Masterclasses',
-      subtitle: '200+ Sessions · On-Demand Access',
-      desc: 'Weekly expert sessions on GST, Income Tax, NCLT, FEMA and more. Attend live or access recordings anytime.',
-      btnLabel: 'View Webinars',
-      btnAction: 'webinars',
-      tag: '200+ Recorded',
-    },
-    {
-      // Slide 8 — image 7.jpeg
-      type: 'image',
-      image: '/image%207.jpg',
-      badge: 'Policy & Advocacy',
-      title: 'Shaping the Profession Together',
-      subtitle: 'Representations to CBDT · CBIC · MCA · SEBI',
-      desc: 'FIP members collectively voice the profession. Our committees make real representations to regulatory bodies.',
-      btnLabel: 'Our Committees',
-      btnAction: 'committees',
-      tag: '9 Committees',
-    },
-    {
-      // Slide 9 — image 8.jpeg
-      type: 'image',
-      image: '/image%208.jpg',
-      badge: 'National Presence',
-      title: 'A Community Across India',
-      subtitle: '40+ Cities · 3,000+ Verified Professionals',
-      desc: 'From Delhi to Chennai, Mumbai to Bengaluru — FIP members are everywhere. Connect with professionals in your city.',
-      btnLabel: 'Member Directory',
-      btnAction: 'directory',
-      tag: '40+ Cities',
-    },
-    {
-      // Slide 10 — image 9.jpeg
-      type: 'image',
-      image: '/image%209.jpeg',
-      badge: 'CSR & Social Impact',
-      title: 'Professionals with a Purpose',
-      subtitle: 'Social Responsibility · National Heritage',
-      desc: 'FIP members participate in CSR activities at national monuments, contributing to the nation beyond their profession.',
-      btnLabel: 'About FIP',
-      btnAction: 'about',
-      tag: 'Making a Difference',
-    },
-    {
-      // Slide 11 — image 10.jpeg
-      type: 'image',
-      image: '/image%2010.jpeg',
-      badge: 'Join the Movement',
-      title: 'Be Part of Something Bigger',
-      subtitle: 'One Membership · Unlimited Growth',
-      desc: 'Join 3,000+ professionals who trust FIP to power their careers, knowledge and network. Your journey starts here.',
-      btnLabel: 'Join FIP — ₹500/yr',
-      btnAction: 'join',
-      tag: 'Limited Time',
-    },
+    { type: 'hero' },
+    ...dbSlides.map(s => ({
+      type:      'image',
+      image:     s.image_url,
+      badge:     s.badge,
+      title:     s.title,
+      subtitle:  s.subtitle,
+      desc:      s.description,
+      btnLabel:  s.btn_label,
+      btnAction: s.btn_action,
+      tag:       s.tag,
+    })),
   ];
 
   const [slideIdx,   setSlideIdx]   = useState(0);
@@ -442,7 +347,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* COURSES */}
+      {/* COURSES — only shown when upcoming courses exist */}
+      {homeCourses.length > 0 && (
       <section className="section">
         <div className="container">
           <div className="shflex">
@@ -454,12 +360,6 @@ export default function HomePage() {
             <Link to="/courses" className="btn btn-outline-blue">View All <i className="fa-solid fa-arrow-right"></i></Link>
           </div>
           <div className="course-grid">
-          {homeCourses.length === 0 && (
-            <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)',gridColumn:'1/-1'}}>
-              <i className="fa-solid fa-book-open" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-              <p>Courses coming soon. <Link to="/events" style={{color:'var(--orange)'}}>Check our events</Link> in the meantime!</p>
-            </div>
-          )}
           
             {homeCourses.map((c,i) => {
               const bgCls = ['ct-blue','ct-teal','ct-orange','ct-purple','ct-green','ct-red'][i % 6];
@@ -517,6 +417,7 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* EVENTS DARK */}
       <div className="events-dark">
