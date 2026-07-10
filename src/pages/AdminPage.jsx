@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { committees as defaultCommittees } from '../data/index.js';
 import * as XLSX from 'xlsx';
@@ -67,6 +68,7 @@ export default function AdminPage() {
   const [mForm, setMForm] = useState({ name:'', role:'Member' });
 
   const { profile, signOut, isAdmin } = useAuth();
+  const { showToast, openModal }      = useApp();
   const navigate = useNavigate();
 
   /* ── load members ── */
@@ -644,12 +646,17 @@ export default function AdminPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Generation failed');
+      if (!res.ok) {
+        const msg = data?.error || ('Server error ' + res.status);
+        showToast('Error: ' + msg, true);
+        setCertGenerating(false);
+        return;
+      }
       setCertResult(data);
       supabase.rpc('admin_get_certificates').then(({ data: d }) => setCertList(d || []));
       showToast(`${data.generated} certificates sent!`);
     } catch (err) {
-      showToast('Error: ' + err.message, true);
+      showToast('Network error: ' + err.message, true);
     }
     setCertGenerating(false);
   };
