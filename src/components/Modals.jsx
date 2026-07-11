@@ -8,16 +8,20 @@ import { supabase } from '../lib/supabase.js';
 
 export default function Modals() {
   const { modal, modalData, closeModal, openModal, showToast } = useApp();
-  const { signIn, signUp, verifyOTP, resendOTP, resetPassword, user, profile } = useAuth();
+  const { signIn, signUp, verifyOTP, resendOTP, sendResetOtp, verifyResetOtp, updatePassword, user, profile } = useAuth();
   const { pay } = useRazorpay();
   const navigate = useNavigate();
 
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [regType,  setRegType]  = useState('student');
-  const [forgotStep, setForgotStep] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotStep,    setForgotStep]    = useState(false); // false|1|2|3
+  const [forgotEmail,   setForgotEmail]   = useState('');
+  const [forgotSent,    setForgotSent]    = useState(false);
+  const [forgotOtp,     setForgotOtp]     = useState(Array(6).fill(''));
+  const [newPwd,        setNewPwd]        = useState('');
+  const [newPwdConfirm, setNewPwdConfirm] = useState('');
+  const [showNewPwd,    setShowNewPwd]    = useState(false);
   const [payStep,    setPayStep]    = useState(false);
   const [paySuccess, setPaySuccess] = useState(null); // { name, amount, plan }
   const [refCode,    setRefCode]    = useState('');
@@ -125,6 +129,67 @@ export default function Modals() {
   };
 
   /* ── LOGIN ── */
+  /* ── RESET PASSWORD HANDLERS ── */
+  const handleSendResetOtp = async () => {
+    if (!forgotEmail.trim()) { setError('Enter your email address.'); return; }
+    setLoading(true); clearError();
+    try {
+      await sendResetOtp(forgotEmail.trim());
+      setForgotStep(2);
+      setForgotOtp(Array(6).fill(''));
+    } catch (err) {
+      // Supabase 500 errors often have empty message — extract it properly
+      const msg =
+        typeof err === 'string'               ? err
+        : err?.message && err.message !== '{}' ? err.message
+        : err?.error_description               ? err.error_description
+        : err?.status === 500 || err?.code === 500
+          ? 'Email service error — please wait a moment and try again, or contact support.'
+          : 'Could not send OTP. Please check your email and try again.';
+      setError(msg);
+    }
+    setLoading(false);
+  };
+
+  const handleVerifyResetOtp = async () => {
+    const token = forgotOtp.join('');
+    if (token.length !== 6) { setError('Enter the complete 6-digit OTP.'); return; }
+    setLoading(true); clearError();
+    try {
+      await verifyResetOtp(forgotEmail.trim(), token);
+      setForgotStep(3);
+      setNewPwd(''); setNewPwdConfirm('');
+    } catch (err) {
+      setError(err.message || 'Invalid or expired OTP. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  const handleSetNewPassword = async () => {
+    if (!newPwd || newPwd.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (newPwd !== newPwdConfirm)      { setError('Passwords do not match.'); return; }
+    setLoading(true); clearError();
+    try {
+      await updatePassword(newPwd);
+      showToast('Password updated successfully! You are now logged in.');
+      setForgotStep(false);
+      setForgotEmail('');
+      closeModal();
+    } catch (err) {
+      setError(err.message || 'Failed to update password.');
+    }
+    setLoading(false);
+  };
+
+  const resetForgotFlow = () => {
+    setForgotStep(false);
+    setForgotEmail('');
+    setForgotOtp(Array(6).fill(''));
+    setNewPwd('');
+    setNewPwdConfirm('');
+    clearError();
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault(); setLoading(true); setError('');
     const f = e.target;
@@ -457,25 +522,161 @@ export default function Modals() {
         ══════════════════════════════════ */}
         {!otpStep && modal === 'login' && (
           <>
-            <div className="modal-title">Welcome Back</div>
-            <div className="modal-sub">Sign in to access your FIP dashboard, courses and events.</div>
-            {error && <div className="auth-error"><i className="fa-solid fa-circle-exclamation"></i> {error}</div>}
-            <form onSubmit={handleLogin}>
-              <div className="form-group"><label className="form-label">Email Address</label>
-                <input className="form-input" name="email" type="email" placeholder="you@example.com" required />
-              </div>
-              <div className="form-group"><label className="form-label">Password</label>
-                <input className="form-input" name="password" type="password" placeholder="••••••••" required />
-              </div>
-              <button type="submit" className="btn btn-secondary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}} disabled={loading}>
-                {loading ? <><i className="fa-solid fa-spinner fa-spin"></i> Signing in…</> : 'Sign In'}
-              </button>
-              <p style={{textAlign:'center',fontSize:'13px',color:'var(--text-muted)'}}>
-                No account?{' '}
-                <span style={{color:'var(--orange)',cursor:'pointer',fontWeight:600}}
-                  onClick={() => { clearError(); openModal('register', modalData); }}>Create Account</span>
-              </p>
-            </form>
+            {/* ──────── NORMAL LOGIN ──────── */}
+            {!forgotStep && (
+              <>
+                <div className="modal-title">Welcome Back</div>
+                <div className="modal-sub">Sign in to access your FIP dashboard, courses and events.</div>
+                {error && <div className="auth-error"><i className="fa-solid fa-circle-exclamation"></i> {error}</div>}
+                <form onSubmit={handleLogin}>
+                  <div className="form-group"><label className="form-label">Email Address</label>
+                    <input className="form-input" name="email" type="email" placeholder="you@example.com" required />
+                  </div>
+                  <div className="form-group">
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}}>
+                      <label className="form-label" style={{margin:0}}>Password</label>
+                      <span style={{fontSize:'12px',color:'var(--orange)',cursor:'pointer',fontWeight:600}}
+                        onClick={() => { clearError(); setForgotStep(1); setForgotEmail(''); }}>
+                        Forgot Password?
+                      </span>
+                    </div>
+                    <input className="form-input" name="password" type="password" placeholder="••••••••" required />
+                  </div>
+                  <button type="submit" className="btn btn-secondary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}} disabled={loading}>
+                    {loading ? <><i className="fa-solid fa-spinner fa-spin"></i> Signing in…</> : 'Sign In'}
+                  </button>
+                  <p style={{textAlign:'center',fontSize:'13px',color:'var(--text-muted)'}}>
+                    No account?{' '}
+                    <span style={{color:'var(--orange)',cursor:'pointer',fontWeight:600}}
+                      onClick={() => { clearError(); openModal('register', modalData); }}>Create Account</span>
+                  </p>
+                </form>
+              </>
+            )}
+
+            {/* ──────── STEP 1: Enter Email ──────── */}
+            {forgotStep === 1 && (
+              <>
+                <div className="modal-title">Reset Password</div>
+                <div className="modal-sub">Enter your registered email. We'll send a 6-digit OTP to verify it's you.</div>
+                {error && <div className="auth-error"><i className="fa-solid fa-circle-exclamation"></i> {error}</div>}
+                <div className="form-group" style={{marginBottom:'16px'}}>
+                  <label className="form-label">Email Address</label>
+                  <input className="form-input" type="email" placeholder="you@example.com"
+                    value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSendResetOtp()}
+                    autoFocus />
+                </div>
+                <button className="btn btn-secondary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}}
+                  disabled={loading || !forgotEmail.trim()} onClick={handleSendResetOtp}>
+                  {loading ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</> : <><i className="fa-solid fa-paper-plane"></i> Send OTP</>}
+                </button>
+                <p style={{textAlign:'center',fontSize:'13px',color:'var(--text-muted)'}}>
+                  <span style={{color:'var(--orange)',cursor:'pointer',fontWeight:600}}
+                    onClick={resetForgotFlow}>← Back to Login</span>
+                </p>
+              </>
+            )}
+
+            {/* ──────── STEP 2: Enter 6-digit OTP ──────── */}
+            {forgotStep === 2 && (
+              <>
+                <div className="modal-title">Check Your Email</div>
+                <div className="modal-sub">
+                  We sent a 6-digit OTP to <strong>{forgotEmail}</strong>. Enter it below.
+                </div>
+                {error && <div className="auth-error"><i className="fa-solid fa-circle-exclamation"></i> {error}</div>}
+
+                {/* OTP boxes — same style as signup OTP */}
+                <div className="otp-boxes" style={{justifyContent:'center',margin:'20px 0 24px'}}>
+                  {forgotOtp.map((d, i) => (
+                    <input key={i} id={`frg-otp-${i}`} type="text" inputMode="numeric"
+                      maxLength={1} value={d} className="otp-box"
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g,'').slice(-1);
+                        const next = [...forgotOtp]; next[i] = val; setForgotOtp(next);
+                        if (val && i < 5) document.getElementById(`frg-otp-${i+1}`)?.focus();
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Backspace' && !forgotOtp[i] && i > 0)
+                          document.getElementById(`frg-otp-${i-1}`)?.focus();
+                      }}
+                      onPaste={e => {
+                        const paste = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6);
+                        if (paste.length === 6) {
+                          setForgotOtp(paste.split(''));
+                          document.getElementById(`frg-otp-5`)?.focus();
+                        }
+                        e.preventDefault();
+                      }}
+                    />
+                  ))}
+                </div>
+
+                <button className="btn btn-secondary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}}
+                  disabled={loading || forgotOtp.join('').length !== 6} onClick={handleVerifyResetOtp}>
+                  {loading ? <><i className="fa-solid fa-spinner fa-spin"></i> Verifying…</> : <><i className="fa-solid fa-check-circle"></i> Verify OTP</>}
+                </button>
+                <p style={{textAlign:'center',fontSize:'13px',color:'var(--text-muted)'}}>
+                  Didn't receive it?{' '}
+                  <span style={{color:'var(--orange)',cursor:'pointer',fontWeight:600}}
+                    onClick={() => { clearError(); setForgotStep(1); }}>Resend OTP</span>
+                  {' · '}
+                  <span style={{color:'var(--orange)',cursor:'pointer',fontWeight:600}}
+                    onClick={resetForgotFlow}>Cancel</span>
+                </p>
+              </>
+            )}
+
+            {/* ──────── STEP 3: Set New Password ──────── */}
+            {forgotStep === 3 && (
+              <>
+                <div className="modal-title">Set New Password</div>
+                <div className="modal-sub">OTP verified ✓ — choose a strong new password.</div>
+                {error && <div className="auth-error"><i className="fa-solid fa-circle-exclamation"></i> {error}</div>}
+
+                <div className="form-group" style={{marginBottom:'12px'}}>
+                  <label className="form-label">New Password</label>
+                  <div style={{position:'relative'}}>
+                    <input className="form-input" type={showNewPwd ? 'text' : 'password'}
+                      placeholder="Minimum 6 characters" value={newPwd}
+                      onChange={e => setNewPwd(e.target.value)} style={{paddingRight:'42px'}} autoFocus />
+                    <button type="button" onClick={() => setShowNewPwd(v => !v)}
+                      style={{position:'absolute',right:'12px',top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'14px'}}>
+                      <i className={`fa-solid fa-eye${showNewPwd ? '-slash' : ''}`}></i>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{marginBottom:'20px'}}>
+                  <label className="form-label">Confirm New Password</label>
+                  <input className="form-input" type="password" placeholder="Repeat new password"
+                    value={newPwdConfirm} onChange={e => setNewPwdConfirm(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSetNewPassword()} />
+                </div>
+
+                {/* Password strength indicator */}
+                {newPwd.length > 0 && (
+                  <div style={{marginBottom:'16px'}}>
+                    <div style={{height:'4px',borderRadius:'2px',background:'var(--border)',marginBottom:'4px'}}>
+                      <div style={{
+                        height:'100%',borderRadius:'2px',transition:'width .3s',
+                        width: newPwd.length < 6 ? '25%' : newPwd.length < 10 ? '60%' : '100%',
+                        background: newPwd.length < 6 ? '#EF4444' : newPwd.length < 10 ? '#F59E0B' : 'var(--green)',
+                      }}/>
+                    </div>
+                    <span style={{fontSize:'11px',color: newPwd.length < 6 ? '#EF4444' : newPwd.length < 10 ? '#F59E0B' : 'var(--green)'}}>
+                      {newPwd.length < 6 ? 'Too short' : newPwd.length < 10 ? 'Good' : 'Strong ✓'}
+                    </span>
+                  </div>
+                )}
+
+                <button className="btn btn-secondary" style={{width:'100%',justifyContent:'center'}}
+                  disabled={loading || !newPwd || newPwd !== newPwdConfirm} onClick={handleSetNewPassword}>
+                  {loading ? <><i className="fa-solid fa-spinner fa-spin"></i> Updating…</> : <><i className="fa-solid fa-lock"></i> Update Password</>}
+                </button>
+              </>
+            )}
           </>
         )}
 

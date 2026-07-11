@@ -125,12 +125,24 @@ export function AuthProvider({ children }) {
     if (error) throw error;
   };
 
-  /* ── RESET PASSWORD (sends email link) ── */
-  const resetPassword = async (email) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+  /* ── RESET PASSWORD — Step 1: send 6-digit OTP to email ── */
+  const sendResetOtp = async (email) => {
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false }, // only existing users
     });
     if (error) throw error;
+  };
+
+  /* ── RESET PASSWORD — Step 2: verify OTP (logs user in) ── */
+  const verifyResetOtp = async (email, token) => {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'email',
+    });
+    if (error) throw error;
+    return data;
   };
 
   /* ── UPDATE PASSWORD (after reset link) ── */
@@ -178,7 +190,8 @@ export function AuthProvider({ children }) {
       checkPhoneUnique,
       signIn,
       signOut,
-      resetPassword,
+      sendResetOtp,
+      verifyResetOtp,
       updatePassword,
       updateProfile,
       fetchProfile,
