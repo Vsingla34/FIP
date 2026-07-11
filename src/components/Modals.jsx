@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase.js';
 
 export default function Modals() {
   const { modal, modalData, closeModal, openModal, showToast } = useApp();
-  const { signIn, signUp, verifyOTP, resendOTP, sendResetOtp, verifyResetOtp, updatePassword, user, profile } = useAuth();
+  const { signIn, signUp, verifyOTP, resendOTP, sendResetOtp, verifyResetOtp, resetPasswordWithToken, user, profile } = useAuth();
   const { pay } = useRazorpay();
   const navigate = useNavigate();
 
@@ -19,6 +19,7 @@ export default function Modals() {
   const [forgotEmail,   setForgotEmail]   = useState('');
   const [forgotSent,    setForgotSent]    = useState(false);
   const [forgotOtp,     setForgotOtp]     = useState(Array(6).fill(''));
+  const [verifiedToken, setVerifiedToken] = useState('');
   const [newPwd,        setNewPwd]        = useState('');
   const [newPwdConfirm, setNewPwdConfirm] = useState('');
   const [showNewPwd,    setShowNewPwd]    = useState(false);
@@ -156,7 +157,8 @@ export default function Modals() {
     if (token.length !== 6) { setError('Enter the complete 6-digit OTP.'); return; }
     setLoading(true); clearError();
     try {
-      await verifyResetOtp(forgotEmail.trim(), token);
+      const vToken = await verifyResetOtp(forgotEmail.trim(), token);
+      setVerifiedToken(vToken);
       setForgotStep(3);
       setNewPwd(''); setNewPwdConfirm('');
     } catch (err) {
@@ -170,13 +172,14 @@ export default function Modals() {
     if (newPwd !== newPwdConfirm)      { setError('Passwords do not match.'); return; }
     setLoading(true); clearError();
     try {
-      await updatePassword(newPwd);
-      showToast('Password updated successfully! You are now logged in.');
+      await resetPasswordWithToken(forgotEmail.trim(), verifiedToken, newPwd);
+      showToast('Password updated successfully! Please log in with your new password.');
       setForgotStep(false);
       setForgotEmail('');
+      setVerifiedToken('');
       closeModal();
     } catch (err) {
-      setError(err.message || 'Failed to update password.');
+      setError(err.message || 'Failed to update password. Please restart the process.');
     }
     setLoading(false);
   };
@@ -185,6 +188,7 @@ export default function Modals() {
     setForgotStep(false);
     setForgotEmail('');
     setForgotOtp(Array(6).fill(''));
+    setVerifiedToken('');
     setNewPwd('');
     setNewPwdConfirm('');
     clearError();

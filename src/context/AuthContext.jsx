@@ -125,24 +125,38 @@ export function AuthProvider({ children }) {
     if (error) throw error;
   };
 
-  /* ── RESET PASSWORD — Step 1: send 6-digit OTP to email ── */
+  /* ── RESET PASSWORD — Step 1: send 6-digit OTP via our Gmail SMTP ── */
   const sendResetOtp = async (email) => {
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false }, // only existing users
+    const res  = await fetch('/api/send-reset-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
     });
-    if (error) throw error;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to send OTP.');
   };
 
-  /* ── RESET PASSWORD — Step 2: verify OTP (logs user in) ── */
-  const verifyResetOtp = async (email, token) => {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: 'email',
+  /* ── RESET PASSWORD — Step 2: verify OTP → get a verified_token ── */
+  const verifyResetOtp = async (email, otp) => {
+    const res  = await fetch('/api/verify-reset-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp }),
     });
-    if (error) throw error;
-    return data;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Invalid OTP.');
+    return data.verified_token; // store this in component state for step 3
+  };
+
+  /* ── RESET PASSWORD — Step 3: set new password using verified_token ── */
+  const resetPasswordWithToken = async (email, verifiedToken, newPassword) => {
+    const res  = await fetch('/api/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, verified_token: verifiedToken, new_password: newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to update password.');
   };
 
   /* ── UPDATE PASSWORD (after reset link) ── */
@@ -192,6 +206,7 @@ export function AuthProvider({ children }) {
       signOut,
       sendResetOtp,
       verifyResetOtp,
+      resetPasswordWithToken,
       updatePassword,
       updateProfile,
       fetchProfile,
