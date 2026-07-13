@@ -1,17 +1,21 @@
 // /api/reset-password.js
-// Step 3: Validate verified_token → update password via Supabase Admin API
 import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method !== 'POST') return res.status(405).end();
 
+  const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+  const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    console.log('[reset-password] MISSING ENV VARS');
+    return res.status(500).json({ error: 'Server misconfiguration.' });
+  }
+
+  const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_KEY);
   const { email, verified_token, new_password } = req.body || {};
+
   if (!email || !verified_token || !new_password) {
     return res.status(400).json({ error: 'Email, token and new password are required.' });
   }
@@ -21,9 +25,10 @@ export default async function handler(req, res) {
 
   try {
     const normalEmail = email.toLowerCase().trim();
+    console.log('[reset-password] Request for:', normalEmail);
 
-    // Find row with matching verified_token
-    const { data: row, error } = await supabaseAdmin
+    // ── 1. Validate verified_token ─────────────────────────────
+    const { data: row, error: rowErr } = await supabaseAdmin
       .from('password_reset_otps')
       .select('*')
       .eq('email', normalEmail)
@@ -31,37 +36,65 @@ export default async function handler(req, res) {
       .eq('used', false)
       .single();
 
-    if (error || !row) {
+    if (rowErr) {
+      console.log('[reset-password] Token lookup error:', rowErr.message);
       return res.status(400).json({ error: 'Invalid or expired session. Please restart the reset process.' });
     }
-
-    // Check token expiry (5 minutes)
+    if (!row) {
+      console.log('[reset-password] No matching token row found');
+      return res.status(400).json({ error: 'Invalid session. Please restart the reset process.' });
+    }
     if (new Date() > new Date(row.token_expires_at)) {
-      return res.status(400).json({ error: 'Session expired. Please restart the reset process.' });
+      console.log('[reset-password] Token expired at:', row.token_expires_at);
+      return res.status(400).json({ error: 'Session expired (5 min limit). Please restart.' });
     }
 
-    // Find the auth user by email
-    const { data: { users }, error: listErr } = await supabaseAdmin.auth.admin.listUsers();
-    if (listErr) throw listErr;
-    const authUser = users?.find(u => u.email?.toLowerCase() === normalEmail);
-    if (!authUser) return res.status(404).json({ error: 'User not found.' });
+    console.log('[reset-password] Token valid, fetching profile...');
 
-    // Update password via Admin API (no session needed)
-    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
-      authUser.id,
-      { password: new_password }
+    // ── 2. Get user id from profiles ──────────────────────────
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', normalEmail)
+      .single();
+
+    if (profileErr || !profile) {
+      console.log('[reset-password] Profile not found:', profileErr?.message);
+      return res.status(404).json({ error: 'Account not found.' });
+    }
+
+    console.log('[reset-password] Profile id:', profile.id, '— calling RPC...');
+
+    // ── 3. Update password via RPC ─────────────────────────────
+    const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc(
+      'update_user_password',
+      { p_user_id: profile.id, p_new_password: new_password }
     );
-    if (updateErr) throw updateErr;
 
-    // Mark OTP row as used
-    await supabaseAdmin.from('password_reset_otps')
+    if (rpcErr) {
+      // Extract message from all possible Supabase error shapes
+      const errMsg = rpcErr.message
+        || rpcErr.details
+        || rpcErr.hint
+        || (typeof rpcErr === 'string' ? rpcErr : JSON.stringify(rpcErr));
+      console.log('[reset-password] RPC error:', errMsg, '| full:', JSON.stringify(rpcErr));
+      return res.status(500).json({ error: 'Password update failed: ' + errMsg });
+    }
+
+    console.log('[reset-password] RPC success, marking OTP used...');
+
+    // ── 4. Mark OTP as used ───────────────────────────────────
+    await supabaseAdmin
+      .from('password_reset_otps')
       .update({ used: true })
       .eq('id', row.id);
 
+    console.log('[reset-password] Done — password updated for:', normalEmail);
     return res.status(200).json({ success: true });
 
   } catch (err) {
-    console.error('[reset-password]', err);
-    return res.status(500).json({ error: 'Password update failed: ' + err.message });
+    const msg = err?.message || JSON.stringify(err) || 'Unknown error';
+    console.log('[reset-password] CAUGHT ERROR:', msg);
+    return res.status(500).json({ error: 'Password update failed: ' + msg });
   }
 }
