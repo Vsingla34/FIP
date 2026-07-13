@@ -41,7 +41,30 @@ export function AuthProvider({ children }) {
     return () => { mounted = false; subscription.unsubscribe(); };
   }, [fetchProfile]);
 
-  /* ── CHECK PHONE UNIQUE ── */
+  /* ── Extract a human-readable message from any error shape ── */
+  const getErrMsg = (err, fallback = 'Something went wrong. Please try again.') => {
+    if (!err) return fallback;
+    const raw = err?.message || err?.error_description || err?.msg || '';
+    // Supabase 504 / empty body comes back as '{}' or '' — show friendly message
+    if (!raw || raw === '{}' || raw === 'null' || raw === 'undefined') {
+      if (err?.status === 504 || err?.statusCode === 504) {
+        return 'Connection timeout. Please check your internet and try again.';
+      }
+      if (err?.status === 500 || err?.statusCode === 500) {
+        return 'Server error. Please try again in a moment.';
+      }
+      return fallback;
+    }
+    // Common Supabase messages → friendly versions
+    if (raw.includes('User already registered'))  return 'An account with this email already exists. Please sign in instead.';
+    if (raw.includes('Email not confirmed'))       return 'Please verify your email before signing in.';
+    if (raw.includes('Invalid login credentials')) return 'Incorrect email or password.';
+    if (raw.includes('Email rate limit'))          return 'Too many emails sent. Please wait a few minutes and try again.';
+    if (raw.includes('Token has expired'))         return 'OTP expired. Click "Resend OTP" to get a new one.';
+    if (raw.includes('otp_expired'))               return 'OTP expired. Click "Resend OTP" to get a new one.';
+    if (raw.includes('otp_invalid') || raw.includes('token is invalid')) return 'Incorrect OTP. Please check and try again.';
+    return raw;
+  };
   const checkPhoneUnique = async (phone) => {
     if (!phone?.trim()) return true;
     const { data } = await supabase
@@ -93,23 +116,31 @@ export function AuthProvider({ children }) {
     });
     if (error) throw error;
 
-    // Create profile — always start as 'student' regardless of chosen type
-    // If they chose 'member', payment will upgrade them after this
-    if (data.user && pendingData) {
-      const { data: prof } = await supabase
+    // Create/update profile — do this explicitly as safety net in case trigger didn't fire
+    if (data.user) {
+      const profilePayload = {
+        id:               data.user.id,
+        email:            email,
+        full_name:        pendingData?.fullName   || data.user.user_metadata?.full_name || 'FIP Member',
+        profession:       pendingData?.profession || data.user.user_metadata?.profession || null,
+        phone:            pendingData?.phone      || data.user.user_metadata?.phone      || null,
+        account_type:     'student',
+        membership_status:'Inactive',
+        role:             'member',
+        profile_public:   true,
+      };
+
+      const { data: prof, error: profErr } = await supabase
         .from('profiles')
-        .upsert({
-          id:               data.user.id,
-          email:            pendingData.email,
-          full_name:        pendingData.fullName,
-          profession:       pendingData.profession,
-          phone:            pendingData.phone,
-          account_type:     'student',           // always student until paid
-          membership_status:'Inactive',
-          role:             'member',
-        }, { onConflict: 'id' })
+        .upsert(profilePayload, { onConflict: 'id' })
         .select().single();
-      if (prof) setProfile(prof);
+
+      if (profErr) {
+        // Profile upsert failed — log but don't block the user
+        console.error('Profile upsert after OTP:', profErr.message);
+      } else if (prof) {
+        setProfile(prof);
+      }
     }
 
     setUser(data.user);
@@ -202,6 +233,7 @@ export function AuthProvider({ children }) {
       verifyOTP,
       resendOTP,
       checkPhoneUnique,
+      getErrMsg,
       signIn,
       signOut,
       sendResetOtp,

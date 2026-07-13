@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase.js';
 
 export default function Modals() {
   const { modal, modalData, closeModal, openModal, showToast } = useApp();
-  const { signIn, signUp, verifyOTP, resendOTP, sendResetOtp, verifyResetOtp, resetPasswordWithToken, user, profile } = useAuth();
+  const { signIn, signUp, verifyOTP, resendOTP, sendResetOtp, verifyResetOtp, resetPasswordWithToken, getErrMsg, user, profile } = useAuth();
   const { pay } = useRazorpay();
   const navigate = useNavigate();
 
@@ -98,7 +98,7 @@ export default function Modals() {
       const t = setInterval(() => {
         setResendCooldown(c => { if (c<=1){ clearInterval(t); return 0; } return c-1; });
       }, 1000);
-    } catch (err) { setError(err.message); }
+    } catch (err) { setError(getErrMsg(err, 'Failed to resend OTP.')); }
   };
 
   /* ── Verify OTP ── */
@@ -125,7 +125,7 @@ export default function Modals() {
         ? 'OTP expired. Click "Resend OTP" to get a new one.'
         : err.message?.includes('invalid')
         ? 'Incorrect OTP. Please check your email and try again.'
-        : err.message || 'Verification failed.');
+        : getErrMsg(err, 'Verification failed. Please try again.'));
     } finally { setLoading(false); }
   };
 
@@ -231,7 +231,7 @@ export default function Modals() {
         closeModal(); showToast('Account created!');
         navigate('/dashboard');
       }
-    } catch (err) { setError(err.message || 'Registration failed.'); }
+    } catch (err) { setError(getErrMsg(err, 'Registration failed. Please try again.')); }
     finally { setLoading(false); }
   };
 
