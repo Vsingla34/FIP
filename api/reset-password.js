@@ -63,23 +63,34 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Account not found.' });
     }
 
-    console.log('[reset-password] Profile id:', profile.id, '— updating password...');
+    console.log('[reset-password] Profile id:', profile.id, '— updating password via GoTrue admin API...');
 
-    // ── 3. Update password via Supabase Admin API ──────────────
-    // This lets Supabase hash the password correctly (GoTrue format)
-    // so the user can log in normally afterwards.
-    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
-      profile.id,
-      { password: new_password }
+    // ── 3. Update password — direct fetch to GoTrue admin API ──
+    // Using fetch directly because supabase.auth.admin.updateUserById
+    // returns empty error object ({}) for this project configuration.
+    const goTrueRes = await fetch(
+      `${SUPABASE_URL}/auth/v1/admin/users/${profile.id}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey':        SERVICE_KEY,
+          'Authorization': `Bearer ${SERVICE_KEY}`,
+        },
+        body: JSON.stringify({ password: new_password }),
+      }
     );
 
-    if (updateErr) {
-      const errMsg = updateErr.message || updateErr.details || JSON.stringify(updateErr);
-      console.log('[reset-password] updateUserById error:', errMsg);
+    const goTrueBody = await goTrueRes.json().catch(() => ({}));
+    console.log('[reset-password] GoTrue status:', goTrueRes.status, '| body:', JSON.stringify(goTrueBody).slice(0, 200));
+
+    if (!goTrueRes.ok) {
+      const errMsg = goTrueBody?.msg || goTrueBody?.message || goTrueBody?.error_description
+        || goTrueBody?.error || JSON.stringify(goTrueBody);
       return res.status(500).json({ error: 'Password update failed: ' + errMsg });
     }
 
-    console.log('[reset-password] Password updated successfully via admin API');
+    console.log('[reset-password] Password updated successfully');
 
     // ── 4. Mark OTP as used ───────────────────────────────────
     await supabaseAdmin
