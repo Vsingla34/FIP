@@ -63,25 +63,23 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Account not found.' });
     }
 
-    console.log('[reset-password] Profile id:', profile.id, '— calling RPC...');
+    console.log('[reset-password] Profile id:', profile.id, '— updating password...');
 
-    // ── 3. Update password via RPC ─────────────────────────────
-    const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc(
-      'update_user_password',
-      { p_user_id: profile.id, p_new_password: new_password }
+    // ── 3. Update password via Supabase Admin API ──────────────
+    // This lets Supabase hash the password correctly (GoTrue format)
+    // so the user can log in normally afterwards.
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
+      profile.id,
+      { password: new_password }
     );
 
-    if (rpcErr) {
-      // Extract message from all possible Supabase error shapes
-      const errMsg = rpcErr.message
-        || rpcErr.details
-        || rpcErr.hint
-        || (typeof rpcErr === 'string' ? rpcErr : JSON.stringify(rpcErr));
-      console.log('[reset-password] RPC error:', errMsg, '| full:', JSON.stringify(rpcErr));
+    if (updateErr) {
+      const errMsg = updateErr.message || updateErr.details || JSON.stringify(updateErr);
+      console.log('[reset-password] updateUserById error:', errMsg);
       return res.status(500).json({ error: 'Password update failed: ' + errMsg });
     }
 
-    console.log('[reset-password] RPC success, marking OTP used...');
+    console.log('[reset-password] Password updated successfully via admin API');
 
     // ── 4. Mark OTP as used ───────────────────────────────────
     await supabaseAdmin
