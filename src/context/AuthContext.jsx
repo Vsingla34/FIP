@@ -65,14 +65,19 @@ export function AuthProvider({ children }) {
     if (raw.includes('otp_invalid') || raw.includes('token is invalid')) return 'Incorrect OTP. Please check and try again.';
     return raw;
   };
+  /* ── CHECK PHONE UNIQUE — fails open so it never blocks signup ── */
   const checkPhoneUnique = async (phone) => {
     if (!phone?.trim()) return true;
-    const { data } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('phone', phone.trim())
-      .maybeSingle();
-    return !data; // true = unique, false = already taken
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('phone', phone.trim())
+        .maybeSingle();
+      return !data;
+    } catch {
+      return true; // if DB unreachable, allow signup through
+    }
   };
 
   /* ── SIGN UP — sends OTP email, returns pendingData for OTP step ── */
