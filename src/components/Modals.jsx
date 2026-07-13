@@ -139,15 +139,7 @@ export default function Modals() {
       setForgotStep(2);
       setForgotOtp(Array(6).fill(''));
     } catch (err) {
-      // Supabase 500 errors often have empty message — extract it properly
-      const msg =
-        typeof err === 'string'               ? err
-        : err?.message && err.message !== '{}' ? err.message
-        : err?.error_description               ? err.error_description
-        : err?.status === 500 || err?.code === 500
-          ? 'Email service error — please wait a moment and try again, or contact support.'
-          : 'Could not send OTP. Please check your email and try again.';
-      setError(msg);
+      setError(err.message || 'Failed to send OTP. Please try again.');
     }
     setLoading(false);
   };
