@@ -80,44 +80,50 @@ function CourseRegistrationsTab({ navigate }) {
               </div>
             </div>
 
-            {/* Status + Join button */}
-            <div style={{display:'flex',gap:'8px',alignItems:'center',flexShrink:0}}>
-              {past && (
-                <span style={{fontSize:'11px',color:'var(--text-light)',background:'var(--off-white)',padding:'3px 10px',borderRadius:'20px',border:'1px solid var(--border)'}}>
-                  Ended
-                </span>
-              )}
-              {upcoming && !r.zoom_link && (
-                <span style={{fontSize:'11px',color:'#F59E0B',fontWeight:600}}>
-                  <i className="fa-solid fa-clock" style={{marginRight:'4px'}}></i>Link coming soon
-                </span>
-              )}
-              {r.zoom_link && upcoming && (
-                <a href={r.zoom_link} target="_blank" rel="noopener noreferrer"
-                  style={{
-                    display:'inline-flex',alignItems:'center',gap:'7px',
-                    background:'#2D8CFF',color:'#fff',
-                    padding:'8px 18px',borderRadius:'8px',
-                    fontWeight:700,fontSize:'13px',textDecoration:'none',
-                    boxShadow:'0 3px 12px rgba(45,140,255,0.35)',
-                  }}>
-                  <i className="fa-brands fa-zoom" style={{fontSize:'15px'}}></i>
-                  Join Now
-                </a>
-              )}
-              {r.zoom_link && past && (
-                <a href={r.zoom_link} target="_blank" rel="noopener noreferrer"
-                  style={{
-                    display:'inline-flex',alignItems:'center',gap:'6px',
-                    background:'var(--off-white)',color:'var(--blue)',
-                    padding:'7px 14px',borderRadius:'8px',
-                    fontWeight:600,fontSize:'12px',textDecoration:'none',
-                    border:'1px solid var(--border)',
-                  }}>
-                  <i className="fa-solid fa-play"></i> Recording
-                </a>
-              )}
-            </div>
+              {/* Status + Action button */}
+              <div style={{display:'flex',gap:'8px',alignItems:'center',flexShrink:0}}>
+                {past && (
+                  <span style={{fontSize:'11px',color:'var(--text-light)',background:'var(--off-white)',padding:'3px 10px',borderRadius:'20px',border:'1px solid var(--border)'}}>
+                    Ended
+                  </span>
+                )}
+                {upcoming && !r.zoom_link && (
+                  <span style={{fontSize:'11px',color:'#F59E0B',fontWeight:600}}>
+                    <i className="fa-solid fa-clock" style={{marginRight:'4px'}}></i>Link coming soon
+                  </span>
+                )}
+                {r.zoom_link && upcoming && (
+                  <a href={r.zoom_link} target="_blank" rel="noopener noreferrer"
+                    style={{
+                      display:'inline-flex',alignItems:'center',gap:'7px',
+                      background:'#2D8CFF',color:'#fff',
+                      padding:'8px 18px',borderRadius:'8px',
+                      fontWeight:700,fontSize:'13px',textDecoration:'none',
+                      boxShadow:'0 3px 12px rgba(45,140,255,0.35)',
+                    }}>
+                    <i className="fa-brands fa-zoom" style={{fontSize:'15px'}}></i>
+                    Join Now
+                  </a>
+                )}
+                {past && r.recording_url && (
+                  <a href={r.recording_url} target="_blank" rel="noopener noreferrer"
+                    style={{
+                      display:'inline-flex',alignItems:'center',gap:'7px',
+                      background:'#FF0000',color:'#fff',
+                      padding:'8px 16px',borderRadius:'8px',
+                      fontWeight:700,fontSize:'13px',textDecoration:'none',
+                      boxShadow:'0 3px 12px rgba(255,0,0,0.25)',
+                    }}>
+                    <i className="fa-brands fa-youtube" style={{fontSize:'15px'}}></i>
+                    Watch Recording
+                  </a>
+                )}
+                {past && !r.recording_url && (
+                  <span style={{fontSize:'11px',color:'var(--text-light)',fontStyle:'italic'}}>
+                    Recording coming soon
+                  </span>
+                )}
+              </div>
           </div>
         );
       })}

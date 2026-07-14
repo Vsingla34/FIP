@@ -287,7 +287,7 @@ export default function AdminPage() {
   const [courseForm, setCourseForm] = useState({
     title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate',
     price:0, free_for:'none', instructor:'', duration_hours:'',
-    event_date:'', event_time:'', zoom_link:'', zoom_password:'',
+    event_date:'', event_time:'', zoom_link:'', zoom_password:'', recording_url:'',
     banner_url:'', what_you_learn:'', speakers:'',
   });
 
@@ -380,7 +380,8 @@ export default function AdminPage() {
       is_free_for_members: courseForm.free_for === 'members' || courseForm.free_for === 'all',
       event_date:    courseForm.event_date    || null,
       event_time:    (courseForm.event_time    || '').trim() || null,
-      zoom_link:     (courseForm.zoom_link     || '').trim() || null,
+      zoom_link:      (courseForm.zoom_link     || '').trim() || null,
+      recording_url:  (courseForm.recording_url || '').trim() || null,
       zoom_password: (courseForm.zoom_password || '').trim() || null,
       banner_url:    (courseForm.banner_url    || '').trim() || null,
       what_you_learn: courseForm.what_you_learn
@@ -425,9 +426,9 @@ export default function AdminPage() {
   /* open course modal */
   const openCourseModal = (course) => {
     if (course === 'new') {
-      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', banner_url:'', what_you_learn:'', speakers:'' });
+      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', recording_url:'', banner_url:'', what_you_learn:'', speakers:'' });
     } else {
-      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', recording_url:course.recording_url||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
     }
     setShowCourseModal(course);
   };
@@ -3400,6 +3401,14 @@ export default function AdminPage() {
                   <span style={{fontSize:'11px',color:'var(--text-light)',marginLeft:'5px'}}>— only visible after registration</span>
                 </label>
                 <input className="form-input" type="url" placeholder="https://zoom.us/j/..." value={courseForm.zoom_link} onChange={e=>setCourseForm(f=>({...f,zoom_link:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  <i className="fa-brands fa-youtube" style={{color:'#FF0000',marginRight:'6px'}}></i>
+                  YouTube Recording URL
+                  <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(add after session ends)</span>
+                </label>
+                <input className="form-input" type="url" placeholder="https://youtube.com/watch?v=..." value={courseForm.recording_url} onChange={e=>setCourseForm(f=>({...f,recording_url:e.target.value}))}/>
               </div>
               <div className="form-group">
                 <label className="form-label">Zoom Password <span style={{fontWeight:400,color:'var(--text-light)'}}>— optional</span></label>
