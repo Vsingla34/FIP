@@ -334,7 +334,16 @@ export default async function handler(req, res) {
 
     // 3. Mark payment as paid
     const validFrom  = new Date().toISOString().split('T')[0];
-    const validUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Membership expires on March 31 (end of Indian financial year)
+    function getMembershipExpiry() {
+      const now   = new Date();
+      const year  = now.getFullYear();
+      const march31 = new Date(year, 2, 31); // month 2 = March
+      return (now > march31)
+        ? new Date(year + 1, 2, 31).toISOString().split('T')[0]
+        : march31.toISOString().split('T')[0];
+    }
+    const validUntil = getMembershipExpiry();
 
     const { data: updatedPayment, error: updateError } = await supabaseAdmin
       .from('payments')

@@ -679,7 +679,7 @@ export default function Modals() {
         {/* ══════════════════════════════════
             REGISTER
         ══════════════════════════════════ */}
-        {!otpStep && modal === 'register' && (
+        {!otpStep && !payStep && modal === 'register' && (
           <>
             <div className="modal-title">Create Your Account</div>
             <div className="modal-sub">Join FIP — free student account or full membership.</div>
