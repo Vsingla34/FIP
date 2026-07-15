@@ -105,16 +105,34 @@ export default function EventsPage() {
         <div className="container">
           <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Events</span></div>
           <h1>Events &amp; Programmes</h1>
-          <p>From Parliament visits to expert summits — FIP brings professionals together in unique ways.</p>
+          <p>Events are at the heart of the Federation of Indian Professionals (FIP), bringing together finance, legal, and business professionals through conferences, seminars, workshops, networking sessions, leadership forums, and community initiatives. Every event is designed to inspire learning, encourage meaningful connections, and create opportunities for collaboration, professional excellence, and collective growth.</p>
         </div>
       </div>
 
+      {/* ── RECENT HIGHLIGHTS ── */}
       <section className="section section-alt">
         <div className="container">
           <div className="shflex" style={{marginBottom:'32px'}}>
             <div>
+              <span className="eyebrow">Recent Highlights</span>
+              <h2 className="section-heading">Past <span>Events</span></h2>
+              <p className="section-sub">Explore highlights from our recent events that brought together distinguished speakers, industry leaders, and professionals from across the country. These moments reflect FIP's commitment to knowledge sharing, networking, and creating lasting professional impact.</p>
+            </div>
+          </div>
+          <div style={{textAlign:'center',padding:'40px 0',color:'var(--text-muted)'}}>
+            <i className="fa-solid fa-images" style={{fontSize:'36px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+            <p style={{fontSize:'14px'}}>Event highlights and photo galleries coming soon.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── UPCOMING EVENTS ── */}
+      <section className="section">
+        <div className="container">
+          <div className="shflex" style={{marginBottom:'32px'}}>
+            <div>
               <span className="eyebrow">Upcoming</span>
-              <h2 className="section-heading">Events &amp; <span>Programmes</span></h2>
+              <h2 className="section-heading">Upcoming <span>Events</span></h2>
               <p className="section-sub">FIP hosts physical meet-ups, heritage visits, webinars, and multi-city summits.</p>
             </div>
           </div>

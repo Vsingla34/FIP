@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
 
-const CATEGORIES = ['All','GST','Direct Tax','Corporate Law','FEMA','Audit','Finance','Legal','Technology','Other'];
+const CATEGORIES = ['All','GST','Direct Tax','Corporate Law','GCC','Audit','Finance','Legal','Technology','Other'];
 
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36);

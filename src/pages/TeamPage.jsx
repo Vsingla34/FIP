@@ -74,7 +74,7 @@ export default function TeamPage() {
         <div className="container">
           <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Team</span></div>
           <h1>Our Team</h1>
-          <p>Professionals leading a community of professionals.</p>
+          <p>At the Federation of Indian Professionals (FIP), our Committees are the foundation of our growth, innovation, and community engagement. Each committee focuses on a key area of professional development and is led by dedicated Chairman and Co-Chairman who work collaboratively to create impactful programs, foster meaningful connections, and deliver value to our members. Together, these committees transform ideas into action, strengthen our professional network, and help shape the future of the FIP community.</p>
         </div>
       </div>
 
@@ -124,7 +124,7 @@ export default function TeamPage() {
           <div className="section-header centered">
             <span className="eyebrow">Committee Leadership</span>
             <h2 className="section-heading">Chairpersons &amp; <span>Co-Chairs</span></h2>
-            <p className="section-sub">Leading FIP's specialist committees across policy, practice excellence, and member development.</p>
+            <p className="section-sub">On clicking the committee, visitors will be able to see all the members of the committee along with their photos and LinkedIn IDs.</p>
           </div>
 
           {committeeLeaders.length === 0 ? (
@@ -135,13 +135,25 @@ export default function TeamPage() {
             <div className="leaders-list">
               {committeeLeaders.map((group, gi) => (
                 <div className="leaders-group" key={gi}>
-                  <div className="leaders-group-header">
-                    <div className="leaders-group-icon"><i className={group.committee.icon}></i></div>
-                    <div>
-                      <div className="leaders-group-name">{group.committee.name}</div>
-                      <div className="leaders-group-abbr">{group.committee.abbr || group.committee.category}</div>
+                  {/* Clicking the header navigates to /committees — which shows all members */}
+                  <Link
+                    to={`/committees?committee=${encodeURIComponent(group.committee.name)}`}
+                    style={{textDecoration:'none',color:'inherit',display:'block'}}
+                    title={`View all members of ${group.committee.name}`}
+                  >
+                    <div className="leaders-group-header" style={{cursor:'pointer',transition:'background .15s'}}
+                      onMouseOver={e => e.currentTarget.style.background='var(--blue-pale)'}
+                      onMouseOut={e  => e.currentTarget.style.background=''}>
+                      <div className="leaders-group-icon"><i className={group.committee.icon}></i></div>
+                      <div style={{flex:1}}>
+                        <div className="leaders-group-name">{group.committee.name}</div>
+                        <div className="leaders-group-abbr">{group.committee.abbr || group.committee.category}</div>
+                      </div>
+                      <div style={{marginLeft:'auto',fontSize:'12px',color:'var(--orange)',fontWeight:700,display:'flex',alignItems:'center',gap:'4px'}}>
+                        View All Members <i className="fa-solid fa-arrow-right" style={{fontSize:'10px'}}></i>
+                      </div>
                     </div>
-                  </div>
+                  </Link>
                   <div className="leaders-cards">
                     {group.leaders.map((m, i) => (
                       <div className="leader-card" key={i}>

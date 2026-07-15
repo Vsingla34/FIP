@@ -183,6 +183,8 @@ export default function ContactPage() {
                           <option>Course Registration</option>
                           <option>Event Sponsorship</option>
                           <option>Speaker Invitation</option>
+                          <option>Volunteer</option>
+                          <option>Nomination for Committee Member</option>
                           <option>Media &amp; Press</option>
                           <option>Job Posting</option>
                           <option>General</option>

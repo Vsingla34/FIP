@@ -366,9 +366,9 @@ export default function HomePage() {
             <p className="section-sub">Every programme, event and resource at FIP is shaped by three principles that define why we exist.</p>
           </div>
           <div className="three-c-grid">
-            <div className="c-card c1"><div className="c-icon ci-blue"><i className="fa-solid fa-network-wired"></i></div><h3>Connect</h3><p>Build meaningful relationships with 3,000+ CAs, CSs, CMAs, and Advocates. Expand your professional circle through events, forums, and WhatsApp communities.</p></div>
-            <div className="c-card c2"><div className="c-icon ci-orange"><i className="fa-solid fa-people-group"></i></div><h3>Collaborate</h3><p>Partner on industry initiatives, co-author insights, and develop solutions. FIP bridges practitioners across disciplines to drive the profession forward.</p></div>
-            <div className="c-card c3"><div className="c-icon ci-green"><i className="fa-solid fa-trophy"></i></div><h3>Conquer</h3><p>Stay ahead with expert-led certificate courses, ICAI CPE-eligible webinars, and real-time regulatory updates tailored for practising professionals.</p></div>
+            <div className="c-card c1"><div className="c-icon ci-blue"><i className="fa-solid fa-network-wired"></i></div><h3>Connect</h3><p>At FIP, every meaningful opportunity begins with a connection. We bring together professionals from diverse fields through conferences, seminars, networking meets, learning programs, and digital platforms, enabling members to build trusted relationships, exchange ideas, and expand their professional network across industries.</p></div>
+            <div className="c-card c2"><div className="c-icon ci-orange"><i className="fa-solid fa-people-group"></i></div><h3>Collaborate</h3><p>True success comes from working together. FIP encourages professionals to collaborate through committees, knowledge forums, business referrals, joint initiatives, publications, research, mentorship, and community-driven projects. By leveraging collective expertise, members create innovative solutions and unlock new professional and business opportunities.</p></div>
+            <div className="c-card c3"><div className="c-icon ci-green"><i className="fa-solid fa-trophy"></i></div><h3>Conquer</h3><p>When professionals connect and collaborate, they are empowered to conquer new milestones. FIP helps members stay ahead through continuous learning, leadership opportunities, industry insights, skill development, and professional recognition—enabling them to achieve excellence in their careers, businesses, and the profession as a whole.</p></div>
           </div>
         </div>
       </section>
@@ -465,40 +465,12 @@ export default function HomePage() {
       </div>
 
       {/* FEATURES */}
+      {/* ── TESTIMONIALS — live from Supabase ── */}
       <section className="section section-alt">
         <div className="container">
           <div className="section-header">
-            <span className="eyebrow">Platform Features</span>
-            <h2 className="section-heading">Built for <span>Practising Professionals</span></h2>
-            <p className="section-sub">New features available to all FIP members on the revamped platform.</p>
-          </div>
-          <div className="features-grid">
-            {[
-              { icon:'fa-gauge-high',    cls:'fi-blue',   title:'Member Dashboard',        desc:'Track CPE hours, enrolled courses, event RSVPs, and membership status in one personalised view.', tag:null },
-              { icon:'fa-calendar-check',cls:'fi-orange', title:'Event Calendar & RSVP',   desc:'Browse all FIP events, RSVP with one click, and get automatic WhatsApp & email reminders.', tag:'New' },
-              { icon:'fa-comments',      cls:'fi-teal',   title:'Community Forum',          desc:'Post questions, share regulatory updates, and discuss case studies with 3,000+ community members.', tag:'New' },
-              { icon:'fa-award',         cls:'fi-purple', title:'E-Certificate',            desc:'Instantly download your FIP course completion certificate. Shareable on LinkedIn & recognised by ICAI.', tag:'New' },
-              { icon:'fa-book-open',     cls:'fi-red',    title:'Resource Library',          desc:'Searchable archive of all FIP session recordings, decks, case studies, and circulars.', tag:'New' },
-              { icon:'fa-briefcase',     cls:'fi-green',  title:'Job & Opportunity Board',  desc:'Exclusive listings from FIP member firms — jobs, freelance briefs, and collaboration opportunities.', tag:'New' },
-            ].map((f,i) => (
-              <div className="feat-card" key={i}>
-                <div className={`feat-icon ${f.cls}`}><i className={`fa-solid ${f.icon}`}></i></div>
-                <div>
-                  <div className="feat-title">{f.title}{f.tag&&<span className="tag-new">{f.tag}</span>}</div>
-                  <div className="feat-desc">{f.desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── TESTIMONIALS — live from Supabase ── */}
-      <section className="section">
-        <div className="container">
-          <div className="section-header">
             <span className="eyebrow">Member Voices</span>
-            <h2 className="section-heading">What Our <span>Members Say</span></h2>
+            <h2 className="section-heading">Hear How FIP is <span>Making a Difference</span></h2>
             <p className="section-sub">Real experiences from FIP professionals across India.</p>
           </div>
 

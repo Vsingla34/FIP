@@ -119,7 +119,7 @@ export default function CoursesPage() {
         <div className="container">
           <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Courses</span></div>
           <h1>Courses &amp; Programmes</h1>
-          <p>Expert-led, CPE-eligible courses for CAs, CSs, CMAs and legal professionals.</p>
+          <p>FIP Learning brings together expert-led courses, practical knowledge, and industry insights to help professionals stay informed, compliant, and future-ready. Explore our upcoming programs and invest in your continuous professional growth.</p>
         </div>
       </div>
 

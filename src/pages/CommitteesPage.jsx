@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { committees as localCommittees } from '../data/index.js';
@@ -35,9 +35,29 @@ function nameToSlug(name) {
 export default function CommitteesPage() {
   const { showToast } = useApp();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusCommittee = searchParams.get('committee'); // from Team page link
+  const committeeRefs  = useRef({});
+
   const [filter,    setFilter]    = useState('All');
   const [dbSlugs,   setDbSlugs]   = useState({});
   const [liveExtra, setLiveExtra] = useState([]);
+
+  // Auto-scroll to the focused committee when arriving from Team page
+  useEffect(() => {
+    if (!focusCommittee) return;
+    const tryScroll = () => {
+      const el = committeeRefs.current[focusCommittee];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.style.outline = '2px solid var(--orange)';
+        el.style.borderRadius = '12px';
+        setTimeout(() => { el.style.outline = ''; }, 2000);
+      }
+    };
+    // Give the page time to render
+    setTimeout(tryScroll, 300);
+  }, [focusCommittee]);
 
   useEffect(() => {
     supabase.rpc('get_committee_members').then(({ data }) => {
@@ -88,7 +108,12 @@ export default function CommitteesPage() {
 
           <div className="committee-grid">
             {mergedFiltered.map(c => (
-              <div className="committee-card" key={c.id}>
+              <div
+                className="committee-card"
+                key={c.id}
+                ref={el => { committeeRefs.current[c.name] = el; }}
+                style={{ scrollMarginTop: '90px' }}
+              >
                 <div className="committee-header">
                   <div className="committee-icon"><i className={c.icon}></i></div>
                   <div className="committee-name">{c.name}</div>

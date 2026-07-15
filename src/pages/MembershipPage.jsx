@@ -52,7 +52,7 @@ export default function MembershipPage() {
       desc:'For new members', featured:false, key:'standard',
       btnLabel:`Get Started — ₹${prices.standard_price}`, btnCls:'mem-btn-out',
       showFor:['visitor','student'],
-      features:['Access to member directory','Event RSVP & reminders','1 Committee membership','Monthly newsletter','CPE webinar access','Digital membership certificate'],
+      features:['Priority Registration for events with limited seating','Exclusive Members-Only Events with industry leaders','Special Member Pricing on conferences, workshops & seminars','Exclusive Discounts on publications, learning programs & partner offerings','Leadership Opportunities through FIP committees & initiatives','Access to a Trusted Professional Network for collaboration & referrals','Continuous Learning through expert sessions, webinars & industry updates'],
     },
     {
       tier:'Renewal', name:'Renewal',
@@ -60,14 +60,14 @@ export default function MembershipPage() {
       desc:'For renewing members', featured:true, key:'renewal',
       btnLabel:`Renew Now — ₹${prices.renewal_price}`, btnCls:'mem-btn-solid',
       showFor:['member'],
-      features:['All Standard benefits','Priority event registration','2 Committee memberships','Mentorship programme access','Resource library full access','Annual conference pass'],
+      features:['All Standard membership benefits','Continue uninterrupted access to exclusive member benefits','Priority event registration & discounted participation','Members-only programs & professional networking','Leadership opportunities & committee participation','Stay connected with a community that supports your continued growth'],
     },
     {
       tier:'Firm', name:'Firm Partner', price:'Custom', period:'',
       desc:'For firms & organisations', featured:false, key:'firm',
       btnLabel:'Contact Sales', btnCls:'mem-btn-out',
       showFor:['visitor','student','member'],
-      features:['Up to 10 member seats','Firm branding on FIP','Unlimited committee access','Dedicated account manager','Custom CPE programmes','Partnership opportunities'],
+      features:['Multiple partners under a single membership (5+ partners)','Priority event access for all firm members','Exclusive networking opportunities for your team','Leadership participation across FIP committees','Member pricing for all firm partners','Enhanced visibility within FIP\'s professional community'],
     },
   ];
 
@@ -78,10 +78,10 @@ export default function MembershipPage() {
       <div className="page-hero">
         <div className="container">
           <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Membership</span></div>
-          <h1>{isActiveMember ? 'Your FIP Membership' : 'Join the FIP Family'}</h1>
+          <h1>{isActiveMember ? 'Your FIP Membership' : 'Become a Part of FIP'}</h1>
           <p>{isActiveMember
             ? `Welcome back, ${profile?.full_name?.split(' ')[0] || 'Member'}! Manage your membership below.`
-            : 'One membership. Unlimited professional growth. 3,000+ professionals trust FIP.'
+            : 'Become a part of the Federation of Indian Professionals (FIP) and join a vibrant community of accomplished professionals committed to learning, leadership, collaboration, and excellence. FIP membership provides access to exclusive networking opportunities, professional development programs, industry insights, leadership platforms, and a trusted network of peers.'
           }</p>
         </div>
       </div>
@@ -118,7 +118,7 @@ export default function MembershipPage() {
           <div className="section-header centered">
             <span className="eyebrow">Membership Plans</span>
             <h2 className="section-heading">Choose Your <span>Plan</span></h2>
-            <p className="section-sub">Transparent pricing. No hidden fees. Cancel anytime.</p>
+            <p className="section-sub">Whether you are an individual professional or part of a growing firm, FIP offers the right membership to support your journey.</p>
           </div>
 
           <div className="mem-grid" style={visiblePlans.length === 2 ? {gridTemplateColumns:'repeat(2,1fr)',maxWidth:'680px',margin:'0 auto'} : {}}>
