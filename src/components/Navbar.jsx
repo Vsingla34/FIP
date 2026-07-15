@@ -34,7 +34,7 @@ export default function Navbar() {
       <div className="nav-inner">
         <Link to="/" className="nav-brand">
           <img
-            src="https://www.fipin.org/images/our-img/logo.png"
+            src="/logo.png"
             alt="FIP" className="nav-logo-img"
             onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex'; }}
           />
@@ -114,7 +114,7 @@ export default function Navbar() {
       <div className={`nav-mobile-menu${mobileOpen?' open':''}`}>
         <button className="nav-mobile-close" onClick={() => setMobileOpen(false)}>&#x2715;</button>
         <div style={{textAlign:'center',padding:'12px 0 20px',borderBottom:'1px solid var(--border)',marginBottom:'8px'}}>
-          <img src="https://www.fipin.org/images/our-img/logo.png" alt="FIP"
+          <img src="/logo.png" alt="FIP"
                style={{height:'44px',margin:'0 auto'}} onError={e=>e.target.style.display='none'}/>
         </div>
         {links.map(l => (
