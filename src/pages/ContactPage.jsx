@@ -26,7 +26,7 @@ export default function ContactPage() {
 
     try {
       // 1. Save to Supabase first
-      const { data: saved, error: dbError } = await supabase
+      const { error: dbError } = await supabase
         .from('contact_messages')
         .insert({
           name:    form.name.trim(),
@@ -34,32 +34,24 @@ export default function ContactPage() {
           phone:   form.phone.trim() || null,
           subject: form.subject,
           message: form.message.trim(),
-        })
-        .select('id')
-        .single();
+        });
 
       if (dbError) throw new Error(dbError.message);
 
-      // 2. Show success immediately — don't wait for email
       setLoading(false);
       setSubmitted(true);
 
-      // 3. Fire email API in background (no await) — log any errors
+      // Fire email in background
       fetch('/api/send-contact-email', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          name:      form.name.trim(),
-          email:     form.email.trim(),
-          phone:     form.phone.trim() || null,
-          subject:   form.subject,
-          message:   form.message.trim(),
-          messageId: saved?.id || null,
+          name:    form.name.trim(),
+          email:   form.email.trim(),
+          phone:   form.phone.trim() || null,
+          subject: form.subject,
+          message: form.message.trim(),
         }),
-      }).then(async r => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) console.error('Email API error:', data);
-        else console.log('Email API success:', data);
       }).catch(err => console.warn('Email API failed:', err.message));
 
     } catch (err) {
