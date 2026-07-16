@@ -25,6 +25,23 @@ function getCourseEmoji(category) {
   return '📚';
 }
 
+/* Format a date range: "5–7 Jul" / "5 Jul – 3 Aug" / "5 Jul 2026" */
+function formatDateRange(start, end) {
+  if (!start) return '';
+  const s = new Date(start);
+  if (!end || end === start) {
+    return s.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  }
+  const e = new Date(end);
+  const sDay   = s.getDate();
+  const eMon   = e.toLocaleDateString('en-IN', { month:'short' });
+  const sMonYr = s.toLocaleDateString('en-IN', { month:'short' });
+  if (s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear()) {
+    return `${sDay}–${e.getDate()} ${eMon}`;
+  }
+  return `${s.toLocaleDateString('en-IN',{day:'numeric',month:'short'})} – ${e.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}`;
+}
+
 export default function CoursesPage() {
   const { user, profile } = useAuth();
   const { openModal, showToast } = useApp();
@@ -54,14 +71,18 @@ export default function CoursesPage() {
 
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // Upcoming: no event_date (evergreen) OR event_date is today/future
-  const upcomingCourses = courses.filter(c =>
-    !c.event_date || new Date(c.event_date) >= today
-  );
-  // Past: event_date exists and is strictly before today
-  const pastCourses = courses.filter(c =>
-    c.event_date && new Date(c.event_date) < today
-  );
+  // Upcoming: no event_date OR end date (or start if no end) is today/future
+  const upcomingCourses = courses.filter(c => {
+    if (!c.event_date) return true;
+    const endDate = c.event_end_date ? new Date(c.event_end_date) : new Date(c.event_date);
+    return endDate >= today;
+  });
+  // Past: end date (or start if no end) is strictly before today
+  const pastCourses = courses.filter(c => {
+    if (!c.event_date) return false;
+    const endDate = c.event_end_date ? new Date(c.event_end_date) : new Date(c.event_date);
+    return endDate < today;
+  });
 
   const activeCourses = courseTab === 'past' ? pastCourses : upcomingCourses;
 
@@ -207,6 +228,9 @@ export default function CoursesPage() {
                         <div style={{position:'absolute',bottom:'10px',left:'12px',background:'rgba(0,0,0,0.55)',backdropFilter:'blur(4px)',color:'#fff',fontSize:'11px',fontWeight:700,padding:'4px 10px',borderRadius:'20px',display:'flex',alignItems:'center',gap:'5px'}}>
                           <i className="fa-regular fa-calendar" style={{color:'#FFD09B'}}></i>
                           {new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+                          {c.event_end_date && c.event_end_date !== c.event_date && (
+                            <span> – {new Date(c.event_end_date).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
+                          )}
                           {c.event_time && <span style={{opacity:.7}}>· {c.event_time.split('-')[0].trim()}</span>}
                         </div>
                       )}

@@ -23,7 +23,10 @@ export default function Modals() {
   const [newPwd,        setNewPwd]        = useState('');
   const [newPwdConfirm, setNewPwdConfirm] = useState('');
   const [showNewPwd,    setShowNewPwd]    = useState(false);
-  const [payStep,    setPayStep]    = useState(false);
+  const [payStep,       setPayStep]       = useState(false);
+  const [couponCode,    setCouponCode]    = useState('');
+  const [couponResult,  setCouponResult]  = useState(null); // { discount_amount, final_amount, message } | null
+  const [couponLoading, setCouponLoading] = useState(false);
   const [paySuccess, setPaySuccess] = useState(null); // { name, amount, plan }
   const [refCode,    setRefCode]    = useState('');
   const [memPrices,  setMemPrices]  = useState({ standard: 500, renewal: 200 });
@@ -236,6 +239,11 @@ export default function Modals() {
   };
 
   /* ── COURSE ENROLL ── */
+  // Separate coupon state for course enrollment
+  const [courseCouponCode,   setCourseCouponCode]   = useState('');
+  const [courseCouponResult, setCourseCouponResult] = useState(null);
+  const [courseCouponLoading,setCourseCouponLoading]= useState(false);
+
   const handleCourseEnroll = async (e) => {
     e.preventDefault();
     const course = modalData?.course;
@@ -256,8 +264,10 @@ export default function Modals() {
     await pay({
       purchaseType: 'course',
       itemRefId:    course.slug || course.id,
+      coupon_code:  courseCouponResult ? courseCouponCode : undefined,
       onSuccess:    () => {
         showToast('Enrolled successfully! 🎉');
+        setCourseCouponCode(''); setCourseCouponResult(null);
         if (course.slug) navigate(`/courses/${course.slug}/watch`);
       },
     });
@@ -379,55 +389,76 @@ export default function Modals() {
               Your email is verified ✓<br/>
               Complete your payment to activate your <strong style={{color:'var(--blue)'}}>FIP Membership</strong>.
             </p>
-            <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'16px 20px',marginBottom:'20px',textAlign:'left'}}>
+            {/* Price breakdown */}
+            <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'16px 20px',marginBottom:'16px',textAlign:'left'}}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'6px'}}>
                 <span style={{color:'var(--text-muted)'}}>FIP Standard Membership</span>
                 <span style={{fontWeight:700}}>₹{memPrices.standard}</span>
               </div>
+              {couponResult && (
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'6px',color:'var(--green)'}}>
+                  <span>Coupon ({couponCode.toUpperCase()})</span>
+                  <span style={{fontWeight:700}}>– ₹{couponResult.discount_amount}</span>
+                </div>
+              )}
               <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',marginBottom:'6px'}}>
                 <span style={{color:'var(--text-muted)'}}>GST (18%)</span>
-                <span style={{fontWeight:700}}>₹{Math.round(memPrices.standard * 0.18)}</span>
+                <span style={{fontWeight:700}}>₹{Math.round((couponResult ? couponResult.final_amount : memPrices.standard) * 0.18)}</span>
               </div>
-              <div style={{height:'1px',background:'var(--border)',margin:'8px 0'}}></div>
+              <div style={{height:'1px',background:'var(--border)',margin:'8px 0'}}/>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:'15px',fontWeight:800,color:'var(--blue)'}}>
                 <span>Total</span>
-                <span>₹{memPrices.standard + Math.round(memPrices.standard * 0.18)}</span>
+                <span>₹{Math.round((couponResult ? couponResult.final_amount : memPrices.standard) * 1.18)}</span>
               </div>
-              <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'6px'}}>Valid for 1 year · Secure payment via Razorpay</div>
+              <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'6px'}}>Valid till 31 March · Secure payment via Razorpay</div>
             </div>
+            {/* Coupon input */}
+            {!couponResult ? (
+              <div style={{display:'flex',gap:'8px',marginBottom:'16px'}}>
+                <input className="form-input" placeholder="Have a coupon code?"
+                  value={couponCode} onChange={e => setCouponCode(e.target.value.toUpperCase())}
+                  style={{flex:1,fontSize:'13px',letterSpacing:'1px'}}/>
+                <button disabled={!couponCode.trim() || couponLoading}
+                  onClick={async () => {
+                    setCouponLoading(true);
+                    try {
+                      const r = await fetch('/api/validate-coupon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:couponCode,purchase_type:'membership',original_amount:memPrices.standard})});
+                      const d = await r.json();
+                      if (!r.ok) showToast(d.error||'Invalid coupon',true);
+                      else { setCouponResult(d); showToast(d.message); }
+                    } catch { showToast('Could not validate coupon',true); }
+                    setCouponLoading(false);
+                  }}
+                  style={{padding:'0 16px',background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',fontWeight:700,fontSize:'13px',cursor:'pointer',flexShrink:0}}>
+                  {couponLoading ? <i className="fa-solid fa-spinner fa-spin"></i> : 'Apply'}
+                </button>
+              </div>
+            ) : (
+              <div style={{background:'#ECFDF5',border:'1px solid #6EE7B7',borderRadius:'8px',padding:'10px 14px',marginBottom:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:'13px'}}>
+                <span style={{color:'var(--green)',fontWeight:700}}><i className="fa-solid fa-tag" style={{marginRight:'6px'}}></i>{couponResult.message}</span>
+                <button onClick={()=>{setCouponResult(null);setCouponCode('');}} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:'16px'}}>✕</button>
+              </div>
+            )}
             <button className="btn btn-primary" style={{width:'100%',justifyContent:'center',marginBottom:'12px'}}
               onClick={async (e) => {
                 e.preventDefault();
                 try {
-                  const success = await pay({
-                    purchaseType: 'membership',
-                    planName:     'Standard',
-                    planPrice:    memPrices.standard,
-                    onSuccess:    () => {
-                      setPayStep(false);
-                      setPaySuccess({
-                        name:   profile?.full_name || user?.email || 'Member',
-                        amount: memPrices.standard + Math.round(memPrices.standard * 0.18),
-                        plan:   'Standard',
-                      });
+                  const finalAmt = couponResult ? couponResult.final_amount : memPrices.standard;
+                  const success  = await pay({
+                    purchaseType:'membership', planName:'Standard', planPrice:finalAmt,
+                    coupon_code: couponResult ? couponCode : undefined,
+                    onSuccess: () => {
+                      setPayStep(false); setCouponResult(null); setCouponCode('');
+                      setPaySuccess({ name:profile?.full_name||user?.email||'Member', amount:Math.round(finalAmt*1.18), plan:'Standard' });
                     },
                   });
-                  if (!success) {
-                    setPayStep(false);
-                    closeModal();
-                    navigate('/membership');
-                  }
-                } catch(err) {
-                  showToast('Payment error: ' + err.message, true);
-                  console.error('Payment error:', err);
-                }
+                  if (!success) { setPayStep(false); closeModal(); navigate('/membership'); }
+                } catch(err) { showToast('Payment error: '+err.message,true); }
               }}>
-              <i className="fa-solid fa-lock"></i> Pay ₹{memPrices.standard + Math.round(memPrices.standard * 0.18)} & Activate Membership
+              <i className="fa-solid fa-lock"></i> Pay ₹{Math.round((couponResult?couponResult.final_amount:memPrices.standard)*1.18)} &amp; Activate Membership
             </button>
             <button className="btn btn-outline-blue btn-sm" style={{width:'100%',justifyContent:'center'}}
-              onClick={() => { setPayStep(false); closeModal(); navigate('/membership'); }}>
-              Pay Later
-            </button>
+              onClick={()=>{setPayStep(false);closeModal();navigate('/membership');}}>Pay Later</button>
             <p style={{fontSize:'11px',color:'var(--text-light)',marginTop:'10px'}}>
               <i className="fa-solid fa-shield-halved" style={{color:'var(--green)',marginRight:'4px'}}></i>
               256-bit SSL encrypted · Powered by Razorpay
@@ -435,7 +466,7 @@ export default function Modals() {
           </div>
         )}
 
-        {/* ══════════════════════════════════
+                {/* ══════════════════════════════════
             OTP VERIFICATION SCREEN
         ══════════════════════════════════ */}
         {otpStep && (
@@ -792,9 +823,44 @@ export default function Modals() {
             <div className="modal-title" style={{marginTop:'16px'}}>Confirm Enrollment</div>
             <div className="enroll-price-box">
               <div className="enroll-price-row"><span>Course Fee</span><span>₹{modalData?.course?.price?.toLocaleString('en-IN') || '0'}</span></div>
-              <div className="enroll-price-row"><span>GST (18%)</span><span>₹{Math.round((modalData?.course?.price || 0) * 0.18).toLocaleString('en-IN')}</span></div>
-              <div className="enroll-price-row enroll-price-total"><span>Total Payable</span><span>₹{Math.round((modalData?.course?.price || 0) * 1.18).toLocaleString('en-IN')}</span></div>
+              {courseCouponResult && (
+                <div className="enroll-price-row" style={{color:'var(--green)'}}>
+                  <span>Coupon ({courseCouponCode})</span>
+                  <span style={{fontWeight:700}}>– ₹{courseCouponResult.discount_amount}</span>
+                </div>
+              )}
+              <div className="enroll-price-row"><span>GST (18%)</span><span>₹{Math.round((courseCouponResult ? courseCouponResult.final_amount : (modalData?.course?.price || 0)) * 0.18).toLocaleString('en-IN')}</span></div>
+              <div className="enroll-price-row enroll-price-total"><span>Total Payable</span><span>₹{Math.round((courseCouponResult ? courseCouponResult.final_amount : (modalData?.course?.price || 0)) * 1.18).toLocaleString('en-IN')}</span></div>
             </div>
+            {/* Coupon input */}
+            {!courseCouponResult ? (
+              <div style={{display:'flex',gap:'8px',marginBottom:'12px'}}>
+                <input className="form-input" placeholder="Have a coupon code?"
+                  style={{fontFamily:'monospace',textTransform:'uppercase'}}
+                  value={courseCouponCode}
+                  onChange={e => setCourseCouponCode(e.target.value.toUpperCase())}
+                  onKeyDown={async e => { if (e.key === 'Enter') e.preventDefault(); }}/>
+                <button disabled={!courseCouponCode.trim() || courseCouponLoading}
+                  style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'0 16px',fontWeight:700,cursor:'pointer',flexShrink:0,opacity:(!courseCouponCode.trim()||courseCouponLoading)?.5:1}}
+                  onClick={async () => {
+                    setCourseCouponLoading(true);
+                    try {
+                      const r = await fetch('/api/validate-coupon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:courseCouponCode,purchase_type:'course',original_amount:modalData?.course?.price||0})});
+                      const d = await r.json();
+                      if (!r.ok) showToast(d.error||'Invalid coupon',true);
+                      else setCourseCouponResult(d);
+                    } catch { showToast('Could not validate coupon',true); }
+                    setCourseCouponLoading(false);
+                  }}>
+                  {courseCouponLoading ? <i className="fa-solid fa-spinner fa-spin"></i> : 'Apply'}
+                </button>
+              </div>
+            ) : (
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:'8px',padding:'8px 14px',marginBottom:'12px'}}>
+                <span style={{color:'var(--green)',fontWeight:700}}><i className="fa-solid fa-tag" style={{marginRight:'6px'}}></i>{courseCouponResult.message}</span>
+                <button onClick={() => { setCourseCouponResult(null); setCourseCouponCode(''); }} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'16px'}}>✕</button>
+              </div>
+            )}
             <div style={{background:'var(--blue-pale)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'10px 14px',marginBottom:'16px',fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'8px'}}>
               <i className="fa-solid fa-lock" style={{color:'var(--green)',marginTop:'2px',flexShrink:0}}></i>
               Secure payment powered by Razorpay. Your details are encrypted.

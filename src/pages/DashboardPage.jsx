@@ -45,7 +45,7 @@ function CourseRegistrationsTab({ navigate }) {
           </button>
         </div>
       ) : regs.map((r, i) => {
-        const upcoming = isUpcoming(r.event_date);
+        const upcoming = isUpcoming(r.event_end_date || r.event_date);
         const past     = r.event_date && !upcoming;
 
         return (
@@ -71,6 +71,9 @@ function CourseRegistrationsTab({ navigate }) {
                   <span style={{color: upcoming ? 'var(--orange)' : 'var(--text-light)', fontWeight: upcoming ? 600 : 400}}>
                     <i className="fa-regular fa-calendar" style={{marginRight:'3px'}}></i>
                     {formatDate(r.event_date)}
+                    {r.event_end_date && r.event_end_date !== r.event_date && (
+                      <> – {formatDate(r.event_end_date)}</>
+                    )}
                     {r.event_time && ` · ${r.event_time}`}
                   </span>
                 )}
@@ -768,7 +771,34 @@ export default function DashboardPage() {
 
         {tab === 'payments' && (
           <div className="dash-card">
-            <div className="dash-card-title">Payment History</div>
+            <div className="dash-card-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
+              Payment History
+              {payments.length > 0 && (
+                <button
+                  style={{background:'#217346',color:'#fff',border:'none',borderRadius:'8px',padding:'7px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}
+                  onClick={() => {
+                    const headers = ['Item / Plan','Amount (₹)','GST (₹)','Total (₹)','Status','Transaction ID','Valid From','Valid Until','Date'];
+                    const rows = payments.map(p => [
+                      p.item_name||'',
+                      p.amount||0,
+                      p.gst_amount||0,
+                      p.total_amount||0,
+                      p.status||'',
+                      p.razorpay_payment_id||'',
+                      p.valid_from ? new Date(p.valid_from).toLocaleDateString('en-IN') : '',
+                      p.valid_until ? new Date(p.valid_until).toLocaleDateString('en-IN') : '',
+                      p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '',
+                    ]);
+                    const csv = [headers,...rows].map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+                    a.download = 'FIP_Payment_History.csv';
+                    a.click();
+                  }}>
+                  <i className="fa-solid fa-file-excel"></i> Download Excel
+                </button>
+              )}
+            </div>
             {dataLoading
               ? <div style={{textAlign:'center',padding:'24px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin"></i> Loading…</div>
               : payments.length === 0

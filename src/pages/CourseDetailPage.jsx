@@ -137,7 +137,7 @@ export default function CourseDetailPage() {
   const speakers = course.speakers || [];
   const whatYouLearn = course.what_you_learn || [];
   const dl = daysUntil(course.event_date);
-  const isPast = course.event_date && new Date(course.event_date) < new Date();
+  const isPast = course.event_date && new Date(course.event_end_date || course.event_date) < new Date();
 
   return (
     <>
@@ -182,9 +182,14 @@ export default function CourseDetailPage() {
             {/* Date/time pill */}
             {course.event_date && (
               <div style={{background:'rgba(255,255,255,0.1)',backdropFilter:'blur(8px)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'12px',padding:'18px 22px',textAlign:'center',flexShrink:0,minWidth:'160px'}}>
-                <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'6px'}}>Live on</div>
+                <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'6px'}}>
+                  {course.event_end_date && course.event_end_date !== course.event_date ? 'Date Range' : 'Live on'}
+                </div>
                 <div style={{fontSize:'14px',fontWeight:700,color:'#FFD09B',lineHeight:1.4}}>
                   {new Date(course.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+                  {course.event_end_date && course.event_end_date !== course.event_date && (
+                    <span> – {new Date(course.event_end_date).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
+                  )}
                 </div>
                 <div style={{fontSize:'13px',color:'rgba(255,255,255,0.8)',marginTop:'2px'}}>{new Date(course.event_date).getFullYear()}</div>
                 {course.event_time && <div style={{fontSize:'12px',color:'rgba(255,255,255,0.6)',marginTop:'4px'}}>{course.event_time}</div>}

@@ -375,6 +375,13 @@ export default async function handler(req, res) {
         await supabaseAdmin.rpc('complete_referral', { p_referred_id: userId });
       } catch (e) { console.warn('Referral complete failed:', e.message); }
 
+      // Increment coupon usage if a coupon was applied
+      if (payment.coupon_id) {
+        try {
+          await supabaseAdmin.rpc('increment_coupon_usage', { p_coupon_id: payment.coupon_id });
+        } catch (e) { console.warn('Coupon increment failed:', e.message); }
+      }
+
     } else if (payment.purchase_type === 'course') {
       // Look up the course_id from the item_ref_id (course slug)
       const { data: course } = await supabaseAdmin
@@ -404,7 +411,7 @@ export default async function handler(req, res) {
       ? 'FIP-' + profile.profile_slug.split('-').slice(-1)[0].toUpperCase()
       : 'FIP-' + userId.slice(0,6).toUpperCase();
 
-    // 6. Send confirmation email (non-blocking — don't fail if email fails)
+    // 6. Send confirmation email (non-blocking)
     sendPaymentEmail({
       profile,
       payment: { ...updatedPayment, razorpay_payment_id, razorpay_order_id },
@@ -412,6 +419,16 @@ export default async function handler(req, res) {
       validUntil,
       memberId,
     }).catch(e => console.error('Email error:', e));
+
+    // 7. Increment coupon usage if one was applied
+    if (payment.coupon_id) {
+      supabaseAdmin
+        .from('coupons')
+        .update({ used_count: (payment.used_count || 0) + 1 })
+        .eq('id', payment.coupon_id)
+        .then(() => {})
+        .catch(() => {});
+    }
 
     return res.status(200).json({ verified: true, payment: updatedPayment });
 
