@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
+import { useRazorpay } from '../hooks/useRazorpay.js';
 import { supabase } from '../lib/supabase.js';
 
 function formatDate(d) {
@@ -22,16 +23,30 @@ export default function CourseDetailPage() {
   const { slug }    = useParams();
   const navigate    = useNavigate();
   const { user, profile } = useAuth();
-  const { showToast } = useApp();
+  const { showToast, openModal } = useApp();
+  const { pay } = useRazorpay();
+
+  const PROFESSIONS = ['CA Student','CA Member','CS','CMA','Advocate','MBA','Others'];
 
   const [course,    setCourse]    = useState(null);
   const [loading,   setLoading]   = useState(true);
-  const [enrolled,  setEnrolled]  = useState(false); // already registered
+  const [enrolled,  setEnrolled]  = useState(false);
   const [showForm,  setShowForm]  = useState(false);
   const [submitting,setSubmitting]= useState(false);
   const [success,   setSuccess]   = useState(false);
-  const [form, setForm] = useState({ full_name:'', email:'', phone:'' });
+  const [form, setForm] = useState({ full_name:'', email:'', phone:'', profession:'' });
   const interestTracked = useRef(false);
+
+  /* ── Determine if this course requires payment ── */
+  const isActiveMember = profile?.membership_status === 'Active';
+  const requiresPayment = (course) => {
+    if (!course?.price || course.price === 0)           return false;
+    if (course.free_for === 'all')                       return false;
+    if (course.free_for === 'members' && isActiveMember) return false;
+    if (course.free_for === 'students' &&
+       (profile?.account_type === 'student' || !user))   return false;
+    return true;
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -69,10 +84,39 @@ export default function CourseDetailPage() {
 
   // Pre-fill form from profile
   const openForm = () => {
+    if (requiresPayment(course)) {
+      // Paid course — must be logged in
+      if (!user) { openModal('register'); return; }
+      // Logged-in + paid → Razorpay
+      setShowForm(false);
+      pay({
+        purchaseType: 'course',
+        itemName:     course.title,
+        itemRefId:    course.slug || course.id,
+        onSuccess: async () => {
+          // After payment, insert registration
+          await supabase.from('course_registrations').upsert({
+            course_id: course.id,
+            full_name: profile?.full_name || user.email,
+            email:     user.email,
+            phone:     profile?.phone || null,
+            profession:profile?.profession || null,
+            user_id:   user.id,
+            status:    'registered',
+          }, { onConflict: 'course_id,email', ignoreDuplicates: true });
+          setEnrolled(true);
+          showToast('Payment successful! You are now registered. 🎉');
+          setCourse(prev => ({ ...prev, enrolled_count: (prev.enrolled_count || 0) + 1 }));
+        },
+      });
+      return;
+    }
+    // Free course — show registration form
     setForm({
-      full_name: profile?.full_name || user?.user_metadata?.full_name || '',
-      email:     user?.email || '',
-      phone:     profile?.phone || '',
+      full_name:  profile?.full_name || user?.user_metadata?.full_name || '',
+      email:      user?.email || '',
+      phone:      profile?.phone || '',
+      profession: profile?.profession || '',
     });
     setShowForm(true);
     setSuccess(false);
@@ -80,15 +124,29 @@ export default function CourseDetailPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.full_name.trim() || !form.email.trim() || !form.phone.trim()) return;
+
+    // ── STRICT BACKEND CHECK: paid courses must never bypass payment ──
+    if (requiresPayment(course)) {
+      showToast('Payment is required for this course.', true);
+      openForm(); // Re-trigger payment flow
+      return;
+    }
+
+    if (!form.full_name.trim() || !form.email.trim() || !form.phone.trim()) {
+      showToast('Please fill in Name, Email and Mobile number.', true);
+      return;
+    }
+
     setSubmitting(true);
 
     const { error } = await supabase.from('course_registrations').insert({
-      course_id: course.id,
-      full_name: form.full_name.trim(),
-      email:     form.email.trim(),
-      phone:     form.phone.trim() || null,
-      user_id:   user?.id || null,
+      course_id:  course.id,
+      full_name:  form.full_name.trim(),
+      email:      form.email.trim().toLowerCase(),
+      phone:      form.phone.trim() || null,
+      profession: form.profession  || null,
+      user_id:    user?.id         || null,
+      status:     'registered',
     });
 
     setSubmitting(false);
@@ -104,25 +162,23 @@ export default function CourseDetailPage() {
       return;
     }
 
-    // Send confirmation email via API
+    // Send confirmation email
     fetch('/api/send-course-confirmation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name:      form.full_name,
-        email:     form.email,
-        courseTitle: course.title,
-        eventDate:   course.event_date,
-        eventTime:   course.event_time,
-        zoomLink:    course.zoom_link,
+        name:         form.full_name,
+        email:        form.email,
+        courseTitle:  course.title,
+        eventDate:    course.event_date,
+        eventTime:    course.event_time,
+        zoomLink:     course.zoom_link,
         zoomPassword: course.zoom_password,
       }),
     }).catch(() => {});
 
     setSuccess(true);
     setEnrolled(true);
-
-    // Update count
     setCourse(prev => ({ ...prev, enrolled_count: (prev.enrolled_count || 0) + 1 }));
   };
 
@@ -399,14 +455,21 @@ export default function CourseDetailPage() {
 
                 <div className="modal-title" style={{marginBottom:'4px'}}>Register for this Course</div>
                 <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}}>
-                  You'll receive the Zoom link on your email after registration.
+                  {requiresPayment(course)
+                    ? 'Payment required — you\'ll be redirected to complete payment.'
+                    : 'No account needed — fill in your details and you\'re in!'}
                 </p>
 
                 <form onSubmit={handleSubmit}>
                   <div className="form-group">
                     <label className="form-label">Full Name *</label>
-                    <input className="form-input" type="text" placeholder="CA / CS / Your Full Name" required
+                    <input className="form-input" type="text" placeholder="Your Full Name" required
                       value={form.full_name} onChange={e=>setForm(f=>({...f,full_name:e.target.value}))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Mobile Number *</label>
+                    <input className="form-input" type="tel" placeholder="+91 XXXXX XXXXX" required
+                      value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Email Address *</label>
@@ -414,24 +477,38 @@ export default function CourseDetailPage() {
                       value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Phone Number *</label>
-                    <input className="form-input" type="tel" placeholder="+91 XXXXX XXXXX" required
-                      value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/>
+                    <label className="form-label">Profession *</label>
+                    <select className="form-select" required value={form.profession}
+                      onChange={e=>setForm(f=>({...f,profession:e.target.value}))}>
+                      <option value="">Select your profession</option>
+                      <option>CA Student</option>
+                      <option>CA Member</option>
+                      <option>CS</option>
+                      <option>CMA</option>
+                      <option>Advocate</option>
+                      <option>MBA</option>
+                      <option>Others</option>
+                    </select>
                   </div>
 
                   <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',marginTop:'4px'}} disabled={submitting}>
                     {submitting
-                      ? <><i className="fa-solid fa-spinner fa-spin"></i> Registering…</>
-                      : <><i className="fa-solid fa-calendar-check"></i> Confirm Registration</>
+                      ? <><i className="fa-solid fa-spinner fa-spin"></i> Processing…</>
+                      : requiresPayment(course)
+                      ? <><i className="fa-solid fa-lock"></i> Continue to Payment — ₹{course.price}</>
+                      : <><i className="fa-solid fa-calendar-check"></i> Confirm Registration — Free</>
                     }
                   </button>
                   <p style={{textAlign:'center',fontSize:'11px',color:'var(--text-light)',marginTop:'10px'}}>
                     <i className="fa-solid fa-lock" style={{marginRight:'4px',color:'var(--green)'}}></i>
-                    Zoom link will be emailed to you immediately after registration.
+                    {requiresPayment(course)
+                      ? 'Secure payment via Razorpay. Zoom link sent after payment.'
+                      : 'Zoom link will be emailed to you immediately after registration.'}
                   </p>
                 </form>
               </>
             )}
+
           </div>
         </div>
       )}
