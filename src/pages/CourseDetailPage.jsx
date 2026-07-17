@@ -85,33 +85,16 @@ export default function CourseDetailPage() {
   // Pre-fill form from profile
   const openForm = () => {
     if (requiresPayment(course)) {
-      // Paid course — must be logged in
-      if (!user) { openModal('register'); return; }
-      // Logged-in + paid → Razorpay
-      setShowForm(false);
-      pay({
-        purchaseType: 'course',
-        itemName:     course.title,
-        itemRefId:    course.slug || course.id,
-        onSuccess: async () => {
-          // After payment, insert registration
-          await supabase.from('course_registrations').upsert({
-            course_id: course.id,
-            full_name: profile?.full_name || user.email,
-            email:     user.email,
-            phone:     profile?.phone || null,
-            profession:profile?.profession || null,
-            user_id:   user.id,
-            status:    'registered',
-          }, { onConflict: 'course_id,email', ignoreDuplicates: true });
-          setEnrolled(true);
-          showToast('Payment successful! You are now registered. 🎉');
-          setCourse(prev => ({ ...prev, enrolled_count: (prev.enrolled_count || 0) + 1 }));
-        },
-      });
+      if (!user) {
+        // Guest can't pay — prompt to create account
+        openModal('register');
+        return;
+      }
+      // Logged-in user on paid course → open enroll modal (has price breakdown + coupon field)
+      openModal('enroll', { course });
       return;
     }
-    // Free course — show registration form
+    // Free course → show the inline registration form
     setForm({
       full_name:  profile?.full_name || user?.user_metadata?.full_name || '',
       email:      user?.email || '',
@@ -125,15 +108,15 @@ export default function CourseDetailPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // ── STRICT BACKEND CHECK: paid courses must never bypass payment ──
+    // Extra guard: paid courses should never reach this form
+    // (they go through the enroll modal → Razorpay)
     if (requiresPayment(course)) {
-      showToast('Payment is required for this course.', true);
-      openForm(); // Re-trigger payment flow
+      openForm();
       return;
     }
 
-    if (!form.full_name.trim() || !form.email.trim() || !form.phone.trim()) {
-      showToast('Please fill in Name, Email and Mobile number.', true);
+    if (!form.full_name.trim() || !form.email.trim() || !form.phone.trim() || !form.profession) {
+      showToast('Please fill in all required fields.', true);
       return;
     }
 
