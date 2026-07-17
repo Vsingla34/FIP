@@ -23,6 +23,10 @@ export default function Modals() {
   const [newPwd,        setNewPwd]        = useState('');
   const [newPwdConfirm, setNewPwdConfirm] = useState('');
   const [showNewPwd,    setShowNewPwd]    = useState(false);
+  /* ── course coupon — top-level to satisfy Rules of Hooks ── */
+  const [courseCouponCode,    setCourseCouponCode]    = useState('');
+  const [courseCouponResult,  setCourseCouponResult]  = useState(null);
+  const [courseCouponLoading, setCourseCouponLoading] = useState(false);
   const [payStep,       setPayStep]       = useState(false);
   const [couponCode,    setCouponCode]    = useState('');
   const [couponResult,  setCouponResult]  = useState(null); // { discount_amount, final_amount, message } | null
@@ -239,11 +243,6 @@ export default function Modals() {
   };
 
   /* ── COURSE ENROLL ── */
-  // Separate coupon state for course enrollment
-  const [courseCouponCode,   setCourseCouponCode]   = useState('');
-  const [courseCouponResult, setCourseCouponResult] = useState(null);
-  const [courseCouponLoading,setCourseCouponLoading]= useState(false);
-
   const handleCourseEnroll = async (e) => {
     e.preventDefault();
     const course = modalData?.course;
