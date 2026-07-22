@@ -457,9 +457,18 @@ export default function HomePage() {
             <Link to="/events" className="btn btn-outline-white">All Events <i className="fa-solid fa-arrow-right"></i></Link>
           </div>
           <div className="event-grid">
-            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Jan 11, 2026</div><div className="ev-title">Rashtrapati Bhawan Visit</div><div className="ev-desc">Exclusive guided visit to the President's residence. RSVP by Jan 2, 7 PM with your name, designation &amp; ID proof.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div></div>
+            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Aug 9, 2026</div><div className="ev-title">Rashtrapati Bhawan Visit</div><div className="ev-desc">
+              
+             An exclusive experience awaits! FIP is set to organize a special visit to Rashtrapati Bhavan on 9th August 2026 (8:30 AM – 11:00 AM). A unique opportunity to witness the grandeur of India’s highest constitutional institution. Stay tuned—registrations opening soon!
+              
+              </div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div></div>
             <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Every Sunday</div><div className="ev-title">Chartered Walk &amp; Talk</div><div className="ev-desc">Morning walks at India Gate, War Memorial &amp; Firoz Shah Road. Networking meets wellness — free for all members.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">Open to all</span></div></div>
-            <div className="ev-dark"><div className="ev-date"><i className="fa-regular fa-calendar"></i> Coming Soon</div><div className="ev-title">GST Conclave 2026</div><div className="ev-desc">Following Le Meridien's success, the next GST Conclave brings 500+ professionals for a full-day indirect tax summit.</div><div className="ev-footer"><span className="ev-type evt-virtual">Notify Me</span><span className="ev-seats">500+ capacity</span></div></div>
+            <div className="ev-dark"><div className="ev-date"><i className="fa-regular fa-calendar"></i> Coming Soon</div><div className="ev-title">GCC Workshop 2026 </div><div className="ev-desc">
+             Lets talk , Global Practice, Global Clients, Global Opportunities.
+
+We are coming soon  for FIP GCC workshop   2026—a two-day exclusive conclave for Chartered Accountants to discover the immense potential of Global Capability Centres (GCCs) and the future of the global profession.
+              
+              </div><div className="ev-footer"><span className="ev-type evt-virtual">Notify Me</span><span className="ev-seats">500+ capacity</span></div></div>
           </div>
         </div>
       </div>

@@ -247,6 +247,15 @@ export default function Modals() {
     e.preventDefault();
     const course = modalData?.course;
     if (!course) return;
+
+    const f = e.target;
+    const enrollDetails = {
+      full_name:  f.full_name.value.trim(),
+      email:      f.email.value.trim(),
+      phone:      f.phone.value.trim(),
+      profession: f.profession.value,
+    };
+
     // Free course — enroll directly
     if (!course.price || course.price === 0) {
       // No unique constraint exists on course_registrations, so upsert+onConflict
@@ -255,7 +264,7 @@ export default function Modals() {
         .from('course_registrations')
         .select('id')
         .eq('course_id', course.id || null)
-        .eq('email', user.email)
+        .eq('email', enrollDetails.email)
         .maybeSingle();
 
       if (!existingReg) {
@@ -263,10 +272,10 @@ export default function Modals() {
           user_id:      user.id,
           course_id:    course.id || null,
           course_title: course.title,
-          full_name:    profile?.full_name || user.user_metadata?.full_name || '',
-          email:        user.email,
-          phone:        profile?.phone || null,
-          profession:   profile?.profession || null,
+          full_name:    enrollDetails.full_name,
+          email:        enrollDetails.email,
+          phone:        enrollDetails.phone || null,
+          profession:   enrollDetails.profession || null,
           status:       'registered',
           zoom_link:    course.zoom_link || null,
         });
@@ -276,6 +285,18 @@ export default function Modals() {
       if (course.slug) navigate(`/courses/${course.slug}/watch`);
       return;
     }
+
+    // Paid course — sync submitted details to the profile first, so the backend
+    // (verify-payment.js) picks up the correct profession/phone/name when it
+    // writes the course_registrations row after payment is confirmed.
+    try {
+      await supabase.from('profiles').update({
+        full_name:  enrollDetails.full_name,
+        phone:      enrollDetails.phone,
+        profession: enrollDetails.profession,
+      }).eq('id', user.id);
+    } catch (err) { /* non-fatal — proceed to payment regardless */ }
+
     // Paid course — real Razorpay payment
     closeModal();
     await pay({
@@ -883,16 +904,28 @@ export default function Modals() {
               Secure payment powered by Razorpay. Your details are encrypted.
             </div>
             <form onSubmit={handleCourseEnroll}>
-              <div className="form-group"><label className="form-label">Full Name</label>
-                <input className="form-input" type="text" defaultValue={profile?.full_name || user?.user_metadata?.full_name || ''} required />
+              <div className="form-group"><label className="form-label">Full Name *</label>
+                <input className="form-input" name="full_name" type="text" defaultValue={profile?.full_name || user?.user_metadata?.full_name || ''} required />
               </div>
               <div className="form-row">
-                <div className="form-group"><label className="form-label">Email</label>
-                  <input className="form-input" type="email" defaultValue={user?.email || ''} required />
+                <div className="form-group"><label className="form-label">Email *</label>
+                  <input className="form-input" name="email" type="email" defaultValue={user?.email || ''} required />
                 </div>
-                <div className="form-group"><label className="form-label">Phone</label>
-                  <input className="form-input" type="tel" defaultValue={profile?.phone || ''} required />
+                <div className="form-group"><label className="form-label">Phone *</label>
+                  <input className="form-input" name="phone" type="tel" defaultValue={profile?.phone || ''} required />
                 </div>
+              </div>
+              <div className="form-group"><label className="form-label">Profession *</label>
+                <select className="form-select" name="profession" defaultValue={profile?.profession || ''} required>
+                  <option value="">Select your profession</option>
+                  <option>CA Student</option>
+                  <option>CA Member</option>
+                  <option>CS</option>
+                  <option>CMA</option>
+                  <option>Advocate</option>
+                  <option>MBA</option>
+                  <option>Others</option>
+                </select>
               </div>
               <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center'}}>
                 <i className="fa-solid fa-lock"></i> Pay &amp; Enroll Now
