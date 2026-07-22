@@ -396,29 +396,40 @@ export default async function handler(req, res) {
         .select('full_name, email, phone, profession')
         .eq('id', userId).single();
 
-      // Insert into course_registrations (so it shows in dashboard)
-      // NOTE: onConflict must match the ACTUAL unique constraint on course_registrations,
-      // which is (course_id, email) — see CourseDetailPage.jsx's duplicate-registration
-      // check and its 23505 handling. Using the wrong target here causes Postgrest to
-      // reject the upsert outright (no matching constraint found), which was silently
-      // dropped below — the payment succeeded but the enrollment row was never written,
-      // so the course never appeared in "My Courses".
-      const { error: regError } = await supabaseAdmin
+      // Insert into course_registrations (so it shows in dashboard).
+      // IMPORTANT: course_registrations has NO unique constraint (verified via
+      // pg_constraint), so `.upsert(..., { onConflict: ... })` will ALWAYS fail —
+      // Postgrest requires a real unique/exclusion constraint matching onConflict's
+      // columns, and none exists. That was why paid enrollments were silently
+      // never written even though the payment succeeded. Using a plain insert here,
+      // guarded by a pre-check so retries/duplicate webhooks don't create dup rows.
+      let regError = null;
+      const { data: existingReg } = await supabaseAdmin
         .from('course_registrations')
-        .upsert({
-          user_id:    userId,
-          course_id:  course?.id || null,
-          course_title: course?.title || payment.item_name,
-          full_name:  payer?.full_name || '',
-          email:      payer?.email || '',
-          phone:      payer?.phone || null,
-          profession: payer?.profession || null,
-          status:     'registered',
-          zoom_link:  course?.zoom_link || null,
-        }, { onConflict: 'course_id,email', ignoreDuplicates: true });
+        .select('id')
+        .eq('course_id', course?.id || null)
+        .eq('email', payer?.email || '')
+        .maybeSingle();
+
+      if (!existingReg) {
+        const { error } = await supabaseAdmin
+          .from('course_registrations')
+          .insert({
+            user_id:    userId,
+            course_id:  course?.id || null,
+            course_title: course?.title || payment.item_name,
+            full_name:  payer?.full_name || '',
+            email:      payer?.email || '',
+            phone:      payer?.phone || null,
+            profession: payer?.profession || null,
+            status:     'registered',
+            zoom_link:  course?.zoom_link || null,
+          });
+        regError = error;
+      }
 
       if (regError) {
-        console.error('course_registrations upsert error:', regError.message);
+        console.error('course_registrations insert error:', regError.message);
       }
 
       // Send course confirmation email with WhatsApp link
