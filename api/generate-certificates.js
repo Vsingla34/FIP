@@ -46,13 +46,35 @@ function fetchBuffer(url) {
 const W = 841.89;
 const H = 595.28;
 
-function buildPDF(style, recipientName, courseName, date, templateImageBuffer) {
+function buildPDF(style, recipientName, courseName, date, templateImageBuffer, certNo, signatureBuffer) {
   return new Promise((resolve, reject) => {
     const doc    = new PDFDocument({ size: [W, H], margin: 0, info: { Title: 'Certificate of Completion' } });
     const chunks = [];
     doc.on('data',  c => chunks.push(c));
     doc.on('end',   ()  => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+
+    // ── Helper: add cert number + signature at bottom of any template ──
+    const addFooterExtras = () => {
+      // Certificate number
+      if (certNo) {
+        doc.fontSize(8).fillColor('#999').font('Helvetica')
+           .text(`Cert No: ${certNo}`, 30, H - 22, { width: W - 60, align: 'left' });
+      }
+      // Signature image + line
+      if (signatureBuffer) {
+        const sigW = 110, sigH = 40;
+        const sigX = W - sigW - 50;
+        const sigY = H - sigH - 30;
+        try {
+          doc.image(signatureBuffer, sigX, sigY, { width: sigW, height: sigH });
+        } catch (e) { /* skip if image fails */ }
+        doc.moveTo(sigX - 10, H - 28).lineTo(sigX + sigW + 10, H - 28)
+           .strokeColor('#666').lineWidth(0.7).stroke();
+        doc.fontSize(8).fillColor('#888').font('Helvetica')
+           .text('Authorised Signatory', sigX - 10, H - 24, { width: sigW + 20, align: 'center' });
+      }
+    };
 
     if (style === 'custom' && templateImageBuffer) {
       /* ── Custom template: image background + text overlay ── */
@@ -175,6 +197,7 @@ function buildPDF(style, recipientName, courseName, date, templateImageBuffer) {
          .text('Federation of Indian Professionals', 0, 382, { align: 'center', width: W });
     }
 
+    addFooterExtras();
     doc.end();
   });
 }
@@ -193,6 +216,7 @@ export default async function handler(req, res) {
       recipients,
       templateUrl,
       templateStyle = 'classic',
+      signatureUrl,          // optional: URL of admin's signature image
       sendEmails    = true,
     } = req.body;
 
@@ -213,6 +237,13 @@ export default async function handler(req, res) {
       catch (e) { return res.status(400).json({ error: 'Could not load template image: ' + e.message }); }
     }
 
+    // Pre-fetch signature image once if provided
+    let signatureBuffer = null;
+    if (signatureUrl) {
+      try { signatureBuffer = await fetchBuffer(signatureUrl); }
+      catch (e) { console.warn('Could not load signature image:', e.message); }
+    }
+
     const transporter   = sendEmails ? getTransporter() : null;
     const dateFormatted = formatDate(course.event_date);
     const results       = [];
@@ -222,9 +253,12 @@ export default async function handler(req, res) {
       const email = (rec.email || '').trim();
       if (!name || !email) continue;
 
+      // Generate unique certificate number: FIP-YYYY-XXXXX
+      const certNo = `FIP-${new Date().getFullYear()}-${String(Math.floor(10000 + Math.random() * 90000))}`;
+
       try {
         // Generate PDF certificate
-        const pdfBuffer = await buildPDF(templateStyle, name, course.title, dateFormatted, templateImageBuffer);
+        const pdfBuffer = await buildPDF(templateStyle, name, course.title, dateFormatted, templateImageBuffer, certNo, signatureBuffer);
 
         // Upload PDF to Supabase Storage
         const fileName = `${courseId}/${Date.now()}_${name.replace(/[^a-z0-9]/gi,'_')}.pdf`;

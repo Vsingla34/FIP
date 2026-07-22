@@ -97,7 +97,7 @@ export function AuthProvider({ children }) {
           full_name:    fullName,
           profession,
           phone,
-          account_type: accountType || 'student',
+          account_type: accountType || 'guest_user',
         },
       },
     });
@@ -129,7 +129,7 @@ export function AuthProvider({ children }) {
         full_name:        pendingData?.fullName   || data.user.user_metadata?.full_name || 'FIP Member',
         profession:       pendingData?.profession || data.user.user_metadata?.profession || null,
         phone:            pendingData?.phone      || data.user.user_metadata?.phone      || null,
-        account_type:     'student',
+        account_type:     'guest_user',
         membership_status:'Inactive',
         role:             'member',
         profile_public:   true,

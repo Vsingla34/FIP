@@ -150,13 +150,14 @@ export default function CourseDetailPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name:         form.full_name,
-        email:        form.email,
-        courseTitle:  course.title,
-        eventDate:    course.event_date,
-        eventTime:    course.event_time,
-        zoomLink:     course.zoom_link,
-        zoomPassword: course.zoom_password,
+        name:               form.full_name,
+        email:              form.email,
+        courseTitle:        course.title,
+        eventDate:          course.event_date,
+        eventTime:          course.event_time,
+        zoomLink:           course.zoom_link,
+        zoomPassword:       course.zoom_password,
+        whatsappGroupLink:  course.whatsapp_group_link,
       }),
     }).catch(() => {});
 

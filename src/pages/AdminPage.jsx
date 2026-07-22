@@ -287,7 +287,7 @@ export default function AdminPage() {
   const [courseForm, setCourseForm] = useState({
     title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate',
     price:0, free_for:'none', instructor:'', duration_hours:'',
-    event_date:'', event_end_date:'', event_time:'', zoom_link:'', zoom_password:'', recording_url:'',
+    event_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'',
     banner_url:'', what_you_learn:'', speakers:'',
   });
 
@@ -330,13 +330,9 @@ export default function AdminPage() {
   };
 
   const downloadMembersExcel = function(membersList) {
-    var headers = ['Membership ID', 'Full Name', 'Email', 'Phone', 'Profession', 'City', 'Role', 'Account Type', 'Membership Status', 'Membership End', 'Joined'];
+    var headers = ['Full Name', 'Email', 'Phone', 'Profession', 'City', 'Role', 'Account Type', 'Membership Status', 'Membership End', 'Joined'];
     var rows = membersList.map(function(m) {
-      var membId = m.profile_slug
-        ? 'FIP-' + m.profile_slug.split('-').slice(-1)[0].toUpperCase()
-        : 'FIP-' + (m.id||'').slice(0,6).toUpperCase();
       return [
-        membId,
         m.full_name || '',
         m.email || '',
         m.phone || '',
@@ -367,38 +363,6 @@ export default function AdminPage() {
     showToast('Members CSV downloaded!');
   };
 
-  const downloadPaymentsExcel = function(paymentsList) {
-    var headers = ['Member Name', 'Email', 'Item / Plan', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Status', 'Payment ID', 'Order ID', 'Date'];
-    var rows = paymentsList.map(function(p) {
-      return [
-        p.profiles?.full_name || '',
-        p.profiles?.email || '',
-        p.item_name || '',
-        p.amount || 0,
-        p.gst_amount || 0,
-        p.total_amount || 0,
-        p.status || '',
-        p.razorpay_payment_id || '',
-        p.razorpay_order_id || '',
-        p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '',
-      ];
-    });
-    var allRows = [headers].concat(rows);
-    var csvLines = allRows.map(function(row) {
-      return row.map(function(cell) {
-        return '"' + String(cell).split('"').join('""') + '"';
-      }).join(',');
-    });
-    var blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
-    var url  = URL.createObjectURL(blob);
-    var a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'FIP_Payments_' + new Date().toISOString().slice(0,10) + '.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('Payments CSV downloaded!');
-  };
-
   const loadCourseEnrollments = async (course) => {
     setCourseEnrollmentsLoading(true);
     const { data } = await supabase.rpc('admin_get_course_registrations', { p_course_id: course.id });
@@ -415,10 +379,9 @@ export default function AdminPage() {
       duration_hours: courseForm.duration_hours ? Number(courseForm.duration_hours) : null,
       is_free_for_members: courseForm.free_for === 'members' || courseForm.free_for === 'all',
       event_date:    courseForm.event_date    || null,
-      event_end_date: courseForm.event_end_date || null,
       event_time:    (courseForm.event_time    || '').trim() || null,
-      zoom_link:      (courseForm.zoom_link     || '').trim() || null,
-      recording_url:  (courseForm.recording_url || '').trim() || null,
+      zoom_link:     (courseForm.zoom_link     || '').trim() || null,
+      whatsapp_group_link: (courseForm.whatsapp_group_link || '').trim() || null,
       zoom_password: (courseForm.zoom_password || '').trim() || null,
       banner_url:    (courseForm.banner_url    || '').trim() || null,
       what_you_learn: courseForm.what_you_learn
@@ -463,9 +426,9 @@ export default function AdminPage() {
   /* open course modal */
   const openCourseModal = (course) => {
     if (course === 'new') {
-      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_end_date:'', event_time:'', zoom_link:'', zoom_password:'', recording_url:'', banner_url:'', what_you_learn:'', speakers:'' });
+      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'', banner_url:'', what_you_learn:'', speakers:'' });
     } else {
-      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', recording_url:course.recording_url||'', event_end_date:course.event_end_date||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
     }
     setShowCourseModal(course);
   };
@@ -743,10 +706,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab !== 'contacts') return;
     setContactsLoading(true);
-    supabase
-      .from('contact_messages')
-      .select('*')
-      .order('created_at', { ascending: false })
+    supabase.rpc('admin_get_contact_messages')
       .then(({ data, error }) => {
         if (!error) setContacts(data || []);
         else console.error('Contacts error:', error);
@@ -889,13 +849,6 @@ export default function AdminPage() {
   const [slideForm,    setSlideForm]    = useState(emptySlide);
   const [slideSaving,  setSlideSaving]  = useState(false);
 
-  /* ── Coupons tab ── */
-  const emptyCoupon = { code:'', description:'', discount_type:'percent', discount_value:'', max_discount:'', min_order:'', applies_to:'all', max_uses:'', valid_from:'', valid_until:'' };
-  const [coupons,       setCoupons]       = useState([]);
-  const [couponsLoading,setCouponsLoading]= useState(false);
-  const [couponForm,    setCouponForm]    = useState(emptyCoupon);
-  const [couponSaving,  setCouponSaving]  = useState(false);
-
   useEffect(() => {
     if (tab !== 'dashboard') return;
     setDashLoading(true);
@@ -912,7 +865,7 @@ export default function AdminPage() {
       // Active members count
       supabase.from('profiles').select('id', { count:'exact', head:true }).eq('membership_status','Active'),
       // Recent payments with profile join
-      supabase.from('payments').select('total_amount,status,item_name,created_at,user_id,profiles(full_name)')
+      supabase.from('payments').select('total_amount,amount,gst_amount,status,item_name,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
         .order('created_at', { ascending:false }).limit(8),
     ]).then(([revRes, evRes, courseRes, totalMembRes, activeMembRes, payRes]) => {
       const revenue = (revRes.data||[]).reduce((s,p) => s + (Number(p.total_amount)||0), 0);
@@ -934,7 +887,7 @@ export default function AdminPage() {
     setAllPaymentsLoading(true);
     supabase
       .from('payments')
-      .select('total_amount,amount,gst_amount,status,item_name,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email)')
+      .select('total_amount,amount,gst_amount,status,item_name,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
       .order('created_at', { ascending: false })
       .limit(200)
       .then(({ data }) => { setAllPayments(data || []); setAllPaymentsLoading(false); });
@@ -946,14 +899,6 @@ export default function AdminPage() {
     setSlidesLoading(true);
     supabase.from('slides').select('*').order('sort_order', { ascending: true })
       .then(({ data }) => { setSlides(data || []); setSlidesLoading(false); });
-  }, [tab]);
-
-  /* ── Load coupons when tab opens ── */
-  useEffect(() => {
-    if (tab !== 'coupons') return;
-    setCouponsLoading(true);
-    supabase.from('coupons').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => { setCoupons(data || []); setCouponsLoading(false); });
   }, [tab]);
 
   /* ── nav items ── */
@@ -1069,9 +1014,6 @@ export default function AdminPage() {
           </button>
           <button className={`admin-nav-v2${tab==='slides'?' active':''}`} onClick={() => setTab('slides')}>
             <i className="fa-solid fa-image"></i> Hero Slides
-          </button>
-          <button className={`admin-nav-v2${tab==='coupons'?' active':''}`} onClick={() => setTab('coupons')}>
-            <i className="fa-solid fa-tag"></i> Coupons
           </button>
 
           <div className="admin-nav-group-label">Finance</div>
@@ -1313,7 +1255,7 @@ export default function AdminPage() {
                 <div style={{overflowX:'auto'}}>
                   <table className="admin-table">
                     <thead>
-                      <tr><th>Member</th><th>Membership ID</th><th>Profession</th><th>Role</th><th>Membership</th><th>Joined</th><th>Actions</th></tr>
+                      <tr><th>Member</th><th>Profession</th><th>Role</th><th>Membership</th><th>Joined</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                       {filteredMembers.map((m,i) => (
@@ -1328,13 +1270,6 @@ export default function AdminPage() {
                                 <div style={{fontSize:'11px',color:'var(--text-light)'}}>{m.email}</div>
                               </div>
                             </div>
-                          </td>
-                          <td>
-                            <span style={{fontFamily:'monospace',fontSize:'12px',fontWeight:700,color:'var(--blue)',background:'var(--blue-pale)',padding:'3px 8px',borderRadius:'6px',letterSpacing:'0.5px'}}>
-                              {m.profile_slug
-                                ? 'FIP-' + m.profile_slug.split('-').slice(-1)[0].toUpperCase()
-                                : 'FIP-' + m.id.slice(0,6).toUpperCase()}
-                            </span>
                           </td>
                           <td style={{fontSize:'12px'}}>{m.profession||'—'}</td>
                           <td>
@@ -1818,201 +1753,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* ═══ COUPONS ═══ */}
-          {tab === 'coupons' && (
-            <div>
-              <h2 className="admin-page-title">Discount Coupons</h2>
-
-              {/* ── Create Coupon Form ── */}
-              <div className="admin-form-card" style={{marginBottom:'24px'}}>
-                <div className="admin-form-title" style={{marginBottom:'16px'}}>
-                  <i className="fa-solid fa-plus-circle" style={{color:'var(--orange)',marginRight:'8px'}}></i>
-                  Create New Coupon
-                </div>
-
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'12px'}}>
-                  <div className="form-group">
-                    <label className="form-label">Coupon Code <span style={{color:'var(--orange)'}}>*</span></label>
-                    <input className="form-input" placeholder="e.g. SAVE20" style={{textTransform:'uppercase',fontFamily:'monospace',fontWeight:700,letterSpacing:'1px'}}
-                      value={couponForm.code}
-                      onChange={e => setCouponForm(f => ({...f, code: e.target.value.toUpperCase().replace(/\s/g,'')}))}/>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Description <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(shown to user)</span></label>
-                    <input className="form-input" placeholder="e.g. Launch discount"
-                      value={couponForm.description}
-                      onChange={e => setCouponForm(f => ({...f, description: e.target.value}))}/>
-                  </div>
-                </div>
-
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px',marginBottom:'12px'}}>
-                  <div className="form-group">
-                    <label className="form-label">Discount Type</label>
-                    <select className="form-select" value={couponForm.discount_type}
-                      onChange={e => setCouponForm(f => ({...f, discount_type: e.target.value}))}>
-                      <option value="percent">Percentage (%)</option>
-                      <option value="fixed">Fixed Amount (₹)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Discount Value <span style={{color:'var(--orange)'}}>*</span></label>
-                    <input className="form-input" type="number" min="1"
-                      placeholder={couponForm.discount_type === 'percent' ? 'e.g. 20 (for 20%)' : 'e.g. 100 (for ₹100)'}
-                      value={couponForm.discount_value}
-                      onChange={e => setCouponForm(f => ({...f, discount_value: e.target.value}))}/>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">
-                      Max Discount <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(cap for % off)</span>
-                    </label>
-                    <input className="form-input" type="number" min="0" placeholder="e.g. 200 (₹)"
-                      value={couponForm.max_discount}
-                      onChange={e => setCouponForm(f => ({...f, max_discount: e.target.value}))}/>
-                  </div>
-                </div>
-
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px',marginBottom:'12px'}}>
-                  <div className="form-group">
-                    <label className="form-label">Applies To</label>
-                    <select className="form-select" value={couponForm.applies_to}
-                      onChange={e => setCouponForm(f => ({...f, applies_to: e.target.value}))}>
-                      <option value="all">All Purchases</option>
-                      <option value="membership">Membership Only</option>
-                      <option value="course">Courses Only</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Min Order (₹)</label>
-                    <input className="form-input" type="number" min="0" placeholder="0"
-                      value={couponForm.min_order}
-                      onChange={e => setCouponForm(f => ({...f, min_order: e.target.value}))}/>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Max Uses <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(blank = unlimited)</span></label>
-                    <input className="form-input" type="number" min="1" placeholder="e.g. 100"
-                      value={couponForm.max_uses}
-                      onChange={e => setCouponForm(f => ({...f, max_uses: e.target.value}))}/>
-                  </div>
-                </div>
-
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'20px'}}>
-                  <div className="form-group">
-                    <label className="form-label">Valid From</label>
-                    <input className="form-input" type="date" value={couponForm.valid_from}
-                      onChange={e => setCouponForm(f => ({...f, valid_from: e.target.value}))}/>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Valid Until</label>
-                    <input className="form-input" type="date" value={couponForm.valid_until}
-                      onChange={e => setCouponForm(f => ({...f, valid_until: e.target.value}))}/>
-                  </div>
-                </div>
-
-                <button className="btn btn-primary"
-                  disabled={couponSaving || !couponForm.code.trim() || !couponForm.discount_value}
-                  onClick={async () => {
-                    setCouponSaving(true);
-                    const payload = {
-                      code:           couponForm.code.trim().toUpperCase(),
-                      description:    couponForm.description.trim() || null,
-                      discount_type:  couponForm.discount_type,
-                      discount_value: Number(couponForm.discount_value),
-                      max_discount:   couponForm.max_discount   ? Number(couponForm.max_discount)   : null,
-                      min_order:      couponForm.min_order      ? Number(couponForm.min_order)      : 0,
-                      applies_to:     couponForm.applies_to,
-                      max_uses:       couponForm.max_uses       ? Number(couponForm.max_uses)       : null,
-                      valid_from:     couponForm.valid_from     || null,
-                      valid_until:    couponForm.valid_until    || null,
-                      is_active:      true,
-                      created_by:     profile?.id,
-                    };
-                    const { data, error } = await supabase.from('coupons').insert([payload]).select();
-                    setCouponSaving(false);
-                    if (error) { showToast('Error: ' + error.message, true); return; }
-                    setCoupons(prev => [data[0], ...prev]);
-                    setCouponForm(emptyCoupon);
-                    showToast('Coupon created!');
-                  }}>
-                  {couponSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-plus"></i> Create Coupon</>}
-                </button>
-              </div>
-
-              {/* ── Coupons List ── */}
-              <div className="admin-form-card">
-                <div className="admin-form-title" style={{marginBottom:'16px'}}>
-                  Active Coupons
-                  <span style={{fontSize:'12px',fontWeight:400,color:'var(--text-muted)',marginLeft:'8px'}}>({coupons.length})</span>
-                </div>
-
-                {couponsLoading ? (
-                  <div style={{textAlign:'center',padding:'32px',color:'var(--text-muted)'}}>
-                    <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'22px',display:'block',marginBottom:'8px'}}></i>
-                    Loading…
-                  </div>
-                ) : coupons.length === 0 ? (
-                  <div style={{textAlign:'center',padding:'32px',color:'var(--text-muted)'}}>
-                    <i className="fa-solid fa-tag" style={{fontSize:'28px',display:'block',marginBottom:'8px',opacity:.3}}></i>
-                    No coupons yet. Create one above.
-                  </div>
-                ) : (
-                  <div style={{overflowX:'auto'}}>
-                    <table className="dboard-table">
-                      <thead>
-                        <tr><th>Code</th><th>Discount</th><th>Applies To</th><th>Uses</th><th>Valid Until</th><th>Status</th><th></th></tr>
-                      </thead>
-                      <tbody>
-                        {coupons.map(c => (
-                          <tr key={c.id}>
-                            <td>
-                              <span style={{fontFamily:'monospace',fontWeight:700,fontSize:'14px',color:'var(--blue)',background:'var(--blue-pale)',padding:'3px 10px',borderRadius:'6px',letterSpacing:'1px'}}>{c.code}</span>
-                              {c.description && <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'3px'}}>{c.description}</div>}
-                            </td>
-                            <td>
-                              <span style={{fontWeight:700,color:'var(--orange)'}}>
-                                {c.discount_type === 'percent' ? `${c.discount_value}%` : `₹${c.discount_value}`} off
-                              </span>
-                              {c.max_discount && <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Max ₹{c.max_discount}</div>}
-                              {c.min_order > 0 && <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Min ₹{c.min_order}</div>}
-                            </td>
-                            <td style={{fontSize:'12px',textTransform:'capitalize'}}>{c.applies_to}</td>
-                            <td style={{fontSize:'12px'}}>
-                              {c.used_count}{c.max_uses ? ` / ${c.max_uses}` : ' / ∞'}
-                            </td>
-                            <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
-                              {c.valid_until ? new Date(c.valid_until).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}
-                            </td>
-                            <td>
-                              <label style={{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer',fontSize:'12px'}}>
-                                <input type="checkbox" checked={c.is_active}
-                                  onChange={async e => {
-                                    const active = e.target.checked;
-                                    await supabase.from('coupons').update({ is_active: active }).eq('id', c.id);
-                                    setCoupons(prev => prev.map(x => x.id===c.id ? {...x, is_active: active} : x));
-                                  }}/>
-                                {c.is_active ? <span style={{color:'var(--green)',fontWeight:600}}>Active</span> : <span style={{color:'var(--text-muted)'}}>Off</span>}
-                              </label>
-                            </td>
-                            <td>
-                              <button
-                                onClick={async () => {
-                                  if (!window.confirm(`Delete coupon "${c.code}"?`)) return;
-                                  await supabase.from('coupons').delete().eq('id', c.id);
-                                  setCoupons(prev => prev.filter(x => x.id !== c.id));
-                                }}
-                                style={{background:'#FEE2E2',color:'#C0392B',border:'1px solid #F5BDBA',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',fontSize:'12px'}}>
-                                <i className="fa-solid fa-trash"></i>
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* ═══ PAYMENTS ═══ */}
           {tab === 'payments' && (
             <div className="admin-form-card">
@@ -2022,17 +1762,10 @@ export default function AdminPage() {
                     ({allPayments.length})
                   </span>
                 </span>
-                <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+                <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
                   <span style={{fontSize:'13px',color:'var(--green)',fontWeight:700}}>
                     ₹{allPayments.filter(p=>p.status==='paid').reduce((s,p)=>s+(Number(p.total_amount)||0),0).toLocaleString('en-IN')} collected
                   </span>
-                  {allPayments.length > 0 && (
-                    <button className="btn btn-sm"
-                      style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
-                      onClick={() => downloadPaymentsExcel(allPayments)}>
-                      <i className="fa-solid fa-file-excel"></i> Download Excel ({allPayments.length})
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -2049,19 +1782,24 @@ export default function AdminPage() {
                 <div style={{overflowX:'auto'}}>
                   <table className="dboard-table">
                     <thead>
-                      <tr><th>Member</th><th>Item / Plan</th><th>Amount</th><th>Date</th><th>Status</th></tr>
+                      <tr><th>Member</th><th>Phone</th><th>Item / Plan</th><th>Amount</th><th>Transaction ID</th><th>Date</th><th>Status</th></tr>
                     </thead>
                     <tbody>
                       {allPayments.map((p,i) => (
                         <tr key={i}>
                           <td>
                             <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
+                            <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{p.profiles?.email || ''}</div>
                           </td>
-                          <td style={{fontSize:'12px',color:'var(--text-muted)',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{p.profiles?.phone || '—'}</td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)',maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                             {p.item_name || '—'}
                           </td>
                           <td>
                             <span style={{color:'var(--orange)',fontWeight:700}}>₹{Number(p.total_amount||0).toLocaleString('en-IN')}</span>
+                          </td>
+                          <td style={{fontSize:'11px',color:'var(--text-muted)',fontFamily:'monospace'}}>
+                            {p.razorpay_payment_id || '—'}
                           </td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
                             {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}
@@ -3653,27 +3391,8 @@ export default function AdminPage() {
             {/* New fields */}
             <div className="form-row">
               <div className="form-group">
-                <div className="form-group">
-                  <label className="form-label">
-                    <i className="fa-regular fa-calendar" style={{marginRight:'6px',color:'var(--orange)'}}></i>
-                    Date Range
-                    <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(leave blank for self-paced)</span>
-                  </label>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'8px',alignItems:'center'}}>
-                    <div>
-                      <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}}>Start Date</div>
-                      <input className="form-input" type="date" value={courseForm.event_date}
-                        onChange={e => setCourseForm(f => ({...f, event_date: e.target.value}))}/>
-                    </div>
-                    <div style={{textAlign:'center',color:'var(--text-muted)',fontWeight:600,paddingTop:'20px'}}>→</div>
-                    <div>
-                      <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}}>End Date <span style={{opacity:.6}}>(optional)</span></div>
-                      <input className="form-input" type="date" value={courseForm.event_end_date}
-                        min={courseForm.event_date || undefined}
-                        onChange={e => setCourseForm(f => ({...f, event_end_date: e.target.value}))}/>
-                    </div>
-                  </div>
-                </div>
+                <label className="form-label">Event Date</label>
+                <input className="form-input" type="date" value={courseForm.event_date} onChange={e=>setCourseForm(f=>({...f,event_date:e.target.value}))}/>
               </div>
               <div className="form-group">
                 <label className="form-label">Event Time</label>
@@ -3689,16 +3408,18 @@ export default function AdminPage() {
                 <input className="form-input" type="url" placeholder="https://zoom.us/j/..." value={courseForm.zoom_link} onChange={e=>setCourseForm(f=>({...f,zoom_link:e.target.value}))}/>
               </div>
               <div className="form-group">
-                <label className="form-label">
-                  <i className="fa-brands fa-youtube" style={{color:'#FF0000',marginRight:'6px'}}></i>
-                  YouTube Recording URL
-                  <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(add after session ends)</span>
-                </label>
-                <input className="form-input" type="url" placeholder="https://youtube.com/watch?v=..." value={courseForm.recording_url} onChange={e=>setCourseForm(f=>({...f,recording_url:e.target.value}))}/>
-              </div>
-              <div className="form-group">
                 <label className="form-label">Zoom Password <span style={{fontWeight:400,color:'var(--text-light)'}}>— optional</span></label>
                 <input className="form-input" type="text" placeholder="Meeting password" value={courseForm.zoom_password} onChange={e=>setCourseForm(f=>({...f,zoom_password:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  <span style={{color:'#25D366',marginRight:'5px'}}>💬</span>
+                  WhatsApp Group Link
+                  <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(sent in registration confirmation email)</span>
+                </label>
+                <input className="form-input" type="url" placeholder="https://chat.whatsapp.com/..."
+                  value={courseForm.whatsapp_group_link}
+                  onChange={e=>setCourseForm(f=>({...f,whatsapp_group_link:e.target.value}))}/>
               </div>
             </div>
             <div className="form-group">

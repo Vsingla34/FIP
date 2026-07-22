@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { name, email, courseTitle, eventDate, eventTime, zoomLink, zoomPassword } = req.body;
+  const { name, email, courseTitle, eventDate, eventTime, zoomLink, zoomPassword, whatsappGroupLink } = req.body;
   if (!email || !courseTitle) return res.status(400).json({ error: 'Missing fields' });
 
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
@@ -101,6 +101,18 @@ export default async function handler(req, res) {
     <div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:10px;padding:16px 20px;margin:0 0 24px;font-size:13px;color:#92400E;">
       <strong> Zoom link coming soon!</strong> We'll send you the meeting link closer to the session date.
     </div>`}
+
+    <!-- WhatsApp Group link box -->
+    ${whatsappGroupLink ? `
+    <div style="background:linear-gradient(135deg,#E7FBF0,#D1FAE5);border:2px solid #25D366;border-radius:14px;padding:22px;margin:0 0 24px;text-align:center;">
+      <div style="font-size:28px;margin-bottom:10px;">💬</div>
+      <div style="font-size:12px;font-weight:700;color:#15803D;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Join WhatsApp Group</div>
+      <p style="font-size:13px;color:#166534;margin:0 0 12px;">Get updates, resources and connect with fellow participants!</p>
+      <a href="${whatsappGroupLink}" style="display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:800;font-size:14px;">
+        Join WhatsApp Group →
+      </a>
+    </div>
+    ` : ''}
 
     <!-- Tips -->
     <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:18px 20px;margin:0 0 24px;">

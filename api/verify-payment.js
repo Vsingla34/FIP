@@ -363,7 +363,7 @@ export default async function handler(req, res) {
     // 4. Apply effect (activate membership OR enroll in course)
     if (payment.purchase_type === 'membership') {
       await supabaseAdmin.from('profiles').update({
-        account_type:      'member',
+        account_type:      'fip_member',   // paid member = FIP Member
         membership_status: 'Active',
         membership_plan:   payment.item_name.replace('FIP ', '').replace(' Membership', ''),
         membership_start:  validFrom,
@@ -383,21 +383,56 @@ export default async function handler(req, res) {
       }
 
     } else if (payment.purchase_type === 'course') {
-      // Look up the course_id from the item_ref_id (course slug)
+      // Look up course by slug with all details needed
       const { data: course } = await supabaseAdmin
-        .from('courses').select('id').eq('slug', payment.item_ref_id).maybeSingle();
+        .from('courses')
+        .select('id, title, event_date, event_time, zoom_link, zoom_password, whatsapp_group_link')
+        .eq('slug', payment.item_ref_id)
+        .maybeSingle();
 
+      // Fetch user profile for name/email
+      const { data: payer } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name, email, phone, profession')
+        .eq('id', userId).single();
+
+      // Insert into course_registrations (so it shows in dashboard)
       const { error: regError } = await supabaseAdmin
         .from('course_registrations')
         .upsert({
-          user_id:   userId,
-          course_id: course?.id || null,
-          status:    'registered',
+          user_id:    userId,
+          course_id:  course?.id || null,
+          course_title: course?.title || payment.item_name,
+          full_name:  payer?.full_name || '',
+          email:      payer?.email || '',
+          phone:      payer?.phone || null,
+          profession: payer?.profession || null,
+          status:     'registered',
+          zoom_link:  course?.zoom_link || null,
         }, { onConflict: 'user_id,course_id', ignoreDuplicates: true });
 
       if (regError) {
         console.error('course_registrations upsert error:', regError.message);
-        // Don't fail — payment is already marked paid
+      }
+
+      // Send course confirmation email with WhatsApp link
+      if (payer?.email && course) {
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-course-confirmation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name:               payer.full_name || payer.email,
+              email:              payer.email,
+              courseTitle:        course.title,
+              eventDate:          course.event_date,
+              eventTime:          course.event_time,
+              zoomLink:           course.zoom_link,
+              zoomPassword:       course.zoom_password,
+              whatsappGroupLink:  course.whatsapp_group_link,
+            }),
+          });
+        } catch (e) { console.warn('Course confirmation email failed:', e.message); }
       }
     }
 
