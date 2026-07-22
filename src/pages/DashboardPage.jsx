@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
-import { getEnrollments, getRSVPs, getPayments } from '../lib/api.js';
+import { getRSVPs, getPayments } from '../lib/api.js';
 import AvatarUpload from '../components/AvatarUpload.jsx';
 import { supabase } from '../lib/supabase.js';
 
@@ -543,11 +543,11 @@ export default function DashboardPage() {
     if (!user) return;
     setDataLoading(true);
     Promise.all([
-      getEnrollments(user.id),
+      supabase.rpc('get_my_course_registrations'),
       getRSVPs(user.id),
       getPayments(user.id),
     ]).then(([e, r, p]) => {
-      setEnrollments(e || []);
+      setEnrollments(e?.data || []);
       setRsvps(r       || []);
       setPayments(p    || []);
     }).catch(console.error)

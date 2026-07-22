@@ -249,10 +249,17 @@ export default function Modals() {
     if (!course) return;
     // Free course — enroll directly
     if (!course.price || course.price === 0) {
-      await supabase.from('course_enrollments').upsert({
-        user_id: user.id, course_title: course.title,
-        status: 'Enrolled', price_paid: 0, amount_paid: 0,
-      }, { onConflict: 'user_id,course_title' });
+      await supabase.from('course_registrations').upsert({
+        user_id:      user.id,
+        course_id:    course.id || null,
+        course_title: course.title,
+        full_name:    profile?.full_name || user.user_metadata?.full_name || '',
+        email:        user.email,
+        phone:        profile?.phone || null,
+        profession:   profile?.profession || null,
+        status:       'registered',
+        zoom_link:    course.zoom_link || null,
+      }, { onConflict: 'course_id,email', ignoreDuplicates: true });
       closeModal();
       showToast('Enrolled successfully!');
       if (course.slug) navigate(`/courses/${course.slug}/watch`);

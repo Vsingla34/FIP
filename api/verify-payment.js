@@ -397,6 +397,12 @@ export default async function handler(req, res) {
         .eq('id', userId).single();
 
       // Insert into course_registrations (so it shows in dashboard)
+      // NOTE: onConflict must match the ACTUAL unique constraint on course_registrations,
+      // which is (course_id, email) — see CourseDetailPage.jsx's duplicate-registration
+      // check and its 23505 handling. Using the wrong target here causes Postgrest to
+      // reject the upsert outright (no matching constraint found), which was silently
+      // dropped below — the payment succeeded but the enrollment row was never written,
+      // so the course never appeared in "My Courses".
       const { error: regError } = await supabaseAdmin
         .from('course_registrations')
         .upsert({
@@ -409,7 +415,7 @@ export default async function handler(req, res) {
           profession: payer?.profession || null,
           status:     'registered',
           zoom_link:  course?.zoom_link || null,
-        }, { onConflict: 'user_id,course_id', ignoreDuplicates: true });
+        }, { onConflict: 'course_id,email', ignoreDuplicates: true });
 
       if (regError) {
         console.error('course_registrations upsert error:', regError.message);
