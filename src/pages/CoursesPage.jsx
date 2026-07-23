@@ -118,7 +118,7 @@ export default function CoursesPage() {
     if (f === 'members' && isActiveMember) return 'Free for You';
     if (f === 'members') return 'Free for Members';
     if (f === 'students' && isStudent) return 'Free for You';
-    if (f === 'students') return 'Free for Students';
+    if (f === 'students') return 'Free for Guest Users';
     if (!course.price || course.price === 0) return 'Free';
     return `₹${Number(course.price).toLocaleString('en-IN')}`;
   };

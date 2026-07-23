@@ -219,7 +219,7 @@ export default function Modals() {
         email:        f.email.value.trim(),
         password:     f.password.value,
         fullName:     f.fullName.value.trim(),
-        profession:   regType === 'member' ? f.profession?.value : 'Student',
+        profession:   regType === 'member' ? f.profession?.value : 'Guest User',
         phone:        f.phone.value.trim(),
         accountType:  regType,
         referralCode,
@@ -751,12 +751,12 @@ export default function Modals() {
         {!otpStep && !payStep && modal === 'register' && (
           <>
             <div className="modal-title">Create Your Account</div>
-            <div className="modal-sub">Join FIP — free student account or full membership.</div>
+            <div className="modal-sub">Join FIP — free guest account or full membership.</div>
 
             <div className="reg-type-row">
               <button type="button" className={`reg-type-btn${regType==='student'?' active':''}`} onClick={() => setRegType('student')}>
                 <i className="fa-solid fa-graduation-cap"></i>
-                <div><div className="reg-type-label">Student / Learner</div><div className="reg-type-desc">Free · Pay per course only</div></div>
+                <div><div className="reg-type-label">Guest User</div><div className="reg-type-desc">Free · Pay per course only</div></div>
               </button>
               <button type="button" className={`reg-type-btn${regType==='member'?' active':''}`} onClick={() => setRegType('member')}>
                 <i className="fa-solid fa-id-badge"></i>
@@ -773,7 +773,7 @@ export default function Modals() {
                   <div className="reg-perk reg-perk-no"><i className="fa-solid fa-xmark"></i> Member events &amp; networking</div>
                   <div className="reg-perk reg-perk-no"><i className="fa-solid fa-xmark"></i> Job board &amp; directory access</div>
                 </> : <>
-                  <div className="reg-perk"><i className="fa-solid fa-check"></i> All Student benefits included</div>
+                  <div className="reg-perk"><i className="fa-solid fa-check"></i> All Guest User benefits included</div>
                   <div className="reg-perk"><i className="fa-solid fa-check"></i> Free access to member-only courses</div>
                   <div className="reg-perk"><i className="fa-solid fa-check"></i> Events, networking &amp; job board</div>
                   <div className="reg-perk"><i className="fa-solid fa-check"></i> Member directory &amp; committee access</div>
@@ -827,7 +827,7 @@ export default function Modals() {
                 {loading
                   ? <><i className="fa-solid fa-spinner fa-spin"></i> Creating account…</>
                   : regType === 'student'
-                  ? <><i className="fa-solid fa-graduation-cap"></i> Create Free Student Account</>
+                  ? <><i className="fa-solid fa-graduation-cap"></i> Create Free Guest Account</>
                   : <><i className="fa-solid fa-id-badge"></i> Create Account &amp; Pay ₹{memPrices.standard}</>
                 }
               </button>

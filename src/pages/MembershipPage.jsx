@@ -107,7 +107,7 @@ export default function MembershipPage() {
           <div className="container" style={{display:'flex',alignItems:'center',gap:'10px'}}>
             <i className="fa-solid fa-graduation-cap" style={{color:'var(--blue)'}}></i>
             <span style={{color:'var(--blue)',fontWeight:600,fontSize:'13px'}}>
-              You're on a Student account — upgrade to full membership to unlock all FIP benefits.
+              You're on a Guest User account — upgrade to full membership to unlock all FIP benefits.
             </span>
           </div>
         </div>

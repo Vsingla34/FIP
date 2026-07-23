@@ -441,7 +441,7 @@ function ReferralPanel({ profile }) {
                     <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>{u.full_name}</div>
                     <div style={{fontSize:'11px',color:'var(--text-light)'}}>
                       Joined {new Date(u.joined_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
-                      {u.account_type && <span style={{marginLeft:'6px',textTransform:'capitalize'}}>· {u.account_type}</span>}
+                      {u.account_type && <span style={{marginLeft:'6px',textTransform:'capitalize'}}>· {u.account_type === 'student' ? 'Guest User' : u.account_type}</span>}
                     </div>
                   </div>
                   <span style={{fontSize:'11px',fontWeight:700,color:s.color,background:s.bg,padding:'4px 10px',borderRadius:'20px',display:'flex',alignItems:'center',gap:'4px',flexShrink:0}}>

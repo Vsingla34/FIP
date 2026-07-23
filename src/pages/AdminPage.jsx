@@ -46,6 +46,208 @@ function EmptyActivity({ text }) {
   return <div style={{textAlign:'center',padding:'14px 0',fontSize:'12px',color:'var(--text-light)'}}>{text}</div>;
 }
 
+/* ────────────────────────────────────────────────
+   ANNOUNCE BAR EDITOR — reads/writes site_settings
+   ──────────────────────────────────────────────── */
+function AnnounceBarEditor({ supabase, showToast }) {
+  const [cfg,     setCfg]     = React.useState({ text:'', link_label:'', link_url:'', is_active:true });
+  const [saving,  setSaving]  = React.useState(false);
+  const [loaded,  setLoaded]  = React.useState(false);
+
+  React.useEffect(() => {
+    supabase.from('site_settings').select('value').eq('key','announce_bar').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) setCfg({ text:'', link_label:'', link_url:'', is_active:true, ...data.value });
+        setLoaded(true);
+      });
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    await supabase.from('site_settings').upsert({ key:'announce_bar', value: cfg }, { onConflict:'key' });
+    setSaving(false);
+    showToast('Announce bar saved!');
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <div className="admin-form-card" style={{marginBottom:'20px'}}>
+      <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span><i className="fa-solid fa-bell" style={{color:'#FFD09B',marginRight:'8px'}}></i>Announcement Strip</span>
+        <label style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',fontWeight:600,cursor:'pointer'}}>
+          <input type="checkbox" checked={cfg.is_active}
+            onChange={e => setCfg(f => ({...f, is_active: e.target.checked}))}/>
+          {cfg.is_active ? <span style={{color:'var(--green)'}}>Active</span> : <span style={{color:'var(--text-muted)'}}>Hidden</span>}
+        </label>
+      </div>
+      <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'16px'}}>
+        The orange strip at the very top of every page. Supports <strong>&lt;strong&gt;</strong> for bold text.
+      </p>
+      <div className="form-group">
+        <label className="form-label">Announcement Text</label>
+        <input className="form-input" placeholder="e.g. <strong>GST Conclave 2026</strong> — Registrations opening soon."
+          value={cfg.text} onChange={e => setCfg(f => ({...f, text: e.target.value}))}/>
+      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Button Label</label>
+          <input className="form-input" placeholder="e.g. View Events" value={cfg.link_label}
+            onChange={e => setCfg(f => ({...f, link_label: e.target.value}))}/>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Button Link</label>
+          <input className="form-input" placeholder="e.g. /events or https://..." value={cfg.link_url}
+            onChange={e => setCfg(f => ({...f, link_url: e.target.value}))}/>
+        </div>
+      </div>
+      {/* Preview */}
+      {cfg.text && (
+        <div style={{background:'#1A3C6E',borderRadius:'8px',padding:'10px 16px',display:'flex',alignItems:'center',gap:'12px',marginBottom:'16px',fontSize:'13px',color:'#fff',flexWrap:'wrap'}}>
+          <i className="fa-solid fa-bell" style={{color:'#FFD09B',fontSize:'12px'}}></i>
+          <span style={{flex:1}} dangerouslySetInnerHTML={{__html: cfg.text}}/>
+          {cfg.link_label && <span style={{color:'#FFD09B',fontWeight:700,cursor:'pointer'}}>{cfg.link_label}</span>}
+        </div>
+      )}
+      <button className="btn btn-primary" onClick={save} disabled={saving}>
+        {saving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-save"></i> Save Announce Bar</>}
+      </button>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────
+   HERO SLIDE 1 EDITOR — reads/writes site_settings
+   ──────────────────────────────────────────────── */
+function HeroSlide1Editor({ supabase, showToast }) {
+  const defaults = {
+    eyebrow:     "India's Premier Finance & Legal Network",
+    h1_line1:    'Where Finance Professionals',
+    h1_italic:   'Unite & Conquer',
+    description: 'FIP connects 3,000+ Chartered Accountants, Company Secretaries, Cost Accountants and Advocates through world-class knowledge events, certificate courses, and a community built for impact.',
+    btn1_label:  'Join FIP — ₹500/yr',
+    btn1_action: 'register',
+    btn2_label:  'Our Story',
+    btn2_link:   '/about',
+  };
+  const [cfg,    setCfg]   = React.useState(defaults);
+  const [saving, setSaving]= React.useState(false);
+  const [loaded, setLoaded]= React.useState(false);
+
+  React.useEffect(() => {
+    supabase.from('site_settings').select('value').eq('key','hero_slide_1').maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) setCfg({ ...defaults, ...data.value });
+        setLoaded(true);
+      });
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    await supabase.from('site_settings').upsert({ key:'hero_slide_1', value: cfg }, { onConflict:'key' });
+    setSaving(false);
+    showToast('Hero slide 1 saved! Reload the home page to see changes.');
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <div className="admin-form-card">
+      <div className="admin-form-title">
+        <i className="fa-solid fa-house" style={{color:'var(--orange)',marginRight:'8px'}}></i>
+        Home Page — Hero Slide 1 (Main Landing)
+      </div>
+      <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'16px'}}>
+        The first slide on the home page hero. The right-side widget shows your live upcoming event and latest course automatically.
+      </p>
+
+      <div className="form-group">
+        <label className="form-label">
+          <i className="fa-solid fa-shield-halved" style={{marginRight:'6px',color:'var(--orange)'}}></i>
+          Eyebrow Tag
+          <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(small text above headline)</span>
+        </label>
+        <input className="form-input" placeholder="India's Premier Finance & Legal Network"
+          value={cfg.eyebrow} onChange={e => setCfg(f => ({...f, eyebrow: e.target.value}))}/>
+      </div>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Headline — Line 1</label>
+          <input className="form-input" placeholder="Where Finance Professionals"
+            value={cfg.h1_line1} onChange={e => setCfg(f => ({...f, h1_line1: e.target.value}))}/>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Headline — Italic Line <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(orange italic)</span></label>
+          <input className="form-input" placeholder="Unite & Conquer"
+            value={cfg.h1_italic} onChange={e => setCfg(f => ({...f, h1_italic: e.target.value}))}/>
+        </div>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Description Paragraph</label>
+        <textarea className="form-input" rows={3} placeholder="FIP connects 3,000+ …"
+          value={cfg.description} onChange={e => setCfg(f => ({...f, description: e.target.value}))}
+          style={{resize:'vertical'}}/>
+      </div>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Primary Button Label</label>
+          <input className="form-input" placeholder="Join FIP — ₹500/yr"
+            value={cfg.btn1_label} onChange={e => setCfg(f => ({...f, btn1_label: e.target.value}))}/>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Primary Button Action</label>
+          <select className="form-select" value={cfg.btn1_action}
+            onChange={e => setCfg(f => ({...f, btn1_action: e.target.value}))}>
+            <option value="register">Open Sign Up</option>
+            <option value="login">Open Login</option>
+            <option value="/membership">Go to Membership</option>
+            <option value="/courses">Go to Courses</option>
+            <option value="/events">Go to Events</option>
+            <option value="/contact">Go to Contact</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Secondary Button Label</label>
+          <input className="form-input" placeholder="Our Story"
+            value={cfg.btn2_label} onChange={e => setCfg(f => ({...f, btn2_label: e.target.value}))}/>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Secondary Button Link</label>
+          <input className="form-input" placeholder="/about"
+            value={cfg.btn2_link} onChange={e => setCfg(f => ({...f, btn2_link: e.target.value}))}/>
+        </div>
+      </div>
+
+      {/* Live preview */}
+      <div style={{background:'var(--blue)',borderRadius:'12px',padding:'24px',marginBottom:'16px',color:'#fff'}}>
+        <div style={{fontSize:'10px',fontWeight:700,letterSpacing:'2px',opacity:.6,textTransform:'uppercase',marginBottom:'8px',display:'flex',alignItems:'center',gap:'6px'}}>
+          <i className="fa-solid fa-shield-halved" style={{color:'#FFD09B'}}></i>
+          {cfg.eyebrow}
+        </div>
+        <div style={{fontSize:'22px',fontWeight:900,lineHeight:1.2,marginBottom:'8px'}}>
+          {cfg.h1_line1}<br/>
+          <em style={{color:'#FFD09B',fontStyle:'italic'}}>{cfg.h1_italic}</em>
+        </div>
+        <p style={{fontSize:'13px',opacity:.8,marginBottom:'12px',maxWidth:'420px'}}>{cfg.description}</p>
+        <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+          <span style={{background:'var(--orange)',color:'#fff',padding:'6px 16px',borderRadius:'8px',fontSize:'13px',fontWeight:700}}>{cfg.btn1_label}</span>
+          <span style={{border:'1px solid rgba(255,255,255,.4)',color:'#fff',padding:'6px 16px',borderRadius:'8px',fontSize:'13px'}}>{cfg.btn2_label}</span>
+        </div>
+      </div>
+
+      <button className="btn btn-primary" onClick={save} disabled={saving}>
+        {saving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-save"></i> Save Hero Slide</>}
+      </button>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState('dashboard');
 
@@ -2918,20 +3120,28 @@ export default function AdminPage() {
           )}
 
           {/* ═══ SETTINGS ═══ */}
-          {tab === 'settings' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title">Admin Settings</div>
-              <div style={{background:'var(--blue-pale)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'16px',marginBottom:'20px'}}>
-                <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>
-                  <i className="fa-solid fa-info-circle" style={{color:'var(--orange)',marginRight:'6px'}}></i>
-                  Committee changes are saved locally and reflected immediately on the public Committees page.
-                </div>
+          {tab === 'settings' && (() => {
+            // Local state handled inline via useEffect-loaded values below
+            return (
+            <div>
+              <h2 className="admin-page-title">Site Content Settings</h2>
+
+              {/* ── ANNOUNCE BAR ── */}
+              <AnnounceBarEditor supabase={supabase} showToast={showToast}/>
+
+              {/* ── HERO SLIDE 1 ── */}
+              <HeroSlide1Editor supabase={supabase} showToast={showToast}/>
+
+              {/* ── Account info ── */}
+              <div className="admin-form-card" style={{marginTop:'24px'}}>
+                <div className="admin-form-title">Account</div>
+                <div className="form-group"><label className="form-label">Your Name</label><input className="form-input" type="text" value={profile?.full_name||''} disabled style={{opacity:.7}}/></div>
+                <div className="form-group"><label className="form-label">Your Email</label><input className="form-input" type="email" value={profile?.email||''} disabled style={{opacity:.7}}/></div>
+                <div className="form-group"><label className="form-label">Role</label><input className="form-input" type="text" value="Admin" disabled style={{opacity:.7,color:'var(--orange)',fontWeight:700}}/></div>
               </div>
-              <div className="form-group"><label className="form-label">Your Name</label><input className="form-input" type="text" value={profile?.full_name||''} disabled style={{opacity:.7}}/></div>
-              <div className="form-group"><label className="form-label">Your Email</label><input className="form-input" type="email" value={profile?.email||''} disabled style={{opacity:.7}}/></div>
-              <div className="form-group"><label className="form-label">Role</label><input className="form-input" type="text" value="Admin" disabled style={{opacity:.7,color:'var(--orange)',fontWeight:700}}/></div>
             </div>
-          )}
+            );
+          })()}
 
         </div>
       </div>
