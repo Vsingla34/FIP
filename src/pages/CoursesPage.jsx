@@ -52,6 +52,7 @@ export default function CoursesPage() {
   const [search,     setSearch]     = useState('');
   const [filter,     setFilter]     = useState('All');
   const [courseTab,  setCourseTab]  = useState('upcoming'); // 'upcoming' | 'past'
+  const [registeredIds, setRegisteredIds] = useState(new Set()); // course_ids user is registered for
 
   /* Load live courses from Supabase only — no hardcoded fallback */
   useEffect(() => {
@@ -65,6 +66,18 @@ export default function CoursesPage() {
         setLoading(false);
       });
   }, []);
+
+  /* Load user's registered course IDs to show "Already Registered" on cards */
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('course_registrations')
+      .select('course_id')
+      .eq('email', user.email)
+      .then(({ data }) => {
+        if (data?.length) setRegisteredIds(new Set(data.map(r => r.course_id)));
+      });
+  }, [user]);
 
   /* derive filter categories from real data */
   const categories = ['All', ...new Set(courses.map(c => c.category).filter(Boolean))];
@@ -118,7 +131,7 @@ export default function CoursesPage() {
     if (f === 'members' && isActiveMember) return 'Free for You';
     if (f === 'members') return 'Free for Members';
     if (f === 'students' && isStudent) return 'Free for You';
-    if (f === 'students') return 'Free for Guest Users';
+    if (f === 'students') return 'Free for Students';
     if (!course.price || course.price === 0) return 'Free';
     return `₹${Number(course.price).toLocaleString('en-IN')}`;
   };
@@ -256,9 +269,20 @@ export default function CoursesPage() {
                           ? <span className="course-price-free">{priceStr}</span>
                           : <span className="course-price">{priceStr}</span>
                         }
-                        <button className="c-enroll-btn"
-                          onClick={e => { e.stopPropagation(); handleEnroll(c); }}>
-                          {c.slug ? 'View Course' : 'Enroll Now'}
+                        <button
+                          className={registeredIds.has(c.id) ? 'c-enroll-btn' : 'c-enroll-btn'}
+                          style={registeredIds.has(c.id) ? {
+                            background:'var(--green)', color:'#fff',
+                            cursor:'default', opacity:1,
+                          } : {}}
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (!registeredIds.has(c.id)) handleEnroll(c);
+                          }}>
+                          {registeredIds.has(c.id)
+                            ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Already Registered</>
+                            : c.slug ? 'View Course' : 'Enroll Now'
+                          }
                         </button>
                       </div>
                     </div>

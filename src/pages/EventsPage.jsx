@@ -31,9 +31,10 @@ export default function EventsPage() {
 
   const [events,  setEvents]  = useState([]);
   const [loading, setLoading] = useState(true);
-  const [rsvpOpen, setRsvpOpen] = useState(null); // event object
+  const [rsvpOpen, setRsvpOpen] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
+  const [registeredEventIds, setRegisteredEventIds] = useState(new Set()); // events user already RSVPed for
   const [form, setForm] = useState({
     full_name:'', email:'', phone:'', profession:'',
     designation:'', organisation:'', icai_membership_no:'', city:'',
@@ -46,6 +47,16 @@ export default function EventsPage() {
       .order('event_date', { ascending: true, nullsFirst: false })
       .then(({ data }) => { setEvents(data || []); setLoading(false); });
   }, []);
+
+  /* Fetch events the logged-in user already RSVPed for */
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('event_rsvps').select('event_id')
+      .eq('email', user.email)
+      .then(({ data }) => {
+        if (data?.length) setRegisteredEventIds(new Set(data.map(r => r.event_id).filter(Boolean)));
+      });
+  }, [user]);
 
   // Pre-fill form from profile when opening RSVP
   const openRsvp = (event) => {
@@ -97,7 +108,6 @@ export default function EventsPage() {
     const isPaid = rsvpOpen?.price > 0 && !rsvpOpen?.is_free;
 
     if (isPaid) {
-      // Paid event — must be logged in
       if (!user) {
         setSubmitting(false);
         setRsvpOpen(null);
@@ -106,21 +116,39 @@ export default function EventsPage() {
         return;
       }
 
-      // Close form, trigger Razorpay
-      setRsvpOpen(null);
+      // Capture event + form data NOW before closing modal (avoids stale closure)
+      const capturedEvent = { ...rsvpOpen };
+      const capturedForm  = { ...form };
+
+      setRsvpOpen(null);    // close modal
       setSubmitting(false);
 
       await pay({
         purchaseType: 'event',
-        itemName:     rsvpOpen.title,
-        itemRefId:    rsvpOpen.id,
+        itemName:     capturedEvent.title,
+        itemRefId:    capturedEvent.id,
         onSuccess: async () => {
-          // Save RSVP after payment
-          const err = await saveRsvp();
-          if (err && err.code !== '23505') {
+          // Use captured data — not stale rsvpOpen/form
+          const { error } = await supabase.from('event_rsvps').insert({
+            event_id:           capturedEvent.id,
+            event_name:         capturedEvent.title,
+            user_id:            user?.id || null,
+            full_name:          capturedForm.full_name.trim(),
+            email:              capturedForm.email.trim(),
+            phone:              capturedForm.phone?.trim() || null,
+            profession:         capturedForm.profession || null,
+            designation:        capturedForm.designation?.trim() || null,
+            organisation:       capturedForm.organisation?.trim() || null,
+            icai_membership_no: capturedForm.icai_membership_no?.trim() || null,
+            city:               capturedForm.city?.trim() || null,
+            is_volunteer:       capturedForm.is_volunteer,
+            status:             'confirmed',
+          });
+          if (error && error.code !== '23505') {
             showToast('Payment done but RSVP save failed. Please contact support.', true);
           } else {
-            showToast(`You're registered for ${rsvpOpen.title}! 🎉`);
+            setRegisteredEventIds(prev => new Set([...prev, capturedEvent.id]));
+            showToast(`You're registered for ${capturedEvent.title}! 🎉`);
           }
         },
       });
@@ -134,11 +162,15 @@ export default function EventsPage() {
     if (error) {
       if (error.code === '23505') {
         showToast('You have already registered for this event!', true);
+        setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
+        setRsvpOpen(null);
       } else {
         showToast('Registration failed. Please try again.', true);
       }
       return;
     }
+    // Mark as registered in local state too
+    setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
     setSubmitted(true);
   };
 
@@ -232,9 +264,16 @@ export default function EventsPage() {
                           : <span style={{fontSize:'11px',fontWeight:700,color:'var(--blue)'}}>₹{ev.price}</span>
                         }
                       </div>
-                      <button className="ev-rsvp-btn" onClick={() => openRsvp(ev)}
-                        style={ev.price > 0 && !ev.is_free ? {background:'var(--orange)'} : {}}>
-                        {ev.price > 0 && !ev.is_free
+                      <button
+                        className="ev-rsvp-btn"
+                        style={registeredEventIds.has(ev.id) ? {
+                          background:'var(--green)', cursor:'default',
+                          opacity:1, border:'none',
+                        } : ev.price > 0 && !ev.is_free ? {background:'var(--orange)'} : {}}
+                        onClick={() => { if (!registeredEventIds.has(ev.id)) openRsvp(ev); }}>
+                        {registeredEventIds.has(ev.id)
+                          ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Already Registered</>
+                          : ev.price > 0 && !ev.is_free
                           ? <><i className="fa-solid fa-lock"></i> Register — ₹{Number(ev.price).toLocaleString('en-IN')}</>
                           : <><i className="fa-solid fa-calendar-check"></i> RSVP — Free</>
                         }
@@ -258,7 +297,7 @@ export default function EventsPage() {
               <button className="modal-close" onClick={() => setRsvpOpen(null)}>&#x2715;</button>
             )}
 
-            {submitted ? (
+            {submitted || registeredEventIds.has(rsvpOpen?.id) ? (
               /* ── Success ── */
               <div style={{textAlign:'center',padding:'24px 8px'}}>
                 <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'var(--green-pale)',border:'2px solid var(--green)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px',color:'var(--green)'}}>
