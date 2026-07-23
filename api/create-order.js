@@ -70,6 +70,15 @@ export default async function handler(req, res) {
       if (!course.price || course.price === 0) return res.status(400).json({ error: 'This course is free' });
       amount   = course.price;
       itemName = course.title;
+
+    } else if (purchaseType === 'event') {
+      const { data: event, error: eErr } = await supabaseAdmin
+        .from('events').select('id, title, price, is_free').eq('id', itemRefId).single();
+      if (eErr || !event) return res.status(400).json({ error: 'Event not found' });
+      if (event.is_free || !event.price || event.price === 0) return res.status(400).json({ error: 'This event is free' });
+      amount   = event.price;
+      itemName = event.title;
+
     } else {
       return res.status(400).json({ error: 'Invalid purchaseType' });
     }

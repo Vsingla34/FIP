@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
+import { useRazorpay } from '../hooks/useRazorpay.js';
 import { supabase } from '../lib/supabase.js';
 
 function formatDate(dateStr) {
@@ -25,7 +26,8 @@ const TYPE_STYLE = {
 
 export default function EventsPage() {
   const { user, profile } = useAuth();
-  const { showToast } = useApp();
+  const { showToast, openModal } = useApp();
+  const { pay } = useRazorpay();
 
   const [events,  setEvents]  = useState([]);
   const [loading, setLoading] = useState(true);
@@ -67,11 +69,8 @@ export default function EventsPage() {
     setForm(f => ({ ...f, [name]: type === 'checkbox' ? checked : value }));
   };
 
-  const handleRsvpSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.full_name.trim() || !form.email.trim()) return;
-    setSubmitting(true);
-
+  /* ── helper to save RSVP to DB after form fill (used for free events and post-payment) ── */
+  const saveRsvp = async () => {
     const { error } = await supabase.from('event_rsvps').insert({
       event_id:           rsvpOpen.id,
       user_id:            user?.id || null,
@@ -84,10 +83,54 @@ export default function EventsPage() {
       icai_membership_no: form.icai_membership_no.trim() || null,
       city:               form.city.trim() || null,
       is_volunteer:       form.is_volunteer,
+      event_name:         rsvpOpen.title,
       status:             'confirmed',
     });
+    return error;
+  };
 
+  const handleRsvpSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.full_name.trim() || !form.email.trim()) return;
+    setSubmitting(true);
+
+    const isPaid = rsvpOpen?.price > 0 && !rsvpOpen?.is_free;
+
+    if (isPaid) {
+      // Paid event — must be logged in
+      if (!user) {
+        setSubmitting(false);
+        setRsvpOpen(null);
+        openModal('register');
+        showToast('Please create an account to register for paid events.', true);
+        return;
+      }
+
+      // Close form, trigger Razorpay
+      setRsvpOpen(null);
+      setSubmitting(false);
+
+      await pay({
+        purchaseType: 'event',
+        itemName:     rsvpOpen.title,
+        itemRefId:    rsvpOpen.id,
+        onSuccess: async () => {
+          // Save RSVP after payment
+          const err = await saveRsvp();
+          if (err && err.code !== '23505') {
+            showToast('Payment done but RSVP save failed. Please contact support.', true);
+          } else {
+            showToast(`You're registered for ${rsvpOpen.title}! 🎉`);
+          }
+        },
+      });
+      return;
+    }
+
+    // Free event — save directly
+    const error = await saveRsvp();
     setSubmitting(false);
+
     if (error) {
       if (error.code === '23505') {
         showToast('You have already registered for this event!', true);
@@ -189,8 +232,12 @@ export default function EventsPage() {
                           : <span style={{fontSize:'11px',fontWeight:700,color:'var(--blue)'}}>₹{ev.price}</span>
                         }
                       </div>
-                      <button className="ev-rsvp-btn" onClick={() => openRsvp(ev)}>
-                        <i className="fa-solid fa-calendar-check"></i> RSVP
+                      <button className="ev-rsvp-btn" onClick={() => openRsvp(ev)}
+                        style={ev.price > 0 && !ev.is_free ? {background:'var(--orange)'} : {}}>
+                        {ev.price > 0 && !ev.is_free
+                          ? <><i className="fa-solid fa-lock"></i> Register — ₹{Number(ev.price).toLocaleString('en-IN')}</>
+                          : <><i className="fa-solid fa-calendar-check"></i> RSVP — Free</>
+                        }
                       </button>
                     </div>
                   </div>
@@ -243,7 +290,21 @@ export default function EventsPage() {
                 </div>
 
                 <div className="modal-title" style={{marginBottom:'4px'}}>Register for this Event</div>
-                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}}>Open to all professionals. No login required.</p>
+                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'16px'}}>Open to all professionals. No login required for free events.</p>
+
+                {/* Paid event pricing banner */}
+                {rsvpOpen.price > 0 && !rsvpOpen.is_free && (
+                  <div style={{background:'linear-gradient(135deg,#FFF5E6,#FFE8CC)',border:'2px solid var(--orange)',borderRadius:'10px',padding:'14px 16px',marginBottom:'18px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}}>
+                      <span style={{fontSize:'13px',fontWeight:600,color:'#92400E'}}>Event Registration Fee</span>
+                      <span style={{fontSize:'20px',fontWeight:900,color:'var(--orange)'}}>₹{Number(rsvpOpen.price).toLocaleString('en-IN')}</span>
+                    </div>
+                    <div style={{fontSize:'11px',color:'#92400E',display:'flex',alignItems:'center',gap:'5px'}}>
+                      <i className="fa-solid fa-lock" style={{color:'var(--orange)'}}></i>
+                      Fill your details below then you'll be redirected to secure payment via Razorpay.
+                    </div>
+                  </div>
+                )}
 
                 <form onSubmit={handleRsvpSubmit}>
                   <div className="form-row">
