@@ -196,7 +196,7 @@ export default function CourseDetailPage() {
             <span style={{color:'rgba(255,255,255,0.8)'}}>{course.title}</span>
           </div>
 
-          <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:'40px',alignItems:'start'}}>
+          <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',gap:'24px',alignItems:'start',flexWrap:'wrap'}}>
             <div>
               {course.category && (
                 <span style={{fontSize:'11px',fontWeight:700,color:'#FFD09B',background:'rgba(255,208,155,0.15)',padding:'4px 12px',borderRadius:'20px',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'14px',display:'inline-block'}}>
@@ -245,7 +245,7 @@ export default function CourseDetailPage() {
       {/* ── Body ── */}
       <section className="section section-alt">
         <div className="container">
-          <div style={{display:'grid',gridTemplateColumns:'1fr 300px',gap:'32px',alignItems:'start'}}>
+          <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 280px',gap:'24px',alignItems:'start'}}>
 
             {/* ── Left: Details ── */}
             <div style={{display:'flex',flexDirection:'column',gap:'20px'}}>

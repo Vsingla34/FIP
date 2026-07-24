@@ -129,7 +129,7 @@ export default function CoursesPage() {
     const isStudent = !isActiveMember;
     if (f === 'all') return 'Free for All';
     if (f === 'members' && isActiveMember) return 'Free for You';
-    if (f === 'members') return 'Free for Members';
+    if (f === 'members') return 'Free for FIP Members';
     if (f === 'students' && isStudent) return 'Free for You';
     if (f === 'students') return 'Free for Students';
     if (!course.price || course.price === 0) return 'Free';

@@ -34,7 +34,7 @@ export default function EventsPage() {
   const [rsvpOpen, setRsvpOpen] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
-  const [registeredEventIds, setRegisteredEventIds] = useState(new Set()); // events user already RSVPed for
+  const [registeredEventIds, setRegisteredEventIds] = useState(new Set()); // events user already registered for
   const [form, setForm] = useState({
     full_name:'', email:'', phone:'', profession:'',
     designation:'', organisation:'', icai_membership_no:'', city:'',
@@ -48,7 +48,7 @@ export default function EventsPage() {
       .then(({ data }) => { setEvents(data || []); setLoading(false); });
   }, []);
 
-  /* Fetch events the logged-in user already RSVPed for */
+  /* Fetch events user already registered for */
   useEffect(() => {
     if (!user) return;
     supabase.from('event_rsvps').select('event_id')
@@ -80,7 +80,7 @@ export default function EventsPage() {
     setForm(f => ({ ...f, [name]: type === 'checkbox' ? checked : value }));
   };
 
-  /* ── helper to save RSVP to DB after form fill (used for free events and post-payment) ── */
+  /* ── Save registration to DB ── */
   const saveRsvp = async () => {
     const { error } = await supabase.from('event_rsvps').insert({
       event_id:           rsvpOpen.id,
@@ -104,6 +104,19 @@ export default function EventsPage() {
     e.preventDefault();
     if (!form.full_name.trim() || !form.email.trim()) return;
     setSubmitting(true);
+
+    // ── Strict validation: all required fields must be filled before payment ──
+    const missing = [];
+    if (!form.full_name.trim())  missing.push('Full Name');
+    if (!form.email.trim())      missing.push('Email');
+    if (!form.phone.trim())      missing.push('Mobile Number');
+    if (!form.profession)        missing.push('Profession');
+    if (!form.city.trim())       missing.push('City');
+    if (missing.length > 0) {
+      setSubmitting(false);
+      showToast(`Please fill in: ${missing.join(', ')}`, true);
+      return;
+    }
 
     const isPaid = rsvpOpen?.price > 0 && !rsvpOpen?.is_free;
 
@@ -296,7 +309,7 @@ export default function EventsPage() {
       </section>
 
       {/* ══════════════════════════════════
-          RSVP MODAL
+          REGISTRATION MODAL
       ══════════════════════════════════ */}
       {rsvpOpen && (
         <div className="modal-overlay" onClick={() => !submitting && setRsvpOpen(null)}>
@@ -311,7 +324,7 @@ export default function EventsPage() {
                 <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'var(--green-pale)',border:'2px solid var(--green)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px',color:'var(--green)'}}>
                   <i className="fa-solid fa-check"></i>
                 </div>
-                <div className="modal-title">RSVP Confirmed!</div>
+                <div className="modal-title">Registration Confirmed!</div>
                 <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,marginBottom:'8px'}}>
                   You're registered for <strong>{rsvpOpen.title}</strong>.
                   {rsvpOpen.event_date && <> We'll see you on <strong>{formatDate(rsvpOpen.event_date)}</strong>.</>}
@@ -337,7 +350,7 @@ export default function EventsPage() {
                 </div>
 
                 <div className="modal-title" style={{marginBottom:'4px'}}>Register for this Event</div>
-                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'16px'}}>Open to all professionals. No login required for free events.</p>
+                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'16px'}}>Fill in your details to confirm your seat. All fields marked * are required.</p>
 
                 {/* Paid event pricing banner */}
                 {rsvpOpen.price > 0 && !rsvpOpen.is_free && (
@@ -371,15 +384,15 @@ export default function EventsPage() {
 
                   <div className="form-row">
                     <div className="form-group">
-                      <label className="form-label">Phone</label>
+                      <label className="form-label">Phone *</label>
                       <input className="form-input" name="phone" type="tel"
-                        placeholder="+91 XXXXX XXXXX"
+                        placeholder="+91 XXXXX XXXXX" required
                         value={form.phone} onChange={handleChange} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Profession</label>
-                      <select className="form-select" name="profession" value={form.profession} onChange={handleChange}>
-                        <option value="">Select</option>
+                      <label className="form-label">Profession *</label>
+                      <select className="form-select" name="profession" value={form.profession} onChange={handleChange} required>
+                        <option value="">Select profession *</option>
                         <option>Chartered Accountant</option>
                         <option>Company Secretary</option>
                         <option>Cost Accountant</option>
@@ -416,9 +429,9 @@ export default function EventsPage() {
                         value={form.icai_membership_no} onChange={handleChange} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">City</label>
+                      <label className="form-label">City *</label>
                       <input className="form-input" name="city" type="text"
-                        placeholder="Your city"
+                        placeholder="Your city" required
                         value={form.city} onChange={handleChange} />
                     </div>
                   </div>

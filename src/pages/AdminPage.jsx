@@ -522,7 +522,7 @@ export default function AdminPage() {
   };
 
   const deleteEvent = async (id) => {
-    if (!window.confirm('Delete this event and all its RSVPs?')) return;
+    if (!window.confirm('Delete this event and all its registrations?')) return;
     const { error } = await supabase.from('events').delete().eq('id', id);
     if (!error) { setAdminEvents(prev => prev.filter(e => e.id !== id)); showToast('Event deleted.'); }
   };
@@ -841,6 +841,8 @@ export default function AdminPage() {
   /* ── All Payments tab ── */
   const [allPayments,        setAllPayments]        = useState([]);
   const [allPaymentsLoading, setAllPaymentsLoading] = useState(false);
+  const [paymentSearch,      setPaymentSearch]      = useState('');
+  const [paymentStatusFilter,setPaymentStatusFilter]= useState('All');
 
   /* ── Slides tab ── */
   const SLIDE_ACTIONS = ['join','courses','events','webinars','committees','directory','about','membership'];
@@ -1402,7 +1404,7 @@ export default function AdminPage() {
                     </div>
                   </div>
                   <div style={{display:'flex',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
-                    <button className="admin-btn admin-btn-orange" onClick={() => loadRsvps(ev)}><i className="fa-solid fa-users"></i> RSVPs</button>
+                    <button className="admin-btn admin-btn-orange" onClick={() => loadRsvps(ev)}><i className="fa-solid fa-users"></i> Registrations</button>
                     <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => openEventModal(ev)}><i className="fa-solid fa-pen"></i> Edit</button>
                     <button className="admin-btn admin-btn-danger" onClick={() => deleteEvent(ev.id)}><i className="fa-solid fa-trash"></i></button>
                   </div>
@@ -1411,18 +1413,18 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* ═══ EVENT RSVPs VIEW ═══ */}
+          {/* ═══ EVENT REGISTRATIONS VIEW ═══ */}
           {tab === 'events' && rsvpEventView && (
             <div className="admin-form-card">
               <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px'}}>
                 <button onClick={() => setRsvpEventView(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}><i className="fa-solid fa-arrow-left"></i></button>
-                <span>RSVPs: <strong>{rsvpEventView.title}</strong></span>
+                <span>Registrations: <strong>{rsvpEventView.title}</strong></span>
               </div>
               {rsvpLoading ? (
                 <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
               ) : eventRsvps.length === 0 ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-users" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>No RSVPs yet.
+                  <i className="fa-solid fa-users" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>No registrations yet.
                 </div>
               ) : (
                 <>
@@ -1792,19 +1794,45 @@ export default function AdminPage() {
           )}
 
           {/* ═══ PAYMENTS ═══ */}
-          {tab === 'payments' && (
+          {tab === 'payments' && (() => {
+            const filtPay = allPayments
+              .filter(p => paymentStatusFilter === 'All' || p.status === paymentStatusFilter)
+              .filter(p => !paymentSearch || [p.profiles?.full_name, p.profiles?.email, p.item_name, p.razorpay_payment_id].some(v => v?.toLowerCase().includes(paymentSearch.toLowerCase())));
+            return (
             <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
+              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px',marginBottom:'14px'}}>
                 <span>All Payments
                   <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400,marginLeft:'8px'}}>
-                    ({allPayments.length})
+                    ({filtPay.length})
                   </span>
                 </span>
-                <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'13px',color:'var(--green)',fontWeight:700}}>
-                    ₹{allPayments.filter(p=>p.status==='paid').reduce((s,p)=>s+(Number(p.total_amount)||0),0).toLocaleString('en-IN')} collected
+                    ₹{filtPay.filter(p=>p.status==='paid').reduce((s,p)=>s+(Number(p.total_amount)||0),0).toLocaleString('en-IN')} collected
                   </span>
+                  {allPayments.length > 0 && (
+                    <button className="btn btn-sm"
+                      style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
+                      onClick={() => downloadPaymentsExcel(filtPay)}>
+                      <i className="fa-solid fa-file-excel"></i> Download Excel ({filtPay.length})
+                    </button>
+                  )}
                 </div>
+              </div>
+              {/* Search + Status filter */}
+              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
+                <div className="search-wrap" style={{flex:1,minWidth:'200px',marginBottom:0}}>
+                  <i className="fa-solid fa-magnifying-glass"></i>
+                  <input type="search" placeholder="Search by name, email, item, transaction ID…"
+                    value={paymentSearch} onChange={e=>setPaymentSearch(e.target.value)}/>
+                </div>
+                <select className="form-select" style={{width:'140px'}} value={paymentStatusFilter}
+                  onChange={e=>setPaymentStatusFilter(e.target.value)}>
+                  <option value="All">All Status</option>
+                  <option value="paid">Paid</option>
+                  <option value="pending">Pending</option>
+                  <option value="failed">Failed</option>
+                </select>
               </div>
 
               {allPaymentsLoading ? (
@@ -1823,7 +1851,7 @@ export default function AdminPage() {
                       <tr><th>Member</th><th>Phone</th><th>Item / Plan</th><th>Amount</th><th>Transaction ID</th><th>Date</th><th>Status</th></tr>
                     </thead>
                     <tbody>
-                      {allPayments.map((p,i) => (
+                      {filtPay.map((p,i) => (
                         <tr key={i}>
                           <td>
                             <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
@@ -1854,7 +1882,8 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {/* ═══ COMMITTEES ═══ */}
           {tab === 'committees' && (

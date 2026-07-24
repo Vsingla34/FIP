@@ -2038,3 +2038,107 @@ footer{background:#0D1F3C;padding:56px 0 24px;}
   box-shadow:0 1px 4px rgba(0,0,0,0.2);
   border:1.5px solid #fff;
 }
+/* ══════════════════════════════════════════════════════════
+   RESPONSIVE FIXES — CourseDetail + Auth Modals
+   ══════════════════════════════════════════════════════════ */
+
+/* Course Detail Page — hero and content grid */
+@media (max-width: 768px) {
+  /* Hero section top bar: stack vertically */
+  .course-detail-hero-grid,
+  [style*="gridTemplateColumns:'minmax(0,1fr) auto'"],
+  [style*="gridTemplateColumns:'minmax(0,1fr) 280px'"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Register / form side panel stacks below content on mobile */
+  [style*="gridTemplateColumns:'minmax(0,1fr) 280px'"] > div:last-child {
+    order: -1; /* Move register box above course details on mobile */
+  }
+}
+
+/* Create Account / Auth Modal — register form */
+@media (max-width: 600px) {
+  .modal-box {
+    margin: 12px;
+    max-height: 92vh;
+    overflow-y: auto;
+    border-radius: 12px;
+  }
+
+  .auth-tabs, .reg-type-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .reg-type-btn {
+    width: 100%;
+    text-align: left;
+  }
+
+  .modal-title { font-size: 18px; }
+  .modal-sub   { font-size: 13px; }
+
+  /* Auth form rows stack on mobile */
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* OTP input boxes */
+  .otp-box {
+    width: 38px !important;
+    height: 44px !important;
+    font-size: 18px !important;
+  }
+}
+
+/* Payment/Membership cards responsive */
+@media (max-width: 640px) {
+  .mem-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .mem-card {
+    max-width: 100%;
+  }
+}
+
+/* Course card grid responsive */
+@media (max-width: 500px) {
+  .course-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Admin panel nav on mobile */
+@media (max-width: 768px) {
+  .admin-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 8px;
+  }
+  .admin-nav-v2 {
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+}
+
+/* Event cards responsive */
+@media (max-width: 600px) {
+  .event-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .ev-footer {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .ev-rsvp-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
