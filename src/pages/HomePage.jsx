@@ -101,29 +101,37 @@ export default function HomePage() {
       });
   }, []);
 
-  /* ── Hero slides + dynamic hero-1 content + live widget data ── */
-  const [dbSlides,   setDbSlides]   = useState([]);
-  const [hero1,      setHero1]      = useState(null);
-  const [liveEvent,  setLiveEvent]  = useState(null);
-  const [liveCourse, setLiveCourse] = useState(null);
+  /* ── Hero slides + dynamic content from site_settings + live data ── */
+  const [dbSlides,    setDbSlides]    = useState([]);
+  const [hero1,       setHero1]       = useState(null);
+  const [memberPrice, setMemberPrice] = useState(500); // synced with admin membership price
+  const [liveEvent,   setLiveEvent]   = useState(null);
+  const [liveCourse,  setLiveCourse]  = useState(null);
 
   useEffect(() => {
-    // Image slides from DB
+    // Image slides
     supabase.from('slides').select('*').eq('is_active', true)
       .order('sort_order', { ascending: true })
       .then(({ data }) => setDbSlides(data || []));
 
-    // Hero slide 1 editable content
+    // Hero slide 1 editable settings
     supabase.from('site_settings').select('value').eq('key','hero_slide_1').maybeSingle()
       .then(({ data }) => { if (data?.value) setHero1(data.value); });
 
-    // Next upcoming event for right-side widget
+    // Membership price — so hero button matches admin setting
+    supabase.from('site_settings').select('value').eq('key','membership').maybeSingle()
+      .then(({ data }) => {
+        const sp = data?.value?.standard_price;
+        if (sp) setMemberPrice(Number(sp) || 500);
+      });
+
+    // Next upcoming event for widget
     supabase.from('events').select('title,event_date,event_type,location')
       .gte('event_date', new Date().toISOString().split('T')[0])
       .order('event_date', { ascending: true }).limit(1)
       .then(({ data }) => { if (data?.[0]) setLiveEvent(data[0]); });
 
-    // Featured course for widget
+    // Latest course for widget
     supabase.from('courses').select('title,event_date,price,free_for')
       .eq('status','published')
       .order('created_at', { ascending: false }).limit(1)
@@ -270,7 +278,7 @@ export default function HomePage() {
         style={{ cursor: isDragging.current ? 'grabbing' : 'grab', userSelect: 'none' }}
       >
 
-        {/* ── Slide 1: editable hero (content from site_settings.hero_slide_1) ── */}
+        {/* ── Slide 1: dynamic hero — content from site_settings.hero_slide_1 ── */}
         <div className={`slider-slide${slideIdx === 0 ? ' active' : ''} ${slideIdx === 0 ? slideAnim : ''}`}
           style={{ transform: slideIdx === 0 ? `translateX(${dragX}px)` : 'none', transition: isDragging.current ? 'none' : undefined }}>
           <section id="hero">
@@ -288,9 +296,16 @@ export default function HomePage() {
                   {hero1?.description || 'FIP connects 3,000+ Chartered Accountants, Company Secretaries, Cost Accountants and Advocates through world-class knowledge events, certificate courses, and a community built for impact.'}
                 </p>
                 <div className="hero-cta">
+                  {/* Primary button label from admin, price from membership settings */}
                   <button className="btn btn-primary btn-lg"
-                    onClick={() => openModal(hero1?.btn1_action || 'register', { defaultType: 'member' })}>
-                    <i className="fa-solid fa-user-plus"></i> {hero1?.btn1_label || 'Join FIP — ₹500/yr'}
+                    onClick={() => openModal(
+                      hero1?.btn1_action?.startsWith('/') ? null : (hero1?.btn1_action || 'register'),
+                      { defaultType: 'member' }
+                    )}>
+                    <i className="fa-solid fa-user-plus"></i>{' '}
+                    {hero1?.btn1_label
+                      ? hero1.btn1_label.replace(/₹\d+/g, `₹${memberPrice}`)
+                      : `Join FIP — ₹${memberPrice}/yr`}
                   </button>
                   <Link to={hero1?.btn2_link || '/about'} className="btn btn-outline-white btn-lg">
                     {hero1?.btn2_label || 'Our Story'} <i className="fa-solid fa-arrow-right"></i>
@@ -303,34 +318,31 @@ export default function HomePage() {
                     <div className="db-dot r"></div><div className="db-dot y"></div><div className="db-dot g"></div>
                     <span className="db-title">FIP Member Portal</span>
                   </div>
-                  {/* Live: next upcoming event */}
+                  {/* Live upcoming event */}
                   <div className="db-card">
                     <div className="db-card-label"><i className="fa-solid fa-calendar-check"></i>&nbsp; Upcoming Event</div>
-                    <div className="db-card-title">
-                      {liveEvent?.title || 'No upcoming events'}
-                    </div>
+                    <div className="db-card-title">{liveEvent?.title || 'Coming soon…'}</div>
                     {liveEvent && (
                       <div className="db-card-meta">
                         {liveEvent.event_date
                           ? new Date(liveEvent.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})
-                          : ''
-                        }
-                        {liveEvent.event_type && <>&nbsp;·&nbsp; {liveEvent.event_type}</>}
-                        {liveEvent.location   && <>&nbsp;·&nbsp; {liveEvent.location}</>}
+                          : ''}
+                        {liveEvent.event_type && <> · {liveEvent.event_type}</>}
+                        {liveEvent.location   && <> · {liveEvent.location}</>}
                       </div>
                     )}
                   </div>
-                  {/* Live: latest published course */}
+                  {/* Live featured course */}
                   <div className="db-card">
                     <div className="db-card-label"><i className="fa-solid fa-graduation-cap"></i>&nbsp; Featured Course</div>
-                    <div className="db-card-title">
-                      {liveCourse?.title || 'No courses available'}
-                    </div>
+                    <div className="db-card-title">{liveCourse?.title || 'View all courses →'}</div>
                     {liveCourse && (
                       <div className="db-card-meta">
                         {liveCourse.event_date ? 'Enrolling Now' : 'Self-Paced'}
                         &nbsp;·&nbsp;
-                        {(!liveCourse.price || liveCourse.price === 0 || liveCourse.free_for === 'all') ? 'Free' : `₹${liveCourse.price}`}
+                        {(!liveCourse.price || liveCourse.price === 0 || liveCourse.free_for === 'all')
+                          ? 'Free for FIP Members'
+                          : `₹${liveCourse.price}`}
                         &nbsp;·&nbsp; Live Session
                       </div>
                     )}
@@ -463,7 +475,7 @@ export default function HomePage() {
                   {!c.price || c.price === 0
                     ? <span className="course-tag tag-free">Free</span>
                     : (c.free_for === 'members' || c.free_for === 'students')
-                    ? <span className="course-tag tag-free">Members Free</span>
+                    ? <span className="course-tag tag-free">Free for FIP Members</span>
                     : <span className="course-tag tag-hot">Paid</span>
                   }
                   {/* Event date badge */}

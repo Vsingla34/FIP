@@ -49,7 +49,7 @@ export default function MembershipPage() {
     {
       tier:'Standard', name:'Standard',
       price: `₹${prices.standard_price}`, period:'/year',
-      desc:'For new members', featured:false, key:'standard',
+      desc:'For new FIP Members', featured:false, key:'standard',
       btnLabel:`Get Started — ₹${prices.standard_price}`, btnCls:'mem-btn-out',
       showFor:['visitor','student'],
       features:['Priority Registration for events with limited seating','Exclusive Members-Only Events with industry leaders','Special Member Pricing on conferences, workshops & seminars','Exclusive Discounts on publications, learning programs & partner offerings','Leadership Opportunities through FIP committees & initiatives','Access to a Trusted Professional Network for collaboration & referrals','Continuous Learning through expert sessions, webinars & industry updates'],
@@ -57,7 +57,7 @@ export default function MembershipPage() {
     {
       tier:'Renewal', name:'Renewal',
       price: `₹${prices.renewal_price}`, period:'/year',
-      desc:'For renewing members', featured:true, key:'renewal',
+      desc:'For active FIP Members', featured:true, key:'renewal',
       btnLabel:`Renew Now — ₹${prices.renewal_price}`, btnCls:'mem-btn-solid',
       showFor:['member'],
       features:['All Standard membership benefits','Continue uninterrupted access to exclusive member benefits','Priority event registration & discounted participation','Members-only programs & professional networking','Leadership opportunities & committee participation','Stay connected with a community that supports your continued growth'],
@@ -107,7 +107,7 @@ export default function MembershipPage() {
           <div className="container" style={{display:'flex',alignItems:'center',gap:'10px'}}>
             <i className="fa-solid fa-graduation-cap" style={{color:'var(--blue)'}}></i>
             <span style={{color:'var(--blue)',fontWeight:600,fontSize:'13px'}}>
-              You're on a Guest User account — upgrade to full membership to unlock all FIP benefits.
+              You're on a Student account — upgrade to full membership to unlock all FIP benefits.
             </span>
           </div>
         </div>
@@ -147,9 +147,34 @@ export default function MembershipPage() {
                 <button className={plan.btnCls} onClick={() => handlePlan(plan.key)}>
                   {plan.key !== 'firm' && !user
                     ? <><i className="fa-solid fa-lock-open"></i> Sign Up to Continue</>
+                    : plan.key === 'renewal' && isActiveMember && profile?.membership_end
+                    ? (() => {
+                        const daysLeft = Math.ceil((new Date(profile.membership_end) - new Date()) / 86400000);
+                        return daysLeft > 0
+                          ? <><i className="fa-solid fa-calendar-check"></i> {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining</>
+                          : <><i className="fa-solid fa-refresh"></i> Renew Now — ₹{prices.renewal_price}</>;
+                      })()
                     : plan.btnLabel
                   }
                 </button>
+                {/* Show expiry date below the days-remaining button for renewal card */}
+                {plan.key === 'renewal' && isActiveMember && profile?.membership_end && (() => {
+                  const expiry = new Date(profile.membership_end);
+                  const daysLeft = Math.ceil((expiry - new Date()) / 86400000);
+                  return (
+                    <div style={{marginTop:'10px',textAlign:'center'}}>
+                      <div style={{fontSize:'11px',color:'rgba(255,255,255,0.6)',marginBottom:'6px'}}>
+                        {daysLeft > 0
+                          ? `Valid until ${expiry.toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}`
+                          : 'Your membership has expired'}
+                      </div>
+                      <button style={{background:'rgba(255,255,255,0.15)',color:'#fff',border:'1px solid rgba(255,255,255,0.3)',borderRadius:'8px',padding:'7px 20px',fontSize:'12px',fontWeight:600,cursor:'pointer'}}
+                        onClick={(e) => { e.stopPropagation(); handlePlan('renewal'); }}>
+                        Renew Early — ₹{prices.renewal_price}
+                      </button>
+                    </div>
+                  );
+                })()}
                 {!user && plan.key !== 'firm' && (
                   <p style={{textAlign:'center',fontSize:'12px',color:plan.featured?'rgba(255,255,255,0.4)':'var(--text-light)',marginTop:'10px'}}>
                     Already a member?{' '}
