@@ -229,6 +229,14 @@ export default function EventsPage() {
                 const dl = daysLeft(ev.event_date);
                 return (
                   <div className="ev-light" key={ev.id}>
+                    {/* Event banner image if provided */}
+                    {ev.image_url && (
+                      <div style={{margin:'-20px -20px 16px',borderRadius:'12px 12px 0 0',overflow:'hidden',height:'160px'}}>
+                        <img src={ev.image_url} alt={ev.title}
+                          style={{width:'100%',height:'100%',objectFit:'cover'}}
+                          onError={e => e.target.closest('div').style.display='none'}/>
+                      </div>
+                    )}
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
                       <div className="ev-date">
                         <i className="fa-regular fa-calendar"></i> {formatDate(ev.event_date)}
@@ -272,10 +280,10 @@ export default function EventsPage() {
                         } : ev.price > 0 && !ev.is_free ? {background:'var(--orange)'} : {}}
                         onClick={() => { if (!registeredEventIds.has(ev.id)) openRsvp(ev); }}>
                         {registeredEventIds.has(ev.id)
-                          ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Already Registered</>
+                          ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Seat Booked</>
                           : ev.price > 0 && !ev.is_free
-                          ? <><i className="fa-solid fa-lock"></i> Register — ₹{Number(ev.price).toLocaleString('en-IN')}</>
-                          : <><i className="fa-solid fa-calendar-check"></i> RSVP — Free</>
+                          ? <><i className="fa-solid fa-lock"></i> Book Seat — ₹{Number(ev.price).toLocaleString('en-IN')}</>
+                          : <><i className="fa-solid fa-calendar-check"></i> Book Seat — Free</>
                         }
                       </button>
                     </div>

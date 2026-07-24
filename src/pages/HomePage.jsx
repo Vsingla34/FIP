@@ -149,7 +149,8 @@ export default function HomePage() {
       title:     s.title,
       subtitle:  s.subtitle,
       desc:      s.description,
-      btnLabel:  s.btn_label,
+      // Replace any hardcoded ₹NNN in btn_label with live membership price
+      btnLabel:  s.btn_label ? s.btn_label.replace(/₹\d+/g, `₹${memberPrice}`) : s.btn_label,
       btnAction: s.btn_action,
       tag:       s.tag,
     })),
@@ -587,7 +588,7 @@ We are coming soon  for FIP GCC workshop   2026—a two-day exclusive conclave f
             <p className="cta-desc">Join 3,000+ finance and legal professionals building careers, sharing knowledge, and making an impact.</p>
             <div className="cta-actions">
               <button className="btn btn-primary btn-lg" onClick={() => openModal('register', { defaultType: 'member' })}>
-                <i className="fa-solid fa-user-plus"></i> Become a Member — ₹500
+                <i className="fa-solid fa-user-plus"></i> Become a Member — ₹{memberPrice}
               </button>
               <Link to="/contact" className="btn btn-outline-white btn-lg">Talk to Us</Link>
             </div>
