@@ -48,17 +48,17 @@ export default function MembershipPage() {
   const allPlans = [
     {
       tier:'Standard', name:'Standard',
-      price: `₹${prices.standard_price}`, period:'/year',
+      price: `₹${Number(prices.standard_price).toLocaleString('en-IN')}`, period:'/year',
       desc:'For new FIP Members', featured:false, key:'standard',
-      btnLabel:`Get Started — ₹${prices.standard_price}`, btnCls:'mem-btn-out',
+      btnLabel:`Get Started — ₹${Number(prices.standard_price).toLocaleString('en-IN')}`, btnCls:'mem-btn-out',
       showFor:['visitor','student'],
       features:['Priority Registration for events with limited seating','Exclusive Members-Only Events with industry leaders','Special Member Pricing on conferences, workshops & seminars','Exclusive Discounts on publications, learning programs & partner offerings','Leadership Opportunities through FIP committees & initiatives','Access to a Trusted Professional Network for collaboration & referrals','Continuous Learning through expert sessions, webinars & industry updates'],
     },
     {
       tier:'Renewal', name:'Renewal',
-      price: `₹${prices.renewal_price}`, period:'/year',
+      price: `₹${Number(prices.renewal_price).toLocaleString('en-IN')}`, period:'/year',
       desc:'For active FIP Members', featured:true, key:'renewal',
-      btnLabel:`Renew Now — ₹${prices.renewal_price}`, btnCls:'mem-btn-solid',
+      btnLabel:`Renew Now — ₹${Number(prices.renewal_price).toLocaleString('en-IN')}`, btnCls:'mem-btn-solid',
       showFor:['member'],
       features:['All Standard membership benefits','Continue uninterrupted access to exclusive member benefits','Priority event registration & discounted participation','Members-only programs & professional networking','Leadership opportunities & committee participation','Stay connected with a community that supports your continued growth'],
     },

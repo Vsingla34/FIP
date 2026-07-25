@@ -150,7 +150,7 @@ export default function HomePage() {
       subtitle:  s.subtitle,
       desc:      s.description,
       // Replace any hardcoded ₹NNN in btn_label with live membership price
-      btnLabel:  s.btn_label ? s.btn_label.replace(/₹\d+/g, `₹${memberPrice}`) : s.btn_label,
+      btnLabel:  s.btn_label ? s.btn_label.replace(/₹[\d,]+/g, `₹${Number(memberPrice).toLocaleString('en-IN')}`) : s.btn_label,
       btnAction: s.btn_action,
       tag:       s.tag,
     })),
@@ -305,8 +305,8 @@ export default function HomePage() {
                     )}>
                     <i className="fa-solid fa-user-plus"></i>{' '}
                     {hero1?.btn1_label
-                      ? hero1.btn1_label.replace(/₹\d+/g, `₹${memberPrice}`)
-                      : `Join FIP — ₹${memberPrice}/yr`}
+                      ? hero1.btn1_label.replace(/₹[\d,]+/g, `₹${Number(memberPrice).toLocaleString('en-IN')}`)
+                      : `Join FIP — ₹${Number(memberPrice).toLocaleString('en-IN')}/yr`}
                   </button>
                   <Link to={hero1?.btn2_link || '/about'} className="btn btn-outline-white btn-lg">
                     {hero1?.btn2_label || 'Our Story'} <i className="fa-solid fa-arrow-right"></i>
@@ -588,7 +588,7 @@ We are coming soon  for FIP GCC workshop   2026—a two-day exclusive conclave f
             <p className="cta-desc">Join 3,000+ finance and legal professionals building careers, sharing knowledge, and making an impact.</p>
             <div className="cta-actions">
               <button className="btn btn-primary btn-lg" onClick={() => openModal('register', { defaultType: 'member' })}>
-                <i className="fa-solid fa-user-plus"></i> Become a Member — ₹{memberPrice}
+                <i className="fa-solid fa-user-plus"></i> Become a Member — ₹{Number(memberPrice).toLocaleString('en-IN')}
               </button>
               <Link to="/contact" className="btn btn-outline-white btn-lg">Talk to Us</Link>
             </div>

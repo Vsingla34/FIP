@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
+import { useDebounce } from '../hooks/useDebounce.js';
 import { committees as defaultCommittees } from '../data/index.js';
 import * as XLSX from 'xlsx';
 
@@ -361,6 +362,36 @@ export default function AdminPage() {
     a.click();
     URL.revokeObjectURL(url);
     showToast('Members CSV downloaded!');
+  };
+
+  const downloadPaymentsExcel = function(paymentsList) {
+    var headers = ['Member Name', 'Email', 'Phone', 'Item / Plan', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Transaction ID', 'Order ID', 'Status', 'Date'];
+    var rows = paymentsList.map(function(p) {
+      return [
+        p.profiles?.full_name || '',
+        p.profiles?.email     || '',
+        p.profiles?.phone     || '',
+        p.item_name           || '',
+        p.amount              || 0,
+        p.gst_amount          || 0,
+        p.total_amount        || 0,
+        p.razorpay_payment_id || '',
+        p.razorpay_order_id   || '',
+        p.status              || '',
+        p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '',
+      ];
+    });
+    var csvLines = [headers].concat(rows).map(function(row) {
+      return row.map(function(cell) {
+        return '"' + String(cell).split('"').join('""') + '"';
+      }).join(',');
+    });
+    var blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
+    var a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = 'FIP_Payments_' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    showToast('Payments CSV downloaded!');
   };
 
   const loadCourseEnrollments = async (course) => {
@@ -844,6 +875,24 @@ export default function AdminPage() {
   const [paymentSearch,      setPaymentSearch]      = useState('');
   const [paymentStatusFilter,setPaymentStatusFilter]= useState('All');
 
+  /* ── Search states for all admin tabs ── */
+  const [eventSearch,         setEventSearch]         = useState('');
+  const [eventTypeFilter,     setEventTypeFilter]     = useState('All');
+  const [courseSearch,        setCourseSearch]        = useState('');
+  const [courseStatusFilter,  setCourseStatusFilter]  = useState('All');
+  const [jobSearch,           setJobSearch]           = useState('');
+  const [jobTypeFilter,       setJobTypeFilter]       = useState('All');
+  const [testiSearch,         setTestiSearch]         = useState('');
+  const [blogSearch,          setBlogSearch]          = useState('');
+
+  /* ── Debounced values: fire after 1.5s or when user types 3+ words ── */
+  const dEventSearch  = useDebounce(eventSearch,  1500, 3);
+  const dCourseSearch = useDebounce(courseSearch, 1500, 3);
+  const dJobSearch    = useDebounce(jobSearch,    1500, 3);
+  const dPaySearch    = useDebounce(paymentSearch,1500, 3);
+  const dTestiSearch  = useDebounce(testiSearch,  1500, 3);
+  const dBlogSearch   = useDebounce(blogSearch,   1500, 3);
+
   /* ── Slides tab ── */
   const SLIDE_ACTIONS = ['join','courses','events','webinars','committees','directory','about','membership'];
   const emptySlide = { image_url:'', badge:'', title:'', subtitle:'', description:'', btn_label:'', btn_action:'join', tag:'', sort_order:0, is_active:true };
@@ -925,8 +974,8 @@ export default function AdminPage() {
     m.profession?.toLowerCase().includes(memberSearch.toLowerCase());
 
   const allUsers     = members.filter(matchesSearch);
-  const studentUsers = members.filter(m => (m.account_type||'').toLowerCase() === 'student' && matchesSearch(m));
-  const paidMembers  = members.filter(m => (m.account_type||'').toLowerCase() !== 'student' && m.membership_status === 'Active' && matchesSearch(m));
+  const studentUsers = members.filter(m => ['guest_user','student'].includes((m.account_type||'').toLowerCase()) && matchesSearch(m));
+  const paidMembers  = members.filter(m => ((m.account_type||'').toLowerCase() === 'fip_member' || m.membership_status === 'Active') && !['guest_user','student'].includes((m.account_type||'').toLowerCase()) && matchesSearch(m));
 
   const filteredMembers = memberSubTab === 'students' ? studentUsers
     : memberSubTab === 'members' ? paidMembers
@@ -1215,8 +1264,8 @@ export default function AdminPage() {
               <div style={{display:'flex',gap:'8px',marginBottom:'18px',flexWrap:'wrap'}}>
                 {[
                   { id:'all',      label:'All Users',  count: allUsers.length },
-                  { id:'students', label:'Students',   count: studentUsers.length },
-                  { id:'members',  label:'Members',    count: paidMembers.length },
+                  { id:'students', label:'Guest Users', count: studentUsers.length },
+                  { id:'members',  label:'FIP Members', count: paidMembers.length },
                 ].map(t => (
                   <button key={t.id} onClick={() => setMemberSubTab(t.id)}
                     style={{
@@ -1278,11 +1327,19 @@ export default function AdminPage() {
                           <td style={{fontSize:'12px'}}>{m.profession||'—'}</td>
                           <td>
                             <span style={{display:'inline-flex',alignItems:'center',gap:'4px',padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:700,
-                              background:m.role==='admin'?'rgba(242,101,34,0.12)':'var(--blue-tint)',
-                              color:m.role==='admin'?'var(--orange-dark)':'var(--blue-mid)',
-                              border:m.role==='admin'?'1px solid #F5C4A8':'1px solid #C0CDE8'}}>
-                              <i className={`fa-solid ${m.role==='admin'?'fa-shield-halved':'fa-user'}`} style={{fontSize:'9px'}}></i>
-                              {m.role==='admin'?'Admin':'Member'}
+                              background:m.role==='admin'?'rgba(242,101,34,0.12)':
+                                m.account_type==='fip_member'||m.membership_status==='Active'?'rgba(34,197,94,0.1)':
+                                ['guest_user','student'].includes(m.account_type)?'rgba(107,114,128,0.1)':'var(--blue-tint)',
+                              color:m.role==='admin'?'var(--orange-dark)':
+                                m.account_type==='fip_member'||m.membership_status==='Active'?'#15803D':
+                                ['guest_user','student'].includes(m.account_type)?'#6B7280':'var(--blue-mid)',
+                              border:m.role==='admin'?'1px solid #F5C4A8':
+                                m.account_type==='fip_member'||m.membership_status==='Active'?'1px solid #86EFAC':
+                                ['guest_user','student'].includes(m.account_type)?'1px solid #D1D5DB':'1px solid #C0CDE8'}}>
+                              <i className={`fa-solid ${m.role==='admin'?'fa-shield-halved':m.membership_status==='Active'||m.account_type==='fip_member'?'fa-star':['guest_user','student'].includes(m.account_type)?'fa-user-clock':'fa-user'}`} style={{fontSize:'9px'}}></i>
+                              {m.role==='admin'?'Admin':
+                                m.account_type==='fip_member'||m.membership_status==='Active'?'FIP Member':
+                                ['guest_user','student'].includes(m.account_type)?'Guest User':'Member'}
                             </span>
                           </td>
                           <td>
@@ -1381,6 +1438,18 @@ export default function AdminPage() {
                   <i className="fa-solid fa-plus"></i> Add Event
                 </button>
               </div>
+              {/* Search + filter */}
+              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
+                <div className="search-wrap" style={{flex:1,minWidth:'200px',marginBottom:0}}>
+                  <i className="fa-solid fa-magnifying-glass"></i>
+                  <input type="search" placeholder="Search events by title, location…"
+                    value={eventSearch} onChange={e=>setEventSearch(e.target.value)}/>
+                </div>
+                <select className="form-select" style={{width:'140px'}} value={eventTypeFilter} onChange={e=>setEventTypeFilter(e.target.value)}>
+                  <option value="All">All Types</option>
+                  <option>Physical</option><option>Online</option><option>Hybrid</option>
+                </select>
+              </div>
               {eventsLoading ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
               ) : adminEvents.length === 0 ? (
@@ -1473,6 +1542,17 @@ export default function AdminPage() {
                 <button className="btn btn-primary btn-sm" onClick={() => openCourseModal('new')}>
                   <i className="fa-solid fa-plus"></i> Add Course
                 </button>
+              </div>
+              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
+                <div className="search-wrap" style={{flex:1,minWidth:'200px',marginBottom:0}}>
+                  <i className="fa-solid fa-magnifying-glass"></i>
+                  <input type="search" placeholder="Search by title, category, instructor…"
+                    value={courseSearch} onChange={e=>setCourseSearch(e.target.value)}/>
+                </div>
+                <select className="form-select" style={{width:'140px'}} value={courseStatusFilter} onChange={e=>setCourseStatusFilter(e.target.value)}>
+                  <option value="All">All Status</option>
+                  <option value="published">Published</option><option value="draft">Draft</option>
+                </select>
               </div>
               {adminCoursesLoading ? (
                 <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
@@ -1797,7 +1877,7 @@ export default function AdminPage() {
           {tab === 'payments' && (() => {
             const filtPay = allPayments
               .filter(p => paymentStatusFilter === 'All' || p.status === paymentStatusFilter)
-              .filter(p => !paymentSearch || [p.profiles?.full_name, p.profiles?.email, p.item_name, p.razorpay_payment_id].some(v => v?.toLowerCase().includes(paymentSearch.toLowerCase())));
+              .filter(p => !dPaySearch || [p.profiles?.full_name, p.profiles?.email, p.item_name, p.razorpay_payment_id].some(v => v?.toLowerCase().includes(dPaySearch.toLowerCase())));
             return (
             <div className="admin-form-card">
               <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px',marginBottom:'14px'}}>
@@ -2058,6 +2138,12 @@ export default function AdminPage() {
                   ))}
                 </div>
               </div>
+              {/* Search bar */}
+              <div className="search-wrap" style={{marginBottom:'16px'}}>
+                <i className="fa-solid fa-magnifying-glass"></i>
+                <input type="search" placeholder="Search by name, profession, content…"
+                  value={testiSearch} onChange={e=>{setTestiSearch(e.target.value);setTestiPage(1);}}/>
+              </div>
 
               {testiLoading ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
@@ -2142,6 +2228,18 @@ export default function AdminPage() {
                 <button className="btn btn-primary btn-sm" onClick={openNewJob}>
                   <i className="fa-solid fa-plus"></i> Post New Job
                 </button>
+              </div>
+              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
+                <div className="search-wrap" style={{flex:1,minWidth:'200px',marginBottom:0}}>
+                  <i className="fa-solid fa-magnifying-glass"></i>
+                  <input type="search" placeholder="Search by title, company, location…"
+                    value={jobSearch} onChange={e=>setJobSearch(e.target.value)}/>
+                </div>
+                <select className="form-select" style={{width:'150px'}} value={jobTypeFilter} onChange={e=>setJobTypeFilter(e.target.value)}>
+                  <option value="All">All Types</option>
+                  <option>Full-time</option><option>Part-time</option>
+                  <option>Contract</option><option>Internship</option><option>Freelance</option>
+                </select>
               </div>
 
               {/* ── Member submissions pending approval ── */}
@@ -2347,17 +2445,23 @@ export default function AdminPage() {
                   ))}
                 </div>
               </div>
+              {/* Search bar */}
+              <div className="search-wrap" style={{marginBottom:'16px'}}>
+                <i className="fa-solid fa-magnifying-glass"></i>
+                <input type="search" placeholder="Search by title, category…"
+                  value={blogSearch} onChange={e=>{setBlogSearch(e.target.value);setBlogPage(1);}}/>
+              </div>
 
               {blogLoading ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
                   <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
                 </div>
-              ) : blogPosts.filter(p=>p.status===blogFilter).length === 0 ? (
+              ) : (() => { const filtBlog = blogPosts.filter(p=>p.status===blogFilter && (!dBlogSearch || p.title?.toLowerCase().includes(dBlogSearch.toLowerCase()) || p.category?.toLowerCase().includes(dBlogSearch.toLowerCase()))); return filtBlog.length === 0 ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
                   <i className="fa-solid fa-newspaper" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
                   No {blogFilter} blog posts.
                 </div>
-              ) : blogPosts.filter(p=>p.status===blogFilter).map(post => (
+              ) : filtBlog.map(post => (
                 <div key={post.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'20px',marginBottom:'14px'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'12px',flexWrap:'wrap'}}>
                     <div style={{flex:1,minWidth:'200px'}}>
@@ -2398,7 +2502,8 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+              ));
+              })()}
             </div>
           )}
 
