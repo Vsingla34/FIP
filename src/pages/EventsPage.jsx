@@ -199,6 +199,23 @@ export default function EventsPage() {
           } else {
             setRegisteredEventIds(prev => new Set([...prev, capturedEvent.id]));
             showToast(`You're registered for ${capturedEvent.title}! 🎉`);
+            // Send paid confirmation email
+            fetch('/api/send-event-confirmation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name:          capturedForm.full_name,
+                email:         capturedForm.email,
+                eventTitle:    capturedEvent.title,
+                eventDate:     capturedEvent.event_date,
+                eventTime:     capturedEvent.event_time,
+                eventLocation: capturedEvent.location,
+                eventType:     capturedEvent.event_type,
+                isPaid:        true,
+                amount:        capturedEvent.price,
+                zoomLink:      capturedEvent.zoom_link,
+              }),
+            }).catch(() => {});
           }
         },
       });
@@ -219,6 +236,24 @@ export default function EventsPage() {
       }
       return;
     }
+
+    // Send confirmation email (non-blocking)
+    fetch('/api/send-event-confirmation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name:          form.full_name,
+        email:         form.email,
+        eventTitle:    rsvpOpen.title,
+        eventDate:     rsvpOpen.event_date,
+        eventTime:     rsvpOpen.event_time,
+        eventLocation: rsvpOpen.location,
+        eventType:     rsvpOpen.event_type,
+        isPaid:        false,
+        zoomLink:      rsvpOpen.zoom_link,
+      }),
+    }).catch(() => {});
+
     // Mark as registered in local state too
     setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
     setSubmitted(true);
