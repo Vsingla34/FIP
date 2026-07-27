@@ -29,7 +29,7 @@ export default function EventUpdatePage() {
 
     (async () => {
       try {
-        const res = await fetch('/api/get-rsvp-by-token', {
+        const res = await fetch('/api/send-update-links?action=get-rsvp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
@@ -290,7 +290,7 @@ export default function EventUpdatePage() {
           </button>
 
           <p style={{textAlign:'center',fontSize:'11px',color:'#94A3B8',marginTop:'12px',marginBottom:0}}>
-             Your information is secure and used only for event registration.
+            🔒 Your information is secure and used only for event registration.
           </p>
         </form>
 

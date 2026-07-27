@@ -163,7 +163,7 @@ export function AuthProvider({ children }) {
 
   /* ── RESET PASSWORD — Step 1: send 6-digit OTP via our Gmail SMTP ── */
   const sendResetOtp = async (email) => {
-    const res  = await fetch('/api/send-reset-otp', {
+    const res  = await fetch('/api/password-reset?action=send-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -174,7 +174,7 @@ export function AuthProvider({ children }) {
 
   /* ── RESET PASSWORD — Step 2: verify OTP → get a verified_token ── */
   const verifyResetOtp = async (email, otp) => {
-    const res  = await fetch('/api/verify-reset-otp', {
+    const res  = await fetch('/api/password-reset?action=verify-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, otp }),
@@ -186,7 +186,7 @@ export function AuthProvider({ children }) {
 
   /* ── RESET PASSWORD — Step 3: set new password using verified_token ── */
   const resetPasswordWithToken = async (email, verifiedToken, newPassword) => {
-    const res  = await fetch('/api/reset-password', {
+    const res  = await fetch('/api/password-reset?action=reset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, verified_token: verifiedToken, new_password: newPassword }),
