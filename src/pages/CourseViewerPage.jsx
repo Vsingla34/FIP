@@ -388,7 +388,7 @@ export default function CourseViewerPage() {
                 })}
               </div>
             ))}
-          )}
+          )
           </div>
         )}
       </div>
@@ -396,7 +396,7 @@ export default function CourseViewerPage() {
   );
 }
 
-/* ── Certificate HTML generator (opens in new tab for printing/saving as PDF) ── */
+
 function generateCertificateHTML(profile, course, certificate) {
   const name = profile?.full_name || 'Member';
   const date = new Date(certificate.issued_at).toLocaleDateString('en-IN', {
