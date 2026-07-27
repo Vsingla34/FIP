@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { useRazorpay } from '../hooks/useRazorpay.js';
 import { supabase } from '../lib/supabase.js';
+import FlyerGenerator from '../components/FlyerGenerator.jsx';
 
 function formatDate(d) {
   if (!d) return null;
@@ -22,6 +23,7 @@ function daysUntil(d) {
 export default function CourseDetailPage() {
   const { slug }    = useParams();
   const navigate    = useNavigate();
+  const location    = window.history.state?.usr || {};  // React Router state
   const { user, profile } = useAuth();
   const { showToast, openModal } = useApp();
   const { pay } = useRazorpay();
@@ -34,6 +36,7 @@ export default function CourseDetailPage() {
   const [showForm,  setShowForm]  = useState(false);
   const [submitting,setSubmitting]= useState(false);
   const [success,   setSuccess]   = useState(false);
+  const [showFlyer, setShowFlyer] = useState(false); // flyer popup after registration
   const [form, setForm] = useState({ full_name:'', email:'', phone:'', profession:'' });
   const interestTracked = useRef(false);
 
@@ -82,7 +85,13 @@ export default function CourseDetailPage() {
       .then(({ data }) => { if (data) setEnrolled(true); });
   }, [user, course]);
 
-  // Pre-fill form from profile
+  // Auto-show flyer if arriving from payment success
+  useEffect(() => {
+    if (location.showFlyer && course) {
+      setEnrolled(true);
+      setTimeout(() => setShowFlyer(true), 800);
+    }
+  }, [location.showFlyer, course]);
   const openForm = () => {
     if (requiresPayment(course)) {
       if (!user) {
@@ -164,6 +173,8 @@ export default function CourseDetailPage() {
     setSuccess(true);
     setEnrolled(true);
     setCourse(prev => ({ ...prev, enrolled_count: (prev.enrolled_count || 0) + 1 }));
+    // Show flyer generator after a short delay
+    setTimeout(() => setShowFlyer(true), 600);
   };
 
   if (loading) return (
@@ -181,6 +192,17 @@ export default function CourseDetailPage() {
 
   return (
     <>
+      {/* Flyer popup shown after successful registration */}
+      {showFlyer && course && (
+        <FlyerGenerator
+          name={form.full_name || profile?.full_name || user?.email || 'Participant'}
+          courseTitle={course.title}
+          eventDate={course.event_date}
+          flyerTemplateUrl={course.flyer_template_url}
+          logoUrl="/logo.png"
+          onClose={() => setShowFlyer(false)}
+        />
+      )}
       {/* ── Hero Banner ── */}
       <div style={{
         background: course.banner_url

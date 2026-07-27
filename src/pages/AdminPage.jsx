@@ -413,6 +413,7 @@ export default function AdminPage() {
       event_time:    (courseForm.event_time    || '').trim() || null,
       zoom_link:     (courseForm.zoom_link     || '').trim() || null,
       whatsapp_group_link: (courseForm.whatsapp_group_link || '').trim() || null,
+      flyer_template_url: (courseForm.flyer_template_url || '').trim() || null,
       zoom_password: (courseForm.zoom_password || '').trim() || null,
       banner_url:    (courseForm.banner_url    || '').trim() || null,
       what_you_learn: courseForm.what_you_learn
@@ -459,7 +460,7 @@ export default function AdminPage() {
     if (course === 'new') {
       setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'', banner_url:'', what_you_learn:'', speakers:'' });
     } else {
-      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', flyer_template_url:course.flyer_template_url||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
     }
     setShowCourseModal(course);
   };
@@ -531,9 +532,9 @@ export default function AdminPage() {
 
   const openEventModal = (ev) => {
     if (ev === 'new') {
-      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'', image_url:'', zoom_link:'' });
+      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[] });
     } else {
-      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'' });
+      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[] });
     }
     setShowEventModal(ev);
   };
@@ -876,6 +877,13 @@ export default function AdminPage() {
   const [paymentStatusFilter,setPaymentStatusFilter]= useState('All');
 
   /* ── Search states for all admin tabs ── */
+  /* ── Bulk Email system ── */
+  const [selectedMemberIds, setSelectedMemberIds] = useState(new Set());
+  const [showEmailCompose,  setShowEmailCompose]  = useState(false);
+  const [emailSubject,      setEmailSubject]      = useState('');
+  const [emailContent,      setEmailContent]      = useState('');
+  const [emailSending,      setEmailSending]      = useState(false);
+
   const [eventSearch,         setEventSearch]         = useState('');
   const [eventTypeFilter,     setEventTypeFilter]     = useState('All');
   const [courseSearch,        setCourseSearch]        = useState('');
@@ -1305,14 +1313,84 @@ export default function AdminPage() {
                 {openActionMenu && (
                   <div style={{position:'fixed',inset:0,zIndex:199}} onClick={() => setOpenActionMenu(null)}/>
                 )}
+                
+                {/* ── Bulk Email Toolbar ── */}
+                {selectedMemberIds.size > 0 && !showEmailCompose && (
+                  <div style={{display:'flex',alignItems:'center',gap:'12px',background:'var(--blue)',color:'#fff',padding:'10px 16px',borderRadius:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
+                    <span style={{fontWeight:700}}>{selectedMemberIds.size} member{selectedMemberIds.size>1?'s':''} selected</span>
+                    <button onClick={() => setShowEmailCompose(true)} style={{background:'var(--orange)',color:'#fff',border:'none',borderRadius:'6px',padding:'7px 16px',fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
+                      <i className="fa-solid fa-envelope"></i> Compose & Send Email
+                    </button>
+                    <button onClick={() => setSelectedMemberIds(new Set())} style={{background:'rgba(255,255,255,0.15)',color:'#fff',border:'none',borderRadius:'6px',padding:'7px 12px',cursor:'pointer'}}>
+                      Deselect All
+                    </button>
+                  </div>
+                )}
+                {showEmailCompose && (
+                  <div style={{background:'var(--off-white)',border:'2px solid var(--blue)',borderRadius:'12px',padding:'20px',marginBottom:'16px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+                      <div style={{fontWeight:800,color:'var(--blue)',fontSize:'15px'}}>
+                        <i className="fa-solid fa-envelope" style={{color:'var(--orange)',marginRight:'8px'}}></i>
+                        Send Email to {selectedMemberIds.size} member{selectedMemberIds.size>1?'s':''}
+                      </div>
+                      <button onClick={() => { setShowEmailCompose(false); setEmailSubject(''); setEmailContent(''); }} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'20px'}}>✕</button>
+                    </div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',background:'var(--blue-pale)',padding:'8px 12px',borderRadius:'6px',marginBottom:'14px'}}>
+                      💡 Tip: Use <strong>{'{name}'}</strong> in content to personalise each email with the member's name.
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Subject *</label>
+                      <input className="form-input" type="text" placeholder="e.g. Important update from FIP" value={emailSubject} onChange={e=>setEmailSubject(e.target.value)}/>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Message *</label>
+                      <textarea className="form-input" rows={6} style={{resize:'vertical'}}
+                        placeholder={'Dear {name},\n\nWrite your message here...\n\nWarm regards,\nFIP Team'}
+                        value={emailContent} onChange={e=>setEmailContent(e.target.value)}/>
+                    </div>
+                    <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                      <button disabled={!emailSubject.trim()||!emailContent.trim()||emailSending}
+                        style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'11px 24px',fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',gap:'8px',opacity:(!emailSubject.trim()||!emailContent.trim()||emailSending)?.55:1}}
+                        onClick={async () => {
+                          setEmailSending(true);
+                          try {
+                            const res = await fetch('/api/send-bulk-email', { method:'POST', headers:{'Content-Type':'application/json'},
+                              body: JSON.stringify({ userId:profile?.id, subject:emailSubject, content:emailContent, recipientIds:[...selectedMemberIds] }) });
+                            const d = await res.json();
+                            if (res.ok) {
+                              showToast(`Email sent to ${d.sent} member${d.sent!==1?'s':''}! ${d.failed>0?`(${d.failed} failed)`:''}`);
+                              setShowEmailCompose(false); setSelectedMemberIds(new Set()); setEmailSubject(''); setEmailContent('');
+                            } else showToast('Error: ' + (d.error||'Send failed'), true);
+                          } catch(e) { showToast('Network error: ' + e.message, true); }
+                          setEmailSending(false);
+                        }}>
+                        {emailSending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending to {selectedMemberIds.size} members…</> : <><i className="fa-solid fa-paper-plane"></i> Send Now</>}
+                      </button>
+                      <button onClick={() => { setShowEmailCompose(false); setEmailSubject(''); setEmailContent(''); }}
+                        style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',borderRadius:'8px',padding:'11px 16px',cursor:'pointer',fontWeight:600}}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div style={{overflowX:'auto'}}>
                   <table className="admin-table">
                     <thead>
-                      <tr><th>Member</th><th>Profession</th><th>Role</th><th>Membership</th><th>Joined</th><th>Actions</th></tr>
+                      <tr>
+                        <th style={{width:'36px',paddingRight:'8px'}}>
+                          <input type="checkbox"
+                            title="Select all visible members"
+                            checked={filteredMembers.length>0 && filteredMembers.every(m=>selectedMemberIds.has(m.id))}
+                            onChange={e => setSelectedMemberIds(e.target.checked ? new Set(filteredMembers.map(m=>m.id)) : new Set())}/>
+                        </th>
+                        <th>Member</th><th>Profession</th><th>Role</th><th>Membership</th><th>Joined</th><th>Actions</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {filteredMembers.map((m,i) => (
-                        <tr key={i}>
+                        <tr key={i} style={{background:selectedMemberIds.has(m.id)?'rgba(26,60,110,0.04)':undefined}}>
+                          <td><input type="checkbox" checked={selectedMemberIds.has(m.id)}
+                            onChange={e => setSelectedMemberIds(prev => { const n=new Set(prev); e.target.checked?n.add(m.id):n.delete(m.id); return n; })}/></td>
                           <td>
                             <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
                               <div style={{width:'34px',height:'34px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontSize:'12px',fontWeight:700,flexShrink:0}}>
@@ -1485,9 +1563,30 @@ export default function AdminPage() {
           {/* ═══ EVENT REGISTRATIONS VIEW ═══ */}
           {tab === 'events' && rsvpEventView && (
             <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px'}}>
+              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
                 <button onClick={() => setRsvpEventView(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}><i className="fa-solid fa-arrow-left"></i></button>
-                <span>Registrations: <strong>{rsvpEventView.title}</strong></span>
+                <span style={{flex:1}}>Registrations: <strong>{rsvpEventView.title}</strong></span>
+                {eventRsvps.length > 0 && (
+                  <button
+                    style={{background:'#217346',color:'#fff',border:'none',borderRadius:'8px',padding:'8px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}
+                    onClick={() => {
+                      const hdrs = ['Name','Email','Phone','Profession','Designation','Organisation','ICAI No.','City','Volunteer','Registered On'];
+                      const rows = eventRsvps.map(r => [
+                        r.full_name||'', r.email||'', r.phone||'',
+                        r.profession||'', r.designation||'', r.organisation||'',
+                        r.icai_membership_no||'', r.city||'',
+                        r.is_volunteer?'Yes':'No',
+                        r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '',
+                      ]);
+                      const csv = [hdrs,...rows].map(row=>row.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+                      const a = document.createElement('a');
+                      a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+                      a.download = `FIP_Event_${(rsvpEventView.title||'').replace(/\s+/g,'_')}_Registrations.csv`;
+                      a.click();
+                    }}>
+                    <i className="fa-solid fa-file-excel"></i> Download Excel ({eventRsvps.length})
+                  </button>
+                )}
               </div>
               {rsvpLoading ? (
                 <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
@@ -3269,6 +3368,30 @@ export default function AdminPage() {
                 <input className="form-input" type="number" placeholder="0 = free" value={eventForm.price} onChange={e=>setEventForm(f=>({...f,price:e.target.value,is_free:Number(e.target.value)===0}))}/>
               </div>
             </div>
+              <div className="form-group">
+                <label className="form-label">
+                  <i className="fa-solid fa-user-tie" style={{color:'var(--orange)',marginRight:'6px'}}></i>
+                  Restrict to Professions
+                  <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(leave empty = open to all)</span>
+                </label>
+                <div style={{display:'flex',flexWrap:'wrap',gap:'8px',background:'var(--off-white)',padding:'10px',borderRadius:'8px',border:'1px solid var(--border)'}}>
+                  {['Chartered Accountant','Company Secretary','Cost Accountant','Advocate','Student','Other'].map(prof => {
+                    const checked = (eventForm.allowed_professions||[]).includes(prof);
+                    return (
+                      <label key={prof} style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'12px',fontWeight:600,cursor:'pointer',padding:'4px 10px',borderRadius:'20px',border:'1.5px solid',background:checked?'var(--blue)':'transparent',color:checked?'#fff':'var(--text-muted)',borderColor:checked?'var(--blue)':'var(--border)'}}>
+                        <input type="checkbox" style={{display:'none'}} checked={checked}
+                          onChange={e => setEventForm(f => ({
+                            ...f,
+                            allowed_professions: e.target.checked
+                              ? [...(f.allowed_professions||[]), prof]
+                              : (f.allowed_professions||[]).filter(p=>p!==prof)
+                          }))}/>
+                        {prof}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             <div className="form-group">
               <label className="form-label">Tags <span style={{fontWeight:400,color:'var(--text-light)'}}>— comma separated</span></label>
               <input className="form-input" type="text" placeholder="e.g. GST, Networking, Summit" value={eventForm.tags} onChange={e=>setEventForm(f=>({...f,tags:e.target.value}))}/>
@@ -3615,6 +3738,21 @@ export default function AdminPage() {
                 <input className="form-input" type="url" placeholder="https://chat.whatsapp.com/..."
                   value={courseForm.whatsapp_group_link}
                   onChange={e=>setCourseForm(f=>({...f,whatsapp_group_link:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  <i className="fa-solid fa-image" style={{color:'var(--orange)',marginRight:'6px'}}></i>
+                  Flyer Template Image URL
+                  <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(optional — background for participant flyer after purchase)</span>
+                </label>
+                <input className="form-input" type="url" placeholder="https://your-cdn.com/flyer-template.png"
+                  value={courseForm.flyer_template_url}
+                  onChange={e=>setCourseForm(f=>({...f,flyer_template_url:e.target.value}))}/>
+                {courseForm.flyer_template_url && (
+                  <img src={courseForm.flyer_template_url} alt="Flyer template preview"
+                    style={{marginTop:'8px',width:'100%',maxHeight:'100px',objectFit:'cover',borderRadius:'6px',border:'1px solid var(--border)'}}
+                    onError={e=>e.target.style.display='none'}/>
+                )}
               </div>
             </div>
             <div className="form-group">

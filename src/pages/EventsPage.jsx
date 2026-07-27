@@ -45,7 +45,20 @@ export default function EventsPage() {
     supabase.from('events').select('*')
       .in('status', ['upcoming','ongoing'])
       .order('event_date', { ascending: true, nullsFirst: false })
-      .then(({ data }) => { setEvents(data || []); setLoading(false); });
+      .then(async ({ data }) => {
+        if (!data?.length) { setLoading(false); return; }
+        // Fetch registration counts for each event
+        const counts = await Promise.all(
+          data.map(ev =>
+            supabase.from('event_rsvps').select('id', { count: 'exact', head: true })
+              .eq('event_id', ev.id)
+              .then(({ count }) => ({ id: ev.id, count: count || 0 }))
+          )
+        );
+        const countMap = Object.fromEntries(counts.map(c => [c.id, c.count]));
+        setEvents(data.map(ev => ({ ...ev, registered_count: countMap[ev.id] || 0 })));
+        setLoading(false);
+      });
   }, []);
 
   /* Fetch events user already registered for */
@@ -105,17 +118,39 @@ export default function EventsPage() {
     if (!form.full_name.trim() || !form.email.trim()) return;
     setSubmitting(true);
 
-    // ── Strict validation: all required fields must be filled before payment ──
+    // ── Strict validation: ALL fields required ─────────────────────────────
     const missing = [];
-    if (!form.full_name.trim())  missing.push('Full Name');
-    if (!form.email.trim())      missing.push('Email');
-    if (!form.phone.trim())      missing.push('Mobile Number');
-    if (!form.profession)        missing.push('Profession');
-    if (!form.city.trim())       missing.push('City');
+    if (!form.full_name.trim())          missing.push('Full Name');
+    if (!form.email.trim())              missing.push('Email');
+    if (!form.phone.trim())              missing.push('Mobile Number');
+    if (!form.profession)                missing.push('Profession');
+    if (!form.designation.trim())        missing.push('Designation');
+    if (!form.organisation.trim())       missing.push('Organisation / Firm');
+    if (!form.icai_membership_no.trim()) missing.push('ICAI / ICSI / ICMAI Membership No.');
+    if (!form.city.trim())               missing.push('City');
     if (missing.length > 0) {
       setSubmitting(false);
       showToast(`Please fill in: ${missing.join(', ')}`, true);
       return;
+    }
+
+    // ── Profession eligibility check ─────────────────────────────────────
+    const allowed = rsvpOpen?.allowed_professions;
+    if (allowed?.length && !allowed.includes(form.profession)) {
+      setSubmitting(false);
+      showToast(`This event is open to: ${allowed.join(', ')} only.`, true);
+      return;
+    }
+
+    // ── Capacity check ───────────────────────────────────────────────────
+    if (rsvpOpen?.capacity) {
+      const { count } = await supabase.from('event_rsvps')
+        .select('id', { count: 'exact', head: true }).eq('event_id', rsvpOpen.id);
+      if ((count || 0) >= rsvpOpen.capacity) {
+        setSubmitting(false);
+        showToast('Sorry, this event is now fully booked!', true);
+        return;
+      }
     }
 
     const isPaid = rsvpOpen?.price > 0 && !rsvpOpen?.is_free;
@@ -277,7 +312,7 @@ export default function EventsPage() {
                         </span>
                         {ev.capacity && (
                           <span style={{fontSize:'11px',color:'var(--text-light)'}}>
-                            <i className="fa-solid fa-users" style={{marginRight:'3px'}}></i>{ev.capacity} seats
+                            <i className="fa-solid fa-users" style={{marginRight:'3px'}}></i>{(ev.registered_count||0)>=(ev.capacity||999999)?'Fully Booked':`${ev.registered_count||0}/${ev.capacity} seats filled`}
                           </span>
                         )}
                         {ev.is_free
@@ -285,20 +320,29 @@ export default function EventsPage() {
                           : <span style={{fontSize:'11px',fontWeight:700,color:'var(--blue)'}}>₹{ev.price}</span>
                         }
                       </div>
-                      <button
-                        className="ev-rsvp-btn"
-                        style={registeredEventIds.has(ev.id) ? {
-                          background:'var(--green)', cursor:'default',
-                          opacity:1, border:'none',
-                        } : ev.price > 0 && !ev.is_free ? {background:'var(--orange)'} : {}}
-                        onClick={() => { if (!registeredEventIds.has(ev.id)) openRsvp(ev); }}>
-                        {registeredEventIds.has(ev.id)
-                          ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Seat Booked</>
-                          : ev.price > 0 && !ev.is_free
-                          ? <><i className="fa-solid fa-lock"></i> Book Seat — ₹{Number(ev.price).toLocaleString('en-IN')}</>
-                          : <><i className="fa-solid fa-calendar-check"></i> Book Seat — Free</>
-                        }
-                      </button>
+                      {(() => {
+                        const isFull = ev.capacity && (ev.registered_count||0) >= ev.capacity;
+                        const isReg  = registeredEventIds.has(ev.id);
+                        return (
+                          <button
+                            className="ev-rsvp-btn"
+                            style={{
+                              background: isReg ? 'var(--green)' : isFull ? '#6B7280' : ev.price>0&&!ev.is_free ? 'var(--orange)' : undefined,
+                              cursor: isReg || isFull ? 'default' : 'pointer',
+                              opacity: isFull && !isReg ? 0.8 : 1,
+                            }}
+                            onClick={() => { if (!isReg && !isFull) openRsvp(ev); }}>
+                            {isReg
+                              ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Seat Booked</>
+                              : isFull
+                              ? <><i className="fa-solid fa-ban" style={{marginRight:'5px'}}></i>Fully Booked</>
+                              : ev.price > 0 && !ev.is_free
+                              ? <><i className="fa-solid fa-lock"></i> Book Seat — ₹{Number(ev.price).toLocaleString('en-IN')}</>
+                              : <><i className="fa-solid fa-calendar-check"></i> Book Seat — Free</>
+                            }
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -350,7 +394,15 @@ export default function EventsPage() {
                 </div>
 
                 <div className="modal-title" style={{marginBottom:'4px'}}>Register for this Event</div>
-                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'16px'}}>Fill in your details to confirm your seat. All fields marked * are required.</p>
+                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'10px'}}>
+                  All fields marked * are required.
+                </p>
+                {rsvpOpen?.allowed_professions?.length > 0 && (
+                  <div style={{background:'rgba(242,101,34,0.08)',border:'1px solid rgba(242,101,34,0.3)',borderRadius:'8px',padding:'10px 14px',marginBottom:'12px',fontSize:'12px',color:'#C05621',fontWeight:600}}>
+                    <i className="fa-solid fa-circle-info" style={{marginRight:'6px'}}></i>
+                    Open to: <strong>{rsvpOpen.allowed_professions.join(', ')}</strong>
+                  </div>
+                )}
 
                 {/* Paid event pricing banner */}
                 {rsvpOpen.price > 0 && !rsvpOpen.is_free && (
@@ -405,15 +457,15 @@ export default function EventsPage() {
 
                   <div className="form-row">
                     <div className="form-group">
-                      <label className="form-label">Designation</label>
+                      <label className="form-label">Designation *</label>
                       <input className="form-input" name="designation" type="text"
-                        placeholder="e.g. Partner, Senior Manager"
+                        placeholder="e.g. Partner, Senior Manager" required
                         value={form.designation} onChange={handleChange} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Organisation / Firm</label>
+                      <label className="form-label">Organisation / Firm *</label>
                       <input className="form-input" name="organisation" type="text"
-                        placeholder="Firm or Company name"
+                        placeholder="Firm or Company name" required
                         value={form.organisation} onChange={handleChange} />
                     </div>
                   </div>
@@ -421,11 +473,10 @@ export default function EventsPage() {
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">
-                        ICAI / ICSI / ICMAI Membership No.
-                        <span style={{fontWeight:400,color:'var(--text-light)',marginLeft:'4px'}}>(optional)</span>
+                        ICAI / ICSI / ICMAI Membership No. *
                       </label>
                       <input className="form-input" name="icai_membership_no" type="text"
-                        placeholder="e.g. 123456 / A12345 / M12345"
+                        placeholder="e.g. 123456 / A12345 / M12345" required
                         value={form.icai_membership_no} onChange={handleChange} />
                     </div>
                     <div className="form-group">
