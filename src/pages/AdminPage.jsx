@@ -1587,6 +1587,29 @@ export default function AdminPage() {
                     <i className="fa-solid fa-file-excel"></i> Download Excel ({eventRsvps.length})
                   </button>
                 )}
+                {/* Send update links to incomplete registrants */}
+                {(() => {
+                  const incomplete = eventRsvps.filter(r =>
+                    r.profession === 'Chartered Accountant' && !r.icai_membership_no
+                  );
+                  if (!incomplete.length) return null;
+                  return (
+                    <button
+                      style={{background:'var(--orange)',color:'#fff',border:'none',borderRadius:'8px',padding:'8px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}
+                      onClick={async () => {
+                        if (!window.confirm(`Send update link emails to ${incomplete.length} incomplete registrant${incomplete.length>1?'s':''}?`)) return;
+                        const res = await fetch('/api/send-update-links', {
+                          method:'POST', headers:{'Content-Type':'application/json'},
+                          body: JSON.stringify({ adminId:profile?.id, eventId:rsvpEventView.id, rsvpIds:incomplete.map(r=>r.id) }),
+                        });
+                        const d = await res.json();
+                        if (res.ok) showToast(`✅ Sent update links to ${d.sent} registrant${d.sent!==1?'s':''}!`);
+                        else showToast('Error: ' + (d.error||'Send failed'), true);
+                      }}>
+                      <i className="fa-solid fa-envelope"></i> Send Update Links ({incomplete.length} incomplete)
+                    </button>
+                  );
+                })()}
               </div>
               {rsvpLoading ? (
                 <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>

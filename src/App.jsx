@@ -36,6 +36,7 @@ import JobsPage           from './pages/JobsPage.jsx';
 import CourseDetailPage   from './pages/CourseDetailPage.jsx';
 import CourseViewerPage   from './pages/CourseViewerPage.jsx';
 import MemberProfilePage  from './pages/MemberProfilePage.jsx';
+import EventUpdatePage    from './pages/EventUpdatePage.jsx';
 import DirectoryPage      from './pages/DirectoryPage.jsx';
 import DashboardPage      from './pages/DashboardPage.jsx';
 import AdminPage          from './pages/AdminPage.jsx';
@@ -69,6 +70,7 @@ function AppContent() {
         <Route path="/webinars"     element={<WebinarsPage />} />
         <Route path="/jobs"         element={<JobsPage />} />
         <Route path="/member/:slug" element={<MemberProfilePage />} />
+        <Route path="/event-update" element={<EventUpdatePage />} />
 
         {/* ── Auth-protected ── */}
         <Route path="/directory" element={
