@@ -147,9 +147,9 @@ async function drawFlyer(canvas, { name, courseTitle, whatYouLearn, eventDate, f
     titleLines = wrapLines(ctx, courseTitle || 'FIP Professional Course', LEFT_W - PAD * 2);
   }
   const titleLineH = titleSize + 8;
-  titleLines.forEach((line, i) => ctx.fillText(line, PAD, CONTENT_TOP + 50 + i * titleLineH));
+  titleLines.forEach((line, i) => ctx.fillText(line, PAD, CONTENT_TOP + 82 + i * titleLineH));
   ctx.restore();
-  const titleEndY = CONTENT_TOP + 50 + titleLines.length * titleLineH;
+  const titleEndY = CONTENT_TOP + 82 + titleLines.length * titleLineH;
 
   /* ── 8. LEFT — "What You'll Learn" section ── */
   const learnItems = Array.isArray(whatYouLearn)
@@ -180,13 +180,13 @@ async function drawFlyer(canvas, { name, courseTitle, whatYouLearn, eventDate, f
       const txt = String(item).trim();
       const avail = LEFT_W - PAD * 2 - 24;
       const linesTxt = wrapLines(ctx, txt, avail);
-      ctx.fillText(linesTxt[0] + (linesTxt.length > 1 ? '…' : ''), PAD + 24, y + i * 22);
+      ctx.fillText(linesTxt[0] + (linesTxt.length > 1 ? '…' : ''), PAD + 24, y + i * 26);
     });
     ctx.restore();
   }
 
   /* ── 9. LEFT — Participant name box ── */
-  const nameBoxY = H - 130;
+  const nameBoxY = H - 152;
   ctx.save();
   ctx.fillStyle = WHITE_10;
   ctx.strokeStyle = WHITE_20;
@@ -217,7 +217,7 @@ async function drawFlyer(canvas, { name, courseTitle, whatYouLearn, eventDate, f
     ctx.fillStyle = GOLD;
     ctx.font = '600 13px Inter, Arial, sans-serif';
     const dateStr = new Date(eventDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-    ctx.fillText('📅  ' + dateStr, PAD, H - 58);
+    ctx.fillText('📅  ' + dateStr, PAD, H - 54);
     ctx.restore();
   }
 
