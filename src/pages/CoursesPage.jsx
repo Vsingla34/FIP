@@ -62,7 +62,7 @@ export default function CoursesPage() {
       .eq('status', 'published')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        setCourses(data || []);
+        setCourses(data || []);   // store ALL courses
         setLoading(false);
       });
   }, []);
@@ -80,18 +80,25 @@ export default function CoursesPage() {
   }, [user]);
 
   /* derive filter categories from real data */
-  const categories = ['All', ...new Set(courses.map(c => c.category).filter(Boolean))];
+  const isMember = profile?.role === 'admin' || profile?.is_admin ||
+                   profile?.membership_status === 'Active' ||
+                   profile?.account_type === 'fip_member';
+
+  // Filter private courses — admins and FIP members see everything
+  const visibleCourses = courses.filter(c => !c.is_private || isMember);
+
+  const categories = ['All', ...new Set(visibleCourses.map(c => c.category).filter(Boolean))];
 
   const today = new Date(); today.setHours(0,0,0,0);
 
   // Upcoming: no event_date OR end date (or start if no end) is today/future
-  const upcomingCourses = courses.filter(c => {
+  const upcomingCourses = visibleCourses.filter(c => {
     if (!c.event_date) return true;
     const endDate = c.event_end_date ? new Date(c.event_end_date) : new Date(c.event_date);
     return endDate >= today;
   });
   // Past: end date (or start if no end) is strictly before today
-  const pastCourses = courses.filter(c => {
+  const pastCourses = visibleCourses.filter(c => {
     if (!c.event_date) return false;
     const endDate = c.event_end_date ? new Date(c.event_end_date) : new Date(c.event_date);
     return endDate < today;
@@ -232,6 +239,8 @@ export default function CoursesPage() {
                       {/* Tag always top-right */}
                       {free
                         ? <span className="course-tag tag-free">{getFreeLabel(c)}</span>
+                        : c.is_private
+                        ? <span className="course-tag" style={{background:'var(--orange)'}}>🔒 Members Only</span>
                         : c.created_at && (Date.now() - new Date(c.created_at) < 30*24*60*60*1000)
                         ? <span className="course-tag tag-hot">New</span>
                         : null

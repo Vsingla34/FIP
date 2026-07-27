@@ -460,7 +460,7 @@ export default function AdminPage() {
     if (course === 'new') {
       setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'', banner_url:'', what_you_learn:'', speakers:'' });
     } else {
-      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', flyer_template_url:course.flyer_template_url||'', banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', flyer_template_url:course.flyer_template_url||'', is_private:course.is_private||false, banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
     }
     setShowCourseModal(course);
   };
@@ -532,9 +532,9 @@ export default function AdminPage() {
 
   const openEventModal = (ev) => {
     if (ev === 'new') {
-      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[] });
+      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false });
     } else {
-      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[] });
+      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false });
     }
     setShowEventModal(ev);
   };
@@ -3442,6 +3442,24 @@ export default function AdminPage() {
               <input className="form-input" type="url" placeholder="https://zoom.us/j/..."
                 value={eventForm.zoom_link} onChange={e=>setEventForm(f=>({...f,zoom_link:e.target.value}))}/>
             </div>
+            <div style={{display:'flex',alignItems:'center',gap:'16px',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'10px',padding:'14px 18px',marginBottom:'12px'}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:'14px',color:'var(--blue)',marginBottom:'3px'}}>
+                  {eventForm.is_private
+                    ? <><i className="fa-solid fa-lock" style={{color:'var(--orange)',marginRight:'7px'}}></i>Private — FIP Members Only</>
+                    : <><i className="fa-solid fa-globe" style={{color:'var(--green)',marginRight:'7px'}}></i>Public — Visible to Everyone</>}
+                </div>
+                <div style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                  {eventForm.is_private
+                    ? 'Only active FIP Members can see and register for this event.'
+                    : 'Anyone visiting the Events page can see and register for this event.'}
+                </div>
+              </div>
+              <div onClick={() => setEventForm(f => ({...f, is_private: !f.is_private}))}
+                style={{width:'48px',height:'26px',borderRadius:'13px',background:eventForm.is_private?'var(--orange)':'var(--green)',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
+                <div style={{position:'absolute',top:'3px',left:eventForm.is_private?'25px':'3px',width:'20px',height:'20px',borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.2)'}}/>
+              </div>
+            </div>
             <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
               <button className="btn btn-outline-blue btn-sm" onClick={() => setShowEventModal(null)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveEvent} disabled={!eventForm.title.trim()}>
@@ -3801,6 +3819,28 @@ export default function AdminPage() {
               <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>
                 Format: <code>[{`{"name":"...", "qualification":"...", "image_url":"..."}`}]</code>
               </div>
+            </div>
+
+            {/* ── Visibility toggle ── */}
+            <div style={{display:'flex',alignItems:'center',gap:'16px',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'10px',padding:'14px 18px',marginBottom:'12px'}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:'14px',color:'var(--blue)',marginBottom:'3px'}}>
+                  {courseForm.is_private
+                    ? <><i className="fa-solid fa-lock" style={{color:'var(--orange)',marginRight:'7px'}}></i>Private — FIP Members Only</>
+                    : <><i className="fa-solid fa-globe" style={{color:'var(--green)',marginRight:'7px'}}></i>Public — Visible to Everyone</>}
+                </div>
+                <div style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                  {courseForm.is_private
+                    ? 'Only users with an active FIP membership can see and register for this course.'
+                    : 'Anyone visiting the Courses page can see and register for this course.'}
+                </div>
+              </div>
+              <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',flexShrink:0}}>
+                <div onClick={() => setCourseForm(f => ({...f, is_private: !f.is_private}))}
+                  style={{width:'48px',height:'26px',borderRadius:'13px',background:courseForm.is_private?'var(--orange)':'var(--green)',position:'relative',cursor:'pointer',transition:'background .2s'}}>
+                  <div style={{position:'absolute',top:'3px',left:courseForm.is_private?'25px':'3px',width:'20px',height:'20px',borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.2)'}}/>
+                </div>
+              </label>
             </div>
 
             <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>

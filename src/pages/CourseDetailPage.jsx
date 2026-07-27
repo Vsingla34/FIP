@@ -41,14 +41,13 @@ export default function CourseDetailPage() {
   const interestTracked = useRef(false);
 
   /* ── Determine if this course requires payment ── */
-  const isActiveMember = profile?.membership_status === 'Active';
+  const isActiveMember = profile?.role === 'admin' || profile?.is_admin ||
+                         profile?.membership_status === 'Active' || profile?.account_type === 'fip_member';
   const requiresPayment = (course) => {
-    if (!course?.price || course.price === 0)           return false;
-    if (course.free_for === 'all')                       return false;
-    if (course.free_for === 'members' && isActiveMember) return false;
-    if (course.free_for === 'students' &&
-       (profile?.account_type === 'student' || !user))   return false;
-    return true;
+    if (!course?.price || course.price === 0)  return false; // free course
+    if (course.free_for === 'all')              return false; // free for everyone
+    if (isActiveMember)                         return false; // FIP Members always enroll free
+    return true; // guest users pay
   };
 
   useEffect(() => {
@@ -185,6 +184,21 @@ export default function CourseDetailPage() {
   );
   if (!course) return null;
 
+  // Block private courses for non-members
+  if (course.is_private && !isActiveMember) return (
+    <div style={{minHeight:'70vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',textAlign:'center',padding:'40px 20px'}}>
+      <div style={{fontSize:'56px',marginBottom:'16px'}}>🔒</div>
+      <h2 style={{fontSize:'24px',fontWeight:900,color:'var(--blue)',marginBottom:'8px'}}>Members Only</h2>
+      <p style={{color:'var(--text-muted)',fontSize:'15px',maxWidth:'400px',lineHeight:1.7,marginBottom:'24px'}}>
+        <strong>{course.title}</strong> is exclusively available to active FIP Members.
+        Join FIP to access this and all members-only content.
+      </p>
+      <button className="btn btn-primary btn-lg" onClick={() => openModal('register', { defaultType:'member' })}>
+        <i className="fa-solid fa-user-plus"></i> Become an FIP Member
+      </button>
+    </div>
+  );
+
   const speakers = course.speakers || [];
   const whatYouLearn = course.what_you_learn || [];
   const dl = daysUntil(course.event_date);
@@ -197,9 +211,10 @@ export default function CourseDetailPage() {
         <FlyerGenerator
           name={form.full_name || profile?.full_name || user?.email || 'Participant'}
           courseTitle={course.title}
+          whatYouLearn={course.what_you_learn || []}
           eventDate={course.event_date}
           flyerTemplateUrl={course.flyer_template_url}
-          logoUrl="/logo.png"
+          logoUrl={`${window.location.origin}/logo.png`}
           onClose={() => setShowFlyer(false)}
         />
       )}
@@ -394,7 +409,13 @@ export default function CourseDetailPage() {
                   ) : (
                     <button className="btn btn-primary" style={{width:'100%',justifyContent:'center',fontSize:'15px',padding:'14px',fontWeight:800}}
                       onClick={openForm}>
-                      <i className="fa-solid fa-calendar-check"></i> Register Now — It's {!course.price||course.price===0?'Free':'₹'+course.price}
+                      <i className="fa-solid fa-calendar-check"></i> Register Now — {
+                        !course.price || course.price === 0
+                          ? "It's Free"
+                          : isActiveMember
+                          ? 'Free for FIP Members'
+                          : `₹${Number(course.price).toLocaleString('en-IN')}`
+                      }
                     </button>
                   )}
 

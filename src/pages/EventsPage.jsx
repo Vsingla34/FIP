@@ -56,7 +56,9 @@ export default function EventsPage() {
           )
         );
         const countMap = Object.fromEntries(counts.map(c => [c.id, c.count]));
-        setEvents(data.map(ev => ({ ...ev, registered_count: countMap[ev.id] || 0 })));
+        const isMember = false; // checked per-user below
+        const allEvs = data.map(ev => ({ ...ev, registered_count: countMap[ev.id] || 0 }));
+        setEvents(allEvs); // store all; filter in render using profile
         setLoading(false);
       });
   }, []);
@@ -272,7 +274,7 @@ export default function EventsPage() {
             </div>
           ) : (
             <div className="event-grid">
-              {events.map(ev => {
+              {events.filter(ev => !ev.is_private || profile?.role==='admin' || profile?.is_admin || profile?.membership_status==='Active' || profile?.account_type==='fip_member').map(ev => {
                 const ts = TYPE_STYLE[ev.event_type] || TYPE_STYLE.Physical;
                 const dl = daysLeft(ev.event_date);
                 return (
@@ -310,6 +312,11 @@ export default function EventsPage() {
                           <i className={`fa-solid ${ts.icon}`}></i> {ev.event_type}
                           {ev.city && ` · ${ev.city}`}
                         </span>
+                        {ev.is_private && (
+                          <span style={{fontSize:'10px',background:'rgba(242,101,34,0.1)',color:'var(--orange)',padding:'2px 8px',borderRadius:'10px',fontWeight:700,border:'1px solid rgba(242,101,34,0.3)'}}>
+                            <i className="fa-solid fa-lock" style={{marginRight:'4px'}}></i>Members Only
+                          </span>
+                        )}
                         {ev.capacity && (
                           <span style={{fontSize:'11px',color:'var(--text-light)'}}>
                             <i className="fa-solid fa-users" style={{marginRight:'3px'}}></i>{(ev.registered_count||0)>=(ev.capacity||999999)?'Fully Booked':`${ev.registered_count||0}/${ev.capacity} seats filled`}
