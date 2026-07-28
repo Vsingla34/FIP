@@ -14,13 +14,30 @@ const WHITE_20  = 'rgba(255,255,255,0.20)';
 const WHITE_10  = 'rgba(255,255,255,0.10)';
 
 /* ── helpers ── */
-function loadImage(src) {
-  return new Promise((res, rej) => {
-    const img = new Image(); img.crossOrigin = 'anonymous';
-    img.onload = () => res(img);
-    img.onerror = () => rej(new Error('img fail'));
-    img.src = src;
-  });
+/* ── Load image safely — fetch as blob to avoid CORS canvas restrictions ── */
+async function loadImage(src) {
+  // Strategy 1: fetch → blob URL (bypasses CORS taint on canvas)
+  try {
+    const resp = await fetch(src, { mode: 'cors', cache: 'force-cache' });
+    if (!resp.ok) throw new Error('fetch failed');
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload  = () => { URL.revokeObjectURL(blobUrl); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(blobUrl); rej(new Error('blob img failed')); };
+      img.src = blobUrl;
+    });
+  } catch (_) {
+    // Strategy 2: direct load with crossOrigin (works for Supabase storage, Cloudinary etc.)
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload  = () => res(img);
+      img.onerror = () => rej(new Error(`img load failed: ${src}`));
+      img.src = src + (src.includes('?') ? '&' : '?') + '_t=' + Date.now();
+    });
+  }
 }
 
 function wrapLines(ctx, text, maxW) {
@@ -53,11 +70,14 @@ async function drawFlyer(canvas, { name, courseTitle, whatYouLearn, eventDate, f
   /* ── 1. Background ── */
   if (flyerTemplateUrl) {
     try {
-      const img = await loadImage(flyerTemplateUrl);
-      ctx.drawImage(img, 0, 0, W, H);
+      const templateImg = await loadImage(flyerTemplateUrl);
+      ctx.drawImage(templateImg, 0, 0, W, H);
       ctx.fillStyle = 'rgba(8,16,36,0.72)';
       ctx.fillRect(0, 0, W, H);
-    } catch { drawBg(ctx); }
+    } catch (e) {
+      console.warn('FlyerGenerator: template image failed to load:', flyerTemplateUrl, e.message);
+      drawBg(ctx);
+    }
   } else {
     drawBg(ctx);
   }
