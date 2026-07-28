@@ -460,7 +460,7 @@ export default function AdminPage() {
     if (course === 'new') {
       setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'', banner_url:'', what_you_learn:'', speakers:'' });
     } else {
-      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', flyer_template_url:course.flyer_template_url||'', is_private:course.is_private||false, banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', flyer_template_url:course.flyer_template_url||'', is_private:course.is_private||false, enable_flyer:course.enable_flyer!==false, banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
     }
     setShowCourseModal(course);
   };
@@ -532,9 +532,9 @@ export default function AdminPage() {
 
   const openEventModal = (ev) => {
     if (ev === 'new') {
-      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false });
+      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true });
     } else {
-      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false });
+      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false, whatsapp_group_link:ev.whatsapp_group_link||'', flyer_template_url:ev.flyer_template_url||'', enable_flyer:ev.enable_flyer!==false });
     }
     setShowEventModal(ev);
   };
@@ -735,6 +735,9 @@ export default function AdminPage() {
   const [contacts,       setContacts]       = useState([]);
   const [contactsLoading,setContactsLoading]= useState(false);
   const [contactFilter,  setContactFilter]  = useState('unread');
+  const [replyingToId,   setReplyingToId]   = useState(null);
+  const [replyText,      setReplyText]      = useState('');
+  const [replySending,   setReplySending]   = useState(false);
 
   useEffect(() => {
     if (tab !== 'contacts') return;
@@ -1397,7 +1400,14 @@ export default function AdminPage() {
                                 {getInitials(m.full_name)}
                               </div>
                               <div>
-                                <div style={{fontWeight:700,color:'var(--blue)',fontSize:'13px'}}>{m.full_name||'—'}</div>
+                                <div style={{fontWeight:700,color:'var(--blue)',fontSize:'13px'}}>
+                                  {m.full_name||'—'}
+                                  {m.fip_member_no && (
+                                    <span style={{marginLeft:'8px',fontSize:'10px',fontWeight:700,color:'var(--orange)',fontFamily:'monospace',background:'rgba(242,101,34,0.1)',padding:'1px 6px',borderRadius:'4px'}}>
+                                      {m.fip_member_no}
+                                    </span>
+                                  )}
+                                </div>
                                 <div style={{fontSize:'11px',color:'var(--text-light)'}}>{m.email}</div>
                               </div>
                             </div>
@@ -2682,16 +2692,90 @@ export default function AdminPage() {
                       {msg.subject && <div style={{marginTop:'4px',fontSize:'12px',fontWeight:600,color:'var(--blue-mid)'}}>{msg.subject}</div>}
                     </div>
                     <div style={{display:'flex',gap:'8px',flexShrink:0,flexWrap:'wrap'}}>
-                      <a href={`mailto:${msg.email}?subject=Re: ${encodeURIComponent(msg.subject||'Your FIP Enquiry')}`}
-                        className="admin-btn" style={{background:'var(--blue)',color:'#fff',border:'none',textDecoration:'none'}}
-                        onClick={() => markContactStatus(msg.id,'replied')}>
-                        <i className="fa-solid fa-reply"></i> Reply
-                      </a>
-                      {msg.status === 'unread' && (
-                        <button className="admin-btn" style={{background:'var(--off-white)',color:'var(--text-muted)',border:'1px solid var(--border)'}}
-                          onClick={() => markContactStatus(msg.id,'read')}>
-                          <i className="fa-solid fa-check"></i> Mark Read
-                        </button>
+                      {/* Inline reply form */}
+                      {replyingToId === msg.id ? (
+                        <div style={{marginTop:'12px',background:'#fff',border:'1px solid var(--border)',borderRadius:'10px',padding:'14px'}}>
+                          <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',marginBottom:'8px'}}>
+                            <i className="fa-solid fa-reply" style={{marginRight:'6px',color:'var(--orange)'}}></i>
+                            Replying to {msg.name}
+                          </div>
+                          <textarea
+                            className="form-input"
+                            rows={4}
+                            placeholder="Type your reply here…"
+                            value={replyText}
+                            onChange={e => setReplyText(e.target.value)}
+                            style={{resize:'vertical',marginBottom:'10px'}}
+                            autoFocus
+                          />
+                          <div style={{display:'flex',gap:'8px'}}>
+                            <button className="btn btn-primary btn-sm" disabled={!replyText.trim() || replySending}
+                              onClick={async () => {
+                                if (!replyText.trim()) return;
+                                setReplySending(true);
+                                // Save reply to contact_messages
+                                await supabase.from('contact_messages').update({
+                                  reply_text:  replyText.trim(),
+                                  replied_at:  new Date().toISOString(),
+                                  replied_by:  profile?.id,
+                                  status:      'replied',
+                                }).eq('id', msg.id);
+                                // Create notification for the user (if they have an account)
+                                if (msg.user_id) {
+                                  await supabase.from('notifications').insert({
+                                    user_id:  msg.user_id,
+                                    type:     'contact_reply',
+                                    title:    'FIP replied to your message',
+                                    message:  replyText.trim(),
+                                    link:     '/dashboard?tab=messages',
+                                    meta:     { contact_message_id: msg.id, subject: msg.subject, original: msg.message },
+                                  });
+                                }
+                                // Send reply email too
+                                fetch('/api/send-contact-email', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    type:    'reply',
+                                    to:      msg.email,
+                                    name:    msg.name,
+                                    subject: `Re: ${msg.subject}`,
+                                    message: replyText.trim(),
+                                    original: msg.message,
+                                  }),
+                                }).catch(() => {});
+                                setContacts(prev => prev.map(c => c.id === msg.id ? { ...c, status:'replied', reply_text: replyText.trim() } : c));
+                                setReplyingToId(null); setReplyText(''); setReplySending(false);
+                                showToast('Reply sent!');
+                              }}>
+                              {replySending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</> : <><i className="fa-solid fa-paper-plane"></i> Send Reply</>}
+                            </button>
+                            <button className="btn btn-outline-blue btn-sm" onClick={() => { setReplyingToId(null); setReplyText(''); }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'12px'}}>
+                          <button className="admin-btn" style={{background:'var(--blue)',color:'#fff',border:'none'}}
+                            onClick={() => { setReplyingToId(msg.id); setReplyText(''); }}>
+                            <i className="fa-solid fa-reply"></i> {msg.reply_text ? 'Edit Reply' : 'Reply'}
+                          </button>
+                          {msg.status === 'unread' && (
+                            <button className="admin-btn" style={{background:'var(--off-white)',color:'var(--text-muted)',border:'1px solid var(--border)'}}
+                              onClick={() => markContactStatus(msg.id,'read')}>
+                              <i className="fa-solid fa-check"></i> Mark Read
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {/* Show existing reply */}
+                      {msg.reply_text && replyingToId !== msg.id && (
+                        <div style={{marginTop:'10px',background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'8px',padding:'12px 14px'}}>
+                          <div style={{fontSize:'11px',fontWeight:700,color:'var(--green)',marginBottom:'4px'}}>
+                            <i className="fa-solid fa-check-circle" style={{marginRight:'5px'}}></i>
+                            Reply sent {msg.replied_at ? new Date(msg.replied_at).toLocaleDateString('en-IN') : ''}
+                          </div>
+                          <div style={{fontSize:'13px',color:'#166534',whiteSpace:'pre-wrap'}}>{msg.reply_text}</div>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -3162,7 +3246,7 @@ export default function AdminPage() {
 
           {/* ── Popup Create/Edit Modal ── */}
           {popupModal && (
-            <div className="modal-overlay" onClick={() => setPopupModal(null)}>
+            <div className="modal-overlay">
               <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'520px'}}>
                 <button className="modal-close" onClick={() => setPopupModal(null)}>&#x2715;</button>
                 <div className="modal-title">{popupModal==='new'?'Add New Popup':'Edit Popup'}</div>
@@ -3236,7 +3320,7 @@ export default function AdminPage() {
 
       {/* ── Committee Add/Edit Modal ── */}
       {editModal?.mode === 'committee' && (
-        <div className="modal-overlay" onClick={() => setEditModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'520px'}}>
             <button className="modal-close" onClick={() => setEditModal(null)}>&#x2715;</button>
             <div className="modal-title">{editModal.committeeId===null ? 'Add New Committee' : 'Edit Committee'}</div>
@@ -3286,7 +3370,7 @@ export default function AdminPage() {
 
       {/* ── Member Add/Edit Modal ── */}
       {editModal?.mode === 'member' && (
-        <div className="modal-overlay" onClick={() => setEditModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'460px'}}>
             <button className="modal-close" onClick={() => setEditModal(null)}>&#x2715;</button>
             <div className="modal-title">{editModal.memberIdx===null ? 'Add Member' : 'Edit Member'}</div>
@@ -3332,7 +3416,7 @@ export default function AdminPage() {
 
       {/* ── Event Create / Edit Modal ── */}
       {showEventModal && (
-        <div className="modal-overlay" onClick={() => setShowEventModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'600px'}}>
             <button className="modal-close" onClick={() => setShowEventModal(null)}>&#x2715;</button>
             <div className="modal-title">{showEventModal === 'new' ? 'Create New Event' : 'Edit Event'}</div>
@@ -3460,6 +3544,37 @@ export default function AdminPage() {
                 <div style={{position:'absolute',top:'3px',left:eventForm.is_private?'25px':'3px',width:'20px',height:'20px',borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.2)'}}/>
               </div>
             </div>
+
+            {/* WhatsApp Group Link */}
+            <div className="form-group">
+              <label className="form-label"><span style={{color:'#25D366',marginRight:'6px'}}>💬</span>WhatsApp Group Link<span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(sent in confirmation email)</span></label>
+              <input className="form-input" type="url" placeholder="https://chat.whatsapp.com/..."
+                value={eventForm.whatsapp_group_link} onChange={e=>setEventForm(f=>({...f,whatsapp_group_link:e.target.value}))}/>
+            </div>
+
+            {/* Flyer Template URL */}
+            <div className="form-group">
+              <label className="form-label"><i className="fa-solid fa-image" style={{color:'var(--orange)',marginRight:'6px'}}></i>Flyer Template Image URL<span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'6px'}}>(background for participant flyer)</span></label>
+              <input className="form-input" type="url" placeholder="https://your-cdn.com/event-flyer.png"
+                value={eventForm.flyer_template_url} onChange={e=>setEventForm(f=>({...f,flyer_template_url:e.target.value}))}/>
+              {eventForm.flyer_template_url && <img src={eventForm.flyer_template_url} alt="preview" style={{marginTop:'8px',width:'100%',maxHeight:'90px',objectFit:'cover',borderRadius:'6px',border:'1px solid var(--border)'}} onError={e=>e.target.style.display='none'}/>}
+            </div>
+
+            {/* Enable Flyer toggle */}
+            <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px 16px',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'8px',marginBottom:'12px',cursor:'pointer'}}
+              onClick={()=>setEventForm(f=>({...f,enable_flyer:!f.enable_flyer}))}>
+              <input type="checkbox" checked={eventForm.enable_flyer} readOnly
+                style={{width:'16px',height:'16px',accentColor:'var(--blue)',cursor:'pointer',flexShrink:0}}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:'13px',color:'var(--blue)'}}>
+                  <i className="fa-solid fa-image" style={{color:'var(--orange)',marginRight:'6px'}}></i>
+                  Show "Generate Flyer" after registration
+                </div>
+                <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>
+                  Participants can download a shareable LinkedIn/WhatsApp flyer after booking their seat
+                </div>
+              </div>
+            </div>
             <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
               <button className="btn btn-outline-blue btn-sm" onClick={() => setShowEventModal(null)}>Cancel</button>
               <button className="btn btn-primary btn-sm" onClick={saveEvent} disabled={!eventForm.title.trim()}>
@@ -3472,7 +3587,7 @@ export default function AdminPage() {
 
       {/* ── Member Detail Modal ── */}
       {memberDetail && (
-        <div className="modal-overlay" onClick={() => { setMemberDetail(null); setMemberActivity(null); }}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'640px',maxHeight:'90vh',overflowY:'auto'}}>
             <button className="modal-close" onClick={() => { setMemberDetail(null); setMemberActivity(null); }}>&#x2715;</button>
 
@@ -3644,7 +3759,7 @@ export default function AdminPage() {
 
             {/* ── Committee Assignment Modal ── */}
       {committeeModal && (
-        <div className="modal-overlay" onClick={() => setCommitteeModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'460px'}}>
             <button className="modal-close" onClick={() => setCommitteeModal(null)}>&#x2715;</button>
             <div style={{textAlign:'center',marginBottom:'20px'}}>
@@ -3685,7 +3800,7 @@ export default function AdminPage() {
 
       {/* ── Course Add / Edit Modal ── */}
       {showCourseModal && (
-        <div className="modal-overlay" onClick={() => setShowCourseModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'560px'}}>
             <button className="modal-close" onClick={() => setShowCourseModal(null)}>&#x2715;</button>
             <div className="modal-title">{showCourseModal === 'new' ? 'Add New Course' : 'Edit Course'}</div>
@@ -3821,6 +3936,22 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Enable Flyer toggle for course */}
+            <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px 16px',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'8px',marginBottom:'12px',cursor:'pointer'}}
+              onClick={()=>setCourseForm(f=>({...f,enable_flyer:!f.enable_flyer}))}>
+              <input type="checkbox" checked={courseForm.enable_flyer} readOnly
+                style={{width:'16px',height:'16px',accentColor:'var(--blue)',cursor:'pointer',flexShrink:0}}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:'13px',color:'var(--blue)'}}>
+                  <i className="fa-solid fa-image" style={{color:'var(--orange)',marginRight:'6px'}}></i>
+                  Show "Generate Flyer" after registration
+                </div>
+                <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>
+                  Participants can download a shareable LinkedIn/WhatsApp flyer after enrolling
+                </div>
+              </div>
+            </div>
+
             {/* ── Visibility toggle ── */}
             <div style={{display:'flex',alignItems:'center',gap:'16px',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'10px',padding:'14px 18px',marginBottom:'12px'}}>
               <div style={{flex:1}}>
@@ -3855,7 +3986,7 @@ export default function AdminPage() {
 
       {/* ── Job Post / Edit Modal ── */}
       {jobModal && (
-        <div className="modal-overlay" onClick={() => setJobModal(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'560px'}}>
             <button className="modal-close" onClick={() => setJobModal(null)}>&#x2715;</button>
             <div className="modal-title">{jobModal === 'new' ? 'Post New Job' : 'Edit Job'}</div>
@@ -3930,7 +4061,7 @@ export default function AdminPage() {
 
       {/* ── Confirm Delete Modal ── */}
       {confirmDelete && (
-        <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'400px',textAlign:'center'}}>
             <div style={{width:'60px',height:'60px',borderRadius:'50%',background:'#FFF0EE',border:'2px solid #F5BDBA',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:'24px',color:'#C0392B'}}>
               <i className="fa-solid fa-trash"></i>

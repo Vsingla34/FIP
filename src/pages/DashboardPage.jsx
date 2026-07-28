@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext.jsx';
 import { getRSVPs, getPayments } from '../lib/api.js';
 import AvatarUpload from '../components/AvatarUpload.jsx';
 import { supabase } from '../lib/supabase.js';
+import FlyerGenerator from '../components/FlyerGenerator.jsx';
 
 /* ── Course Registrations Tab ── */
 function CourseRegistrationsTab({ navigate }) {
@@ -441,7 +442,7 @@ function ReferralPanel({ profile }) {
                     <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>{u.full_name}</div>
                     <div style={{fontSize:'11px',color:'var(--text-light)'}}>
                       Joined {new Date(u.joined_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
-                      {u.account_type && <span style={{marginLeft:'6px',textTransform:'capitalize'}}>· {u.account_type === 'student' ? 'Guest User' : u.account_type}</span>}
+                      {u.account_type && <span style={{marginLeft:'6px',textTransform:'capitalize'}}>· {u.account_type}</span>}
                     </div>
                   </div>
                   <span style={{fontSize:'11px',fontWeight:700,color:s.color,background:s.bg,padding:'4px 10px',borderRadius:'20px',display:'flex',alignItems:'center',gap:'4px',flexShrink:0}}>
@@ -523,7 +524,15 @@ function CommitteeMembersPanel({ committeeName, currentUserId }) {
 }
 
 export default function DashboardPage() {
-  const [tab, setTab]             = useState('overview');
+  const [tab, setTab]             = useState(() => {
+    // Support ?tab=messages from notification links
+    const urlTab = new URLSearchParams(window.location.search).get('tab');
+    return urlTab || 'overview';
+  });
+  const [notifications,    setNotifications]    = useState([]);
+  const [unreadCount,      setUnreadCount]      = useState(0);
+  const [contactMessages,  setContactMessages]  = useState([]);
+  const [activeFlyerItem,  setActiveFlyerItem]  = useState(null); // {title, whatYouLearn, date, templateUrl}
   const { user, profile, loading, updateProfile } = useAuth();
   const { showToast }             = useApp();
   const navigate                  = useNavigate();
@@ -537,6 +546,27 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!loading && !user) navigate('/');
   }, [loading, user, navigate]);
+
+  /* load notifications + contact message history */
+  useEffect(() => {
+    if (!user) return;
+    // Fetch notifications
+    supabase.from('notifications').select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setNotifications(data || []);
+        setUnreadCount((data || []).filter(n => !n.is_read).length);
+      });
+    // Fetch user's contact messages — match by user_id OR email (catches pre-login messages)
+    supabase.from('contact_messages')
+      .select('id,subject,message,reply_text,replied_at,created_at,status,user_id')
+      .or(`user_id.eq.${user.id},email.eq.${user.email}`)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (!error) setContactMessages(data || []);
+      });
+  }, [user]);
 
   /* load table data */
   useEffect(() => {
@@ -585,6 +615,8 @@ export default function DashboardPage() {
     { id:'courses',       icon:'fa-book-open',      label:'My Courses' },
     { id:'certificates',  icon:'fa-certificate',    label:'Certificates' },
     { id:'events',        icon:'fa-calendar-check', label:'Events' },
+    { id:'messages',      icon:'fa-envelope',       label:'Messages' },
+    { id:'flyers',        icon:'fa-image',          label:'My Flyers' },
     { id:'referral',      icon:'fa-gift',           label:'Refer & Earn' },
     { id:'payments',      icon:'fa-receipt',        label:'Payments' },
     { id:'settings',      icon:'fa-gear',           label:'Settings' },
@@ -634,6 +666,18 @@ export default function DashboardPage() {
           }}>
             {profile?.is_committee_member ? '👑 Committee Member' : memberStatus === 'Active' ? `✦ ${memberPlan} Member` : memberStatus}
           </span>
+
+          {/* FIP Member Number — shown only for active paid members */}
+          {profile?.fip_member_no && (
+            <div style={{marginTop:'10px',background:'linear-gradient(135deg,#1A3C6E,#0D2040)',borderRadius:'8px',padding:'10px 14px',textAlign:'center',border:'1px solid rgba(255,208,155,0.3)'}}>
+              <div style={{fontSize:'10px',fontWeight:700,color:'rgba(255,208,155,0.7)',letterSpacing:'2px',marginBottom:'4px',textTransform:'uppercase'}}>
+                FIP Member ID
+              </div>
+              <div style={{fontSize:'18px',fontWeight:900,color:'#FFD09B',letterSpacing:'3px',fontFamily:'monospace'}}>
+                {profile.fip_member_no}
+              </div>
+            </div>
+          )}
         </div>
 
         <nav>
@@ -644,6 +688,11 @@ export default function DashboardPage() {
               onClick={() => setTab(n.id)}
             >
               <i className={`fa-solid ${n.icon}`}></i> {n.label}
+              {n.id === 'messages' && unreadCount > 0 && (
+                <span style={{background:'#F26522',color:'#fff',borderRadius:'50%',fontSize:'10px',fontWeight:700,padding:'1px 6px',marginLeft:'6px'}}>
+                  {unreadCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -765,6 +814,195 @@ export default function DashboardPage() {
         )}
 
         {/* PAYMENTS */}
+        {/* MESSAGES TAB */}
+        {tab === 'messages' && (
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'12px'}}>
+              <div>
+                <h2 style={{fontSize:'20px',fontWeight:800,color:'var(--blue)',margin:0}}>
+                  <i className="fa-solid fa-envelope" style={{marginRight:'10px',color:'var(--orange)'}}></i>
+                  Messages
+                </h2>
+                <p style={{fontSize:'13px',color:'var(--text-muted)',margin:'4px 0 0'}}>
+                  Your conversations with FIP team
+                </p>
+              </div>
+              {unreadCount > 0 && (
+                <button style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'8px 16px',fontSize:'12px',fontWeight:700,cursor:'pointer'}}
+                  onClick={async () => {
+                    await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id).eq('is_read', false);
+                    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+                    setUnreadCount(0);
+                  }}>
+                  <i className="fa-solid fa-check-double" style={{marginRight:'6px'}}></i>
+                  Mark all as read
+                </button>
+              )}
+            </div>
+
+            {contactMessages.length === 0 ? (
+              <div style={{textAlign:'center',padding:'60px 20px',color:'var(--text-muted)'}}>
+                <i className="fa-solid fa-envelope-open" style={{fontSize:'48px',opacity:.2,display:'block',marginBottom:'12px'}}></i>
+                <div style={{fontWeight:600}}>No messages yet</div>
+                <p style={{fontSize:'13px',marginTop:'6px'}}>
+                  When you send a message from the Contact page, your conversation with FIP will appear here.
+                </p>
+                <a href="/contact" style={{display:'inline-block',marginTop:'12px',background:'var(--blue)',color:'#fff',padding:'10px 24px',borderRadius:'8px',textDecoration:'none',fontWeight:700,fontSize:'13px'}}>
+                  Send a Message
+                </a>
+              </div>
+            ) : contactMessages.map(msg => (
+              <div key={msg.id} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:'14px',padding:'20px',marginBottom:'16px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+                {/* Subject */}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+                  <div style={{fontWeight:700,color:'var(--blue)',fontSize:'15px'}}>
+                    <i className="fa-solid fa-tag" style={{color:'var(--orange)',marginRight:'7px',fontSize:'12px'}}></i>
+                    {msg.subject}
+                  </div>
+                  <div style={{fontSize:'11px',color:'var(--text-muted)'}}>
+                    {new Date(msg.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+                  </div>
+                </div>
+
+                {/* User's original message — right aligned */}
+                <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'12px'}}>
+                  <div style={{maxWidth:'85%'}}>
+                    <div style={{fontSize:'10px',color:'var(--text-muted)',textAlign:'right',marginBottom:'4px',fontWeight:600}}>You</div>
+                    <div style={{background:'var(--blue)',color:'#fff',borderRadius:'14px 14px 2px 14px',padding:'12px 16px',fontSize:'14px',lineHeight:1.7,whiteSpace:'pre-wrap'}}>
+                      {msg.message}
+                    </div>
+                  </div>
+                </div>
+
+                {/* FIP Reply — left aligned */}
+                {msg.reply_text ? (
+                  <div style={{display:'flex',gap:'10px',alignItems:'flex-start'}}>
+                    <div style={{width:'36px',height:'36px',borderRadius:'50%',background:'var(--orange)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:'13px',flexShrink:0}}>F</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:'10px',color:'var(--text-muted)',marginBottom:'4px',fontWeight:600}}>
+                        FIP Team · {msg.replied_at ? new Date(msg.replied_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : ''}
+                      </div>
+                      <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'2px 14px 14px 14px',padding:'12px 16px',fontSize:'14px',lineHeight:1.7,color:'var(--text-dark)',whiteSpace:'pre-wrap'}}>
+                        {msg.reply_text}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                    <div style={{width:'36px',height:'36px',borderRadius:'50%',background:'var(--off-white)',border:'2px dashed var(--border)',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text-muted)',fontSize:'13px',flexShrink:0}}>
+                      <i className="fa-solid fa-clock"></i>
+                    </div>
+                    <div style={{fontSize:'13px',color:'var(--text-muted)',fontStyle:'italic'}}>
+                      FIP team will reply soon…
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* MY FLYERS TAB */}
+        {tab === 'flyers' && (
+          <div>
+            {activeFlyerItem && (
+              <FlyerGenerator
+                name={profile?.full_name || user?.email}
+                courseTitle={activeFlyerItem.title}
+                whatYouLearn={activeFlyerItem.whatYouLearn || []}
+                eventDate={activeFlyerItem.date}
+                flyerTemplateUrl={activeFlyerItem.templateUrl}
+                logoUrl={`${window.location.origin}/logo.png`}
+                onClose={() => setActiveFlyerItem(null)}
+              />
+            )}
+            <div style={{marginBottom:'20px'}}>
+              <h2 style={{fontSize:'20px',fontWeight:800,color:'var(--blue)',margin:'0 0 4px'}}>
+                <i className="fa-solid fa-image" style={{marginRight:'10px',color:'var(--orange)'}}></i>
+                My Flyers
+              </h2>
+              <p style={{fontSize:'13px',color:'var(--text-muted)',margin:0}}>
+                Generate shareable LinkedIn & WhatsApp flyers for your courses and events
+              </p>
+            </div>
+
+            {/* Course Flyers */}
+            {enrollments.filter(e => e.enable_flyer !== false).length > 0 && (
+              <div style={{marginBottom:'28px'}}>
+                <div style={{fontSize:'12px',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'12px'}}>
+                  📚 Courses
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:'14px'}}>
+                  {enrollments.map((e, i) => (
+                    <div key={i} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:'12px',overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+                      {e.banner_url && <img src={e.banner_url} alt={e.course_title} style={{width:'100%',height:'100px',objectFit:'cover'}}/>}
+                      <div style={{padding:'14px'}}>
+                        <div style={{fontWeight:700,fontSize:'13px',color:'var(--blue)',marginBottom:'4px',lineHeight:1.4}}>
+                          {e.course_title || 'Course'}
+                        </div>
+                        {e.event_date && (
+                          <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'10px'}}>
+                            📅 {new Date(e.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+                          </div>
+                        )}
+                        <button onClick={() => setActiveFlyerItem({
+                          title:       e.course_title,
+                          whatYouLearn: [],
+                          date:         e.event_date,
+                          templateUrl:  e.flyer_template_url,
+                        })} style={{width:'100%',background:'var(--orange)',color:'#fff',border:'none',borderRadius:'8px',padding:'9px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'6px'}}>
+                          <i className="fa-solid fa-image"></i> Generate Flyer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Event Flyers */}
+            {rsvps.filter(r => r.enable_flyer !== false).length > 0 && (
+              <div>
+                <div style={{fontSize:'12px',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'12px'}}>
+                  📅 Events
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:'14px'}}>
+                  {rsvps.map((r, i) => (
+                    <div key={i} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:'12px',overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+                      <div style={{padding:'14px'}}>
+                        <div style={{fontWeight:700,fontSize:'13px',color:'var(--blue)',marginBottom:'4px',lineHeight:1.4}}>
+                          {r.event_name || r.events?.title || 'Event'}
+                        </div>
+                        {(r.event_date || r.events?.event_date) && (
+                          <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'10px'}}>
+                            📅 {new Date(r.event_date || r.events?.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+                          </div>
+                        )}
+                        <button onClick={() => setActiveFlyerItem({
+                          title:       r.event_name || r.events?.title,
+                          whatYouLearn: [],
+                          date:         r.event_date || r.events?.event_date,
+                          templateUrl:  r.events?.flyer_template_url,
+                        })} style={{width:'100%',background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'9px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'6px'}}>
+                          <i className="fa-solid fa-image"></i> Generate Flyer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {enrollments.length === 0 && rsvps.length === 0 && (
+              <div style={{textAlign:'center',padding:'60px 20px',color:'var(--text-muted)'}}>
+                <i className="fa-solid fa-image" style={{fontSize:'48px',opacity:.2,display:'block',marginBottom:'12px'}}></i>
+                <div style={{fontWeight:600}}>No flyers yet</div>
+                <p style={{fontSize:'13px',marginTop:'6px'}}>Register for courses and events to generate shareable flyers.</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === 'referral' && (
           <ReferralPanel profile={profile} />
         )}

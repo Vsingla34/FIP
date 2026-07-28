@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
   if (!process.env.GMAIL_USER) return res.status(200).json({ skipped: true });
 
-  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink } = req.body || {};
+  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink } = req.body || {};
   if (!email || !eventTitle) return res.status(400).json({ error: 'email and eventTitle are required' });
 
   const dateStr   = formatDate(eventDate);
@@ -66,8 +66,14 @@ export default async function handler(req, res) {
       </div>` : ''}
       ${isOnline && zoomLink ? `
       <div style="margin-top:12px">
-        <a href="${zoomLink}" style="display:inline-block;background:#2D8CFF;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:13px">
+        <a href="${zoomLink}" style="display:inline-block;background:#2D8CFF;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:13px;margin-right:8px">
           Join via Zoom →
+        </a>
+      </div>` : ''}
+    ${whatsappGroupLink ? `
+      <div style="margin-top:12px">
+        <a href="${whatsappGroupLink}" style="display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:13px">
+          💬 Join WhatsApp Group →
         </a>
       </div>` : ''}
     </div>

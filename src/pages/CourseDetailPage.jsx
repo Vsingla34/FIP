@@ -449,7 +449,7 @@ export default function CourseDetailPage() {
 
       {/* ── Registration Modal ── */}
       {showForm && (
-        <div className="modal-overlay" onClick={() => !submitting && setShowForm(false)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'480px'}}>
             {!submitting && <button className="modal-close" onClick={() => setShowForm(false)}>&#x2715;</button>}
 

@@ -419,7 +419,7 @@ export default function JobsPage() {
 
       {/* ════════════ APPLY MODAL ════════════ */}
       {applyJob && (
-        <div className="modal-overlay" onClick={() => setApplyJob(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'500px'}}>
             <button className="modal-close" onClick={() => setApplyJob(null)}>&#x2715;</button>
             <div style={{background:'var(--blue-pale)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'14px 16px',marginBottom:'16px'}}>
@@ -445,7 +445,7 @@ export default function JobsPage() {
       )}
       {/* ════════════ MEMBERSHIP GATE MODAL ════════════ */}
       {memberGate && (
-        <div className="modal-overlay" onClick={() => setMemberGate(false)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'460px',textAlign:'center'}}>
             <button className="modal-close" onClick={() => setMemberGate(false)}>&#x2715;</button>
             <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'linear-gradient(135deg,var(--blue),#1B4A9E)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px'}}>

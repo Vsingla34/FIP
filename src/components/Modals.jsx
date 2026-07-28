@@ -337,7 +337,7 @@ export default function Modals() {
   };
 
   return (
-    <div className="modal-overlay" onClick={(!otpStep && !payStep && !paySuccess) ? closeModal : undefined}>
+    <div className="modal-overlay">
       <div className="modal-box" onClick={e => e.stopPropagation()}>
         {!otpStep && !payStep && !paySuccess && (
           <button className="modal-close" onClick={() => { closeModal(); clearError(); setOtpStep(false); }}>&#x2715;</button>

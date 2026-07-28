@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { useRazorpay } from '../hooks/useRazorpay.js';
 import { supabase } from '../lib/supabase.js';
+import FlyerGenerator from '../components/FlyerGenerator.jsx';
 
 function formatDate(dateStr) {
   if (!dateStr) return 'Every Sunday';
@@ -34,7 +35,8 @@ export default function EventsPage() {
   const [rsvpOpen, setRsvpOpen] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
-  const [registeredEventIds, setRegisteredEventIds] = useState(new Set()); // events user already registered for
+  const [registeredEventIds, setRegisteredEventIds] = useState(new Set());
+  const [flyerEvent, setFlyerEvent]   = useState(null); // event to show flyer for after registration
   const [form, setForm] = useState({
     full_name:'', email:'', phone:'', profession:'',
     designation:'', organisation:'', icai_membership_no:'', city:'',
@@ -204,18 +206,23 @@ export default function EventsPage() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                name:          capturedForm.full_name,
-                email:         capturedForm.email,
-                eventTitle:    capturedEvent.title,
-                eventDate:     capturedEvent.event_date,
-                eventTime:     capturedEvent.event_time,
-                eventLocation: capturedEvent.location,
-                eventType:     capturedEvent.event_type,
-                isPaid:        true,
-                amount:        capturedEvent.price,
-                zoomLink:      capturedEvent.zoom_link,
+                name:               capturedForm.full_name,
+                email:              capturedForm.email,
+                eventTitle:         capturedEvent.title,
+                eventDate:          capturedEvent.event_date,
+                eventTime:          capturedEvent.event_time,
+                eventLocation:      capturedEvent.location,
+                eventType:          capturedEvent.event_type,
+                isPaid:             true,
+                amount:             capturedEvent.price,
+                zoomLink:           capturedEvent.zoom_link,
+                whatsappGroupLink:  capturedEvent.whatsapp_group_link,
               }),
             }).catch(() => {});
+            // Show flyer if enabled
+            if (capturedEvent.enable_flyer !== false) {
+              setTimeout(() => setFlyerEvent({ event: capturedEvent, name: capturedForm.full_name }), 400);
+            }
           }
         },
       });
@@ -242,25 +249,45 @@ export default function EventsPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name:          form.full_name,
-        email:         form.email,
-        eventTitle:    rsvpOpen.title,
-        eventDate:     rsvpOpen.event_date,
-        eventTime:     rsvpOpen.event_time,
-        eventLocation: rsvpOpen.location,
-        eventType:     rsvpOpen.event_type,
-        isPaid:        false,
-        zoomLink:      rsvpOpen.zoom_link,
+        name:               form.full_name,
+        email:              form.email,
+        eventTitle:         rsvpOpen.title,
+        eventDate:          rsvpOpen.event_date,
+        eventTime:          rsvpOpen.event_time,
+        eventLocation:      rsvpOpen.location,
+        eventType:          rsvpOpen.event_type,
+        isPaid:             false,
+        zoomLink:           rsvpOpen.zoom_link,
+        whatsappGroupLink:  rsvpOpen.whatsapp_group_link,
       }),
     }).catch(() => {});
 
-    // Mark as registered in local state too
     setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
-    setSubmitted(true);
+    // Show flyer if event has it enabled
+    if (rsvpOpen.enable_flyer !== false) {
+      const captured = { ...rsvpOpen };
+      const capturedName = form.full_name;
+      setSubmitted(true);
+      setTimeout(() => { setRsvpOpen(null); setFlyerEvent({ event: captured, name: capturedName }); }, 600);
+    } else {
+      setSubmitted(true);
+    }
   };
 
   return (
     <>
+      {/* Flyer popup after event registration */}
+      {flyerEvent && (
+        <FlyerGenerator
+          name={flyerEvent.name}
+          courseTitle={flyerEvent.event.title}
+          whatYouLearn={flyerEvent.event.description ? [flyerEvent.event.description] : []}
+          eventDate={flyerEvent.event.event_date}
+          flyerTemplateUrl={flyerEvent.event.flyer_template_url}
+          logoUrl={`${window.location.origin}/logo.png`}
+          onClose={() => setFlyerEvent(null)}
+        />
+      )}
       <div className="page-hero">
         <div className="container">
           <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Events</span></div>
@@ -398,7 +425,7 @@ export default function EventsPage() {
           REGISTRATION MODAL
       ══════════════════════════════════ */}
       {rsvpOpen && (
-        <div className="modal-overlay" onClick={() => !submitting && setRsvpOpen(null)}>
+        <div className="modal-overlay">
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'560px'}}>
             {!submitting && (
               <button className="modal-close" onClick={() => setRsvpOpen(null)}>&#x2715;</button>

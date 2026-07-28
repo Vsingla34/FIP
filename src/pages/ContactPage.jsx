@@ -34,6 +34,7 @@ export default function ContactPage() {
           phone:   form.phone.trim() || null,
           subject: form.subject,
           message: form.message.trim(),
+          user_id: user?.id || null,
         });
 
       if (dbError) throw new Error(dbError.message);

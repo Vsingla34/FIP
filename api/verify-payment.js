@@ -362,12 +362,20 @@ export default async function handler(req, res) {
 
     // 4. Apply effect (activate membership OR enroll in course)
     if (payment.purchase_type === 'membership') {
+      // Generate unique FIP Member Number if not already assigned
+      let fipMemberNo = profile?.fip_member_no;
+      if (!fipMemberNo) {
+        const { data: seqData } = await supabaseAdmin.rpc('generate_fip_member_no');
+        fipMemberNo = seqData;
+      }
+
       await supabaseAdmin.from('profiles').update({
-        account_type:      'fip_member',   // paid member = FIP Member
+        account_type:      'fip_member',
         membership_status: 'Active',
         membership_plan:   payment.item_name.replace('FIP ', '').replace(' Membership', ''),
         membership_start:  validFrom,
         membership_end:    validUntil,
+        fip_member_no:     fipMemberNo,
       }).eq('id', userId);
 
       // Complete referral if user was referred
@@ -459,7 +467,7 @@ export default async function handler(req, res) {
       .eq('id', userId).single();
 
     // Generate friendly Member ID
-    const memberId = profile?.profile_slug
+    const memberId = profile?.fip_member_no || profile?.profile_slug
       ? 'FIP-' + profile.profile_slug.split('-').slice(-1)[0].toUpperCase()
       : 'FIP-' + userId.slice(0,6).toUpperCase();
 
