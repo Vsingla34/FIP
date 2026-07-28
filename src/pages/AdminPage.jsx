@@ -742,7 +742,11 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab !== 'contacts') return;
     setContactsLoading(true);
-    supabase.rpc('admin_get_contact_messages')
+    supabase
+      .from('contact_messages')
+      .select('id,name,email,phone,subject,message,status,reply_text,replied_at,user_id,created_at')
+      .order('created_at', { ascending: false })
+      .limit(100)
       .then(({ data, error }) => {
         if (!error) setContacts(data || []);
         else console.error('Contacts error:', error);
@@ -2731,19 +2735,25 @@ export default function AdminPage() {
                                     meta:     { contact_message_id: msg.id, subject: msg.subject, original: msg.message },
                                   });
                                 }
-                                // Send reply email too
-                                fetch('/api/send-contact-email', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    type:    'reply',
-                                    to:      msg.email,
-                                    name:    msg.name,
-                                    subject: `Re: ${msg.subject}`,
-                                    message: replyText.trim(),
-                                    original: msg.message,
-                                  }),
-                                }).catch(() => {});
+                                // Send reply email
+                                try {
+                                  const emailRes = await fetch('/api/send-contact-email', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      type:     'reply',
+                                      to:       msg.email || '',
+                                      name:     msg.name  || 'Member',
+                                      subject:  `Re: ${msg.subject || 'Your FIP Enquiry'}`,
+                                      message:  replyText.trim(),
+                                      original: msg.message || '',
+                                    }),
+                                  });
+                                  if (!emailRes.ok) {
+                                    const err = await emailRes.json().catch(() => ({}));
+                                    console.warn('Reply email failed:', err);
+                                  }
+                                } catch (e) { console.warn('Reply email error:', e.message); }
                                 setContacts(prev => prev.map(c => c.id === msg.id ? { ...c, status:'replied', reply_text: replyText.trim() } : c));
                                 setReplyingToId(null); setReplyText(''); setReplySending(false);
                                 showToast('Reply sent!');
