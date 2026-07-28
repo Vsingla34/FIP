@@ -135,7 +135,7 @@ export async function createRSVP({ userId, eventName, eventDate, fullName, email
 export async function getRSVPs(userId) {
   const { data, error } = await supabase
     .from('event_rsvps')
-    .select('*')
+    .select('*, events(title, event_date, event_type, flyer_template_url, enable_flyer)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
   if (error) throw error;

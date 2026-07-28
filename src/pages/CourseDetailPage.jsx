@@ -210,11 +210,7 @@ export default function CourseDetailPage() {
       {showFlyer && course && (
         <FlyerGenerator
           name={form.full_name || profile?.full_name || user?.email || 'Participant'}
-          courseTitle={course.title}
-          whatYouLearn={course.what_you_learn || []}
-          eventDate={course.event_date}
           flyerTemplateUrl={course.flyer_template_url}
-          logoUrl={`${window.location.origin}/logo.png`}
           onClose={() => setShowFlyer(false)}
         />
       )}

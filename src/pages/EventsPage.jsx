@@ -280,11 +280,7 @@ export default function EventsPage() {
       {flyerEvent && (
         <FlyerGenerator
           name={flyerEvent.name}
-          courseTitle={flyerEvent.event.title}
-          whatYouLearn={flyerEvent.event.description ? [flyerEvent.event.description] : []}
-          eventDate={flyerEvent.event.event_date}
           flyerTemplateUrl={flyerEvent.event.flyer_template_url}
-          logoUrl={`${window.location.origin}/logo.png`}
           onClose={() => setFlyerEvent(null)}
         />
       )}

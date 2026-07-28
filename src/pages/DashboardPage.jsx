@@ -907,14 +907,10 @@ export default function DashboardPage() {
           <div>
             {activeFlyerItem && (
               <FlyerGenerator
-                name={profile?.full_name || user?.email}
-                courseTitle={activeFlyerItem.title}
-                whatYouLearn={activeFlyerItem.whatYouLearn || []}
-                eventDate={activeFlyerItem.date}
-                flyerTemplateUrl={activeFlyerItem.templateUrl}
-                logoUrl={`${window.location.origin}/logo.png`}
-                onClose={() => setActiveFlyerItem(null)}
-              />
+          name={profile?.full_name || user?.email}
+          flyerTemplateUrl={activeFlyerItem.templateUrl}
+          onClose={() => setActiveFlyerItem(null)}
+        />
             )}
             <div style={{marginBottom:'20px'}}>
               <h2 style={{fontSize:'20px',fontWeight:800,color:'var(--blue)',margin:'0 0 4px'}}>
