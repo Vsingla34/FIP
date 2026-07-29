@@ -52,9 +52,8 @@ export default function EventsPage() {
         // Fetch registration counts for each event
         const counts = await Promise.all(
           data.map(ev =>
-            supabase.from('event_rsvps').select('id', { count: 'exact', head: true })
-              .eq('event_id', ev.id)
-              .then(({ count }) => ({ id: ev.id, count: count || 0 }))
+            supabase.rpc('get_event_registration_count', { p_event_id: ev.id })
+              .then(({ data: count }) => ({ id: ev.id, count: count || 0 }))
           )
         );
         const countMap = Object.fromEntries(counts.map(c => [c.id, c.count]));
@@ -234,12 +233,21 @@ export default function EventsPage() {
     setSubmitting(false);
 
     if (error) {
-      if (error.code === '23505') {
+      setSubmitting(false);
+      if (error.code === '23505' || error.message?.includes('unique')) {
         showToast('You have already registered for this event!', true);
         setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
         setRsvpOpen(null);
+      } else if (error.message?.includes('EVENT_FULL')) {
+        showToast('Sorry, this event is now fully booked!', true);
+        // Refresh event counts so card shows Fully Booked
+        setEvents(prev => prev.map(ev => ev.id === rsvpOpen.id
+          ? { ...ev, registered_count: ev.capacity }
+          : ev
+        ));
+        setRsvpOpen(null);
       } else {
-        showToast('Registration failed. Please try again.', true);
+        showToast('Registration failed: ' + (error.message || 'Please try again.'), true);
       }
       return;
     }
@@ -262,6 +270,11 @@ export default function EventsPage() {
       }),
     }).catch(() => {});
 
+    // Update registered count on card
+    setEvents(prev => prev.map(ev => ev.id === rsvpOpen.id
+      ? { ...ev, registered_count: (ev.registered_count || 0) + 1 }
+      : ev
+    ));
     setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
     // Show flyer if event has it enabled
     if (rsvpOpen.enable_flyer !== false) {
