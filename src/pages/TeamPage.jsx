@@ -124,7 +124,7 @@ export default function TeamPage() {
           <div className="section-header centered">
             <span className="eyebrow">Committee Leadership</span>
             <h2 className="section-heading">Chairpersons &amp; <span>Co-Chairs</span></h2>
-            <p className="section-sub">On clicking the committee, visitors will be able to see all the members of the committee along with their photos and LinkedIn IDs.</p>
+            <p className="section-sub">On clicking the committee, You will be able to see all the members of the committee along with their photos and LinkedIn IDs.</p>
           </div>
 
           {committeeLeaders.length === 0 ? (
