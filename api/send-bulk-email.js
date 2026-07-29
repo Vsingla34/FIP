@@ -19,10 +19,10 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { userId, subject, content, recipientIds } = req.body || {};
+  const { userId, subject, content, recipientIds, recipients: directRecipients } = req.body || {};
 
-  if (!subject || !content || !recipientIds?.length) {
-    return res.status(400).json({ error: 'subject, content and recipientIds are required' });
+  if (!subject || !content || (!recipientIds?.length && !directRecipients?.length)) {
+    return res.status(400).json({ error: 'subject, content and recipients are required' });
   }
 
   // Verify caller is admin
@@ -32,10 +32,17 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Admin only' });
   }
 
-  // Fetch recipient profiles
-  const { data: recipients, error } = await supabaseAdmin
-    .from('profiles').select('full_name,email').in('id', recipientIds);
-  if (error || !recipients?.length) {
+  // Build recipients list — either from profile IDs or direct email/name pairs
+  let recipients = directRecipients || [];
+  if (recipientIds?.length) {
+    const { data: profileRecipients, error } = await supabaseAdmin
+      .from('profiles').select('full_name,email').in('id', recipientIds);
+    if (error || !profileRecipients?.length) {
+      return res.status(400).json({ error: 'No valid recipients found' });
+    }
+    recipients = profileRecipients;
+  }
+  if (!recipients.length) {
     return res.status(400).json({ error: 'No valid recipients found' });
   }
 

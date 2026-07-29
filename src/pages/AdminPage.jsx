@@ -517,6 +517,17 @@ export default function AdminPage() {
   const [eventRsvps,       setEventRsvps]       = useState([]);
   const [rsvpEventView,    setRsvpEventView]    = useState(null);
   const [rsvpLoading,      setRsvpLoading]      = useState(false);
+  const [selectedRsvpIds,  setSelectedRsvpIds]  = useState(new Set());
+  const [showRsvpEmail,    setShowRsvpEmail]    = useState(false);
+  const [rsvpEmailSubject, setRsvpEmailSubject] = useState('');
+  const [rsvpEmailContent, setRsvpEmailContent] = useState('');
+  const [rsvpEmailSending, setRsvpEmailSending] = useState(false);
+
+  const [selectedEnrollIds,  setSelectedEnrollIds]  = useState(new Set());
+  const [showEnrollEmail,    setShowEnrollEmail]    = useState(false);
+  const [enrollEmailSubject, setEnrollEmailSubject] = useState('');
+  const [enrollEmailContent, setEnrollEmailContent] = useState('');
+  const [enrollEmailSending, setEnrollEmailSending] = useState(false);
   const [eventForm, setEventForm] = useState({
     title:'', description:'', event_type:'Physical', location:'', venue:'',
     city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0,
@@ -561,6 +572,7 @@ export default function AdminPage() {
 
   const loadRsvps = async (ev) => {
     setRsvpEventView(ev); setRsvpLoading(true);
+    setSelectedRsvpIds(new Set()); setShowRsvpEmail(false);
     const { data } = await supabase.rpc('admin_get_event_rsvps', { p_event_id: ev.id });
     setEventRsvps(data || []); setRsvpLoading(false);
   };
@@ -920,29 +932,41 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab !== 'dashboard') return;
     setDashLoading(true);
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
     Promise.all([
-      // Revenue this year (paid payments)
-      supabase.from('payments').select('total_amount').eq('status','paid')
-        .gte('created_at', new Date(new Date().getFullYear(), 0, 1).toISOString()),
+      // Revenue breakdown by purchase type
+      supabase.from('payments').select('total_amount,purchase_type').eq('status','paid').gte('created_at', yearStart),
       // Active events count
       supabase.from('events').select('id', { count:'exact', head:true }).in('status',['upcoming','ongoing']),
-      // Course registrations count
+      // Course registrations count (all time)
       supabase.from('course_registrations').select('id', { count:'exact', head:true }),
-      // Total profiles count
-      supabase.from('profiles').select('id', { count:'exact', head:true }),
-      // Active members count
+      // FIP Members only (paid members)
+      supabase.from('profiles').select('id', { count:'exact', head:true })
+        .or('account_type.eq.fip_member,membership_status.eq.Active'),
+      // Active members (membership still valid)
       supabase.from('profiles').select('id', { count:'exact', head:true }).eq('membership_status','Active'),
       // Recent payments with profile join
-      supabase.from('payments').select('total_amount,amount,gst_amount,status,item_name,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+      supabase.from('payments').select('total_amount,amount,gst_amount,status,item_name,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
         .order('created_at', { ascending:false }).limit(8),
-    ]).then(([revRes, evRes, courseRes, totalMembRes, activeMembRes, payRes]) => {
-      const revenue = (revRes.data||[]).reduce((s,p) => s + (Number(p.total_amount)||0), 0);
+      // Guest users count
+      supabase.from('profiles').select('id', { count:'exact', head:true })
+        .in('account_type', ['guest_user','student']),
+    ]).then(([revRes, evRes, courseRes, fipMembRes, activeMembRes, payRes, guestRes]) => {
+      const payments = revRes.data || [];
+      const membershipRev = payments.filter(p=>p.purchase_type==='membership').reduce((s,p)=>s+(Number(p.total_amount)||0),0);
+      const courseRev     = payments.filter(p=>p.purchase_type==='course').reduce((s,p)=>s+(Number(p.total_amount)||0),0);
+      const eventRev      = payments.filter(p=>p.purchase_type==='event').reduce((s,p)=>s+(Number(p.total_amount)||0),0);
+      const totalRevenue  = membershipRev + courseRev + eventRev;
       setDashStats({
-        revenue,
-        events:        evRes.count       || 0,
-        enrollments:   courseRes.count   || 0,
-        totalMembers:  totalMembRes.count || 0,
-        activeMembers: activeMembRes.count || 0,
+        revenue:         totalRevenue,
+        membershipRev,
+        courseRev,
+        eventRev,
+        events:          evRes.count       || 0,
+        enrollments:     courseRes.count   || 0,
+        totalMembers:    fipMembRes.count  || 0,  // FIP Members only, not guests
+        activeMembers:   activeMembRes.count || 0,
+        guestUsers:      guestRes.count    || 0,
       });
       setRecentPayments(payRes.data || []);
       setDashLoading(false);
@@ -1009,9 +1033,12 @@ export default function AdminPage() {
     (name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase() || '?';
 
   /* ── derived stats for new dashboard ── */
-  const recentRegistrations = [...members]
+  const fipMembers = members.filter(m =>
+    m.account_type === 'fip_member' || m.membership_status === 'Active'
+  );
+  const recentRegistrations = [...fipMembers]
     .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 5);
+    .slice(0, 8);
 
   const formatRelativeDate = (dateStr) => {
     if (!dateStr) return '—';
@@ -1125,22 +1152,25 @@ export default function AdminPage() {
               <div className="dboard-stats-row">
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-blue"><i className="fa-solid fa-users"></i></div>
-                  <div className="dboard-stat-val">{dashStats.totalMembers || totalMembers}</div>
-                  <div className="dboard-stat-lbl">Total Members</div>
+                  <div className="dboard-stat-val">{dashStats.totalMembers ?? fipMembers.length}</div>
+                  <div className="dboard-stat-lbl">FIP Members</div>
                   <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> {dashStats.activeMembers} active
+                    <i className="fa-solid fa-arrow-up"></i> {dashStats.activeMembers ?? 0} active
+                    {dashStats.guestUsers > 0 && <span style={{color:'var(--text-muted)',fontWeight:400,marginLeft:'6px'}}>· {dashStats.guestUsers} guests</span>}
                   </div>
                 </div>
 
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-orange"><i className="fa-solid fa-indian-rupee-sign"></i></div>
-                  <div className="dboard-stat-val">{dashStats.revenue >= 100000 ? `₹${(dashStats.revenue/100000).toFixed(1)}L` : `₹${dashStats.revenue.toLocaleString('en-IN')}`}</div>
+                  <div className="dboard-stat-val">{dashStats.revenue >= 100000 ? `₹${(dashStats.revenue/100000).toFixed(1)}L` : `₹${(dashStats.revenue||0).toLocaleString('en-IN')}`}</div>
                   <div className="dboard-stat-lbl">Revenue This Year</div>
-                  <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> Paid payments only
+                  <div className="dboard-stat-trend trend-up" style={{flexDirection:'column',alignItems:'flex-start',gap:'3px',lineHeight:1.5}}>
+                    {dashStats.membershipRev > 0 && <span> Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.courseRev     > 0 && <span> Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.eventRev      > 0 && <span> Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
                   </div>
                 </div>
-
+                                                                                                                                                                                                                                                                                      
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-green"><i className="fa-solid fa-calendar-check"></i></div>
                   <div className="dboard-stat-val">{dashStats.events}</div>
@@ -1180,7 +1210,7 @@ export default function AdminPage() {
                               <div className="dboard-table-name">{m.full_name || '—'}</div>
                               <div className="dboard-table-sub">{m.city || ''}</div>
                             </td>
-                            <td className="dboard-table-muted">{m.profession?.split(' ').map(w=>w[0]).join('') || '—'}</td>
+                            <td className="dboard-table-muted" style={{fontSize:'12px'}}>{m.profession || '—'}</td>
                             <td className="dboard-table-muted">{formatRelativeDate(m.created_at)}</td>
                             <td>
                               <span className={`dboard-pill ${m.membership_status==='Active'?'pill-green':'pill-orange'}`}>
@@ -1633,20 +1663,98 @@ export default function AdminPage() {
                 </div>
               ) : (
                 <>
-                  <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap'}}>
+                  {/* Stats + Selection toolbar */}
+                  <div style={{display:'flex',gap:'12px',marginBottom:'16px',flexWrap:'wrap',alignItems:'center'}}>
                     <div style={{background:'var(--blue-pale)',borderRadius:'var(--radius-md)',padding:'10px 16px',fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
                       <i className="fa-solid fa-users" style={{marginRight:'6px'}}></i>Total: {eventRsvps.length}
                     </div>
                     <div style={{background:'var(--orange-pale)',borderRadius:'var(--radius-md)',padding:'10px 16px',fontSize:'13px',fontWeight:700,color:'var(--orange)'}}>
                       <i className="fa-solid fa-hand-holding-heart" style={{marginRight:'6px'}}></i>Volunteers: {eventRsvps.filter(r=>r.is_volunteer).length}
                     </div>
+                    {selectedRsvpIds.size > 0 && !showRsvpEmail && (
+                      <div style={{display:'flex',alignItems:'center',gap:'10px',background:'var(--blue)',color:'#fff',padding:'8px 14px',borderRadius:'8px',flexWrap:'wrap'}}>
+                        <span style={{fontWeight:700,fontSize:'13px'}}>{selectedRsvpIds.size} selected</span>
+                        <button onClick={() => setShowRsvpEmail(true)}
+                          style={{background:'var(--orange)',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
+                          <i className="fa-solid fa-envelope"></i> Send Email
+                        </button>
+                        <button onClick={() => setSelectedRsvpIds(new Set())}
+                          style={{background:'rgba(255,255,255,0.15)',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',fontSize:'12px'}}>
+                          Deselect All
+                        </button>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Email compose panel */}
+                  {showRsvpEmail && (
+                    <div style={{background:'var(--off-white)',border:'2px solid var(--blue)',borderRadius:'12px',padding:'18px',marginBottom:'16px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+                        <div style={{fontWeight:800,color:'var(--blue)',fontSize:'14px'}}>
+                          <i className="fa-solid fa-envelope" style={{color:'var(--orange)',marginRight:'7px'}}></i>
+                          Compose Email — {selectedRsvpIds.size} registrant{selectedRsvpIds.size!==1?'s':''}
+                        </div>
+                        <button onClick={() => {setShowRsvpEmail(false);setRsvpEmailSubject('');setRsvpEmailContent('');}}
+                          style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'18px'}}>✕</button>
+                      </div>
+                      <div style={{fontSize:'12px',color:'var(--text-muted)',background:'var(--blue-pale)',padding:'7px 12px',borderRadius:'6px',marginBottom:'12px'}}>
+                        💡 Use <strong>{'{name}'}</strong> to personalise with each registrant's name
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Subject *</label>
+                        <input className="form-input" type="text" placeholder="Email subject"
+                          value={rsvpEmailSubject} onChange={e=>setRsvpEmailSubject(e.target.value)}/>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Message *</label>
+                        <textarea className="form-input" rows={5} style={{resize:'vertical'}}
+                          placeholder={'Dear {name},\n\nYour message here...\n\nWarm regards,\nFIP Team'}
+                          value={rsvpEmailContent} onChange={e=>setRsvpEmailContent(e.target.value)}/>
+                      </div>
+                      <div style={{display:'flex',gap:'10px'}}>
+                        <button disabled={!rsvpEmailSubject.trim()||!rsvpEmailContent.trim()||rsvpEmailSending}
+                          style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'10px 22px',fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',gap:'7px',opacity:(!rsvpEmailSubject.trim()||!rsvpEmailContent.trim()||rsvpEmailSending)?.55:1}}
+                          onClick={async () => {
+                            setRsvpEmailSending(true);
+                            const selected = eventRsvps.filter(r => selectedRsvpIds.has(r.id));
+                            const recipients = selected.map(r => ({ name: r.full_name || 'Registrant', email: r.email })).filter(r => r.email);
+                            try {
+                              const res = await fetch('/api/send-bulk-email', { method:'POST', headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify({ userId:profile?.id, subject:rsvpEmailSubject, content:rsvpEmailContent, recipients }) });
+                              const d = await res.json();
+                              if (res.ok) {
+                                showToast(`Email sent to ${d.sent} registrant${d.sent!==1?'s':''}!`);
+                                setShowRsvpEmail(false); setSelectedRsvpIds(new Set()); setRsvpEmailSubject(''); setRsvpEmailContent('');
+                              } else showToast('Error: '+(d.error||'Send failed'), true);
+                            } catch(e) { showToast('Network error: '+e.message, true); }
+                            setRsvpEmailSending(false);
+                          }}>
+                          {rsvpEmailSending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</> : <><i className="fa-solid fa-paper-plane"></i> Send Now</>}
+                        </button>
+                        <button onClick={() => {setShowRsvpEmail(false);setRsvpEmailSubject('');setRsvpEmailContent('');}}
+                          style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',borderRadius:'8px',padding:'10px 16px',cursor:'pointer',fontWeight:600}}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div style={{overflowX:'auto'}}>
                     <table className="dboard-table">
-                      <thead><tr><th>Name</th><th>Contact</th><th>Profession</th><th>ICAI No.</th><th>City</th><th>Vol.</th><th>Registered</th></tr></thead>
+                      <thead><tr>
+                        <th style={{width:'36px'}}>
+                          <input type="checkbox" title="Select all"
+                            checked={eventRsvps.length>0 && eventRsvps.every(r=>selectedRsvpIds.has(r.id))}
+                            onChange={e => setSelectedRsvpIds(e.target.checked ? new Set(eventRsvps.map(r=>r.id)) : new Set())}/>
+                        </th>
+                        <th>Name</th><th>Contact</th><th>Profession</th><th>ICAI No.</th><th>City</th><th>Vol.</th><th>Registered</th>
+                      </tr></thead>
                       <tbody>
                         {eventRsvps.map((r,i) => (
-                          <tr key={i}>
+                          <tr key={i} style={{background:selectedRsvpIds.has(r.id)?'rgba(26,60,110,0.04)':undefined}}>
+                            <td>
+                              <input type="checkbox" checked={selectedRsvpIds.has(r.id)}
+                                onChange={e => setSelectedRsvpIds(prev => { const n=new Set(prev); e.target.checked?n.add(r.id):n.delete(r.id); return n; })}/>
+                            </td>
                             <td>
                               <div className="dboard-table-name">{r.full_name}</div>
                               {r.organisation && <div className="dboard-table-sub">{r.designation?`${r.designation}, `:''}{r.organisation}</div>}
@@ -1736,16 +1844,85 @@ export default function AdminPage() {
           {tab === 'courses' && adminCourseView && (
             <div className="admin-form-card">
               <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
-                <button onClick={() => setAdminCourseView(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}>
+                <button onClick={() => { setAdminCourseView(null); setSelectedEnrollIds(new Set()); setShowEnrollEmail(false); }} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}>
                   <i className="fa-solid fa-arrow-left"></i>
                 </button>
                 <span style={{flex:1}}>Registrations: <strong>{adminCourseView.title}</strong></span>
-                <button className="btn btn-sm" style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
-                  onClick={() => downloadEnrollmentsExcel(adminCourseView.title, courseEnrollments)}
-                  disabled={courseEnrollments.length === 0}>
-                  <i className="fa-solid fa-file-excel"></i> Download CSV {courseEnrollments.length > 0 && `(${courseEnrollments.length})`}
-                </button>
+                {selectedEnrollIds.size === 0 && (
+                  <button className="btn btn-sm" style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
+                    onClick={() => downloadEnrollmentsExcel(adminCourseView.title, courseEnrollments)}
+                    disabled={courseEnrollments.length === 0}>
+                    <i className="fa-solid fa-file-excel"></i> Download CSV {courseEnrollments.length > 0 && `(${courseEnrollments.length})`}
+                  </button>
+                )}
+                {selectedEnrollIds.size > 0 && !showEnrollEmail && (
+                  <div style={{display:'flex',alignItems:'center',gap:'8px',background:'var(--blue)',color:'#fff',padding:'7px 14px',borderRadius:'8px'}}>
+                    <span style={{fontWeight:700,fontSize:'12px'}}>{selectedEnrollIds.size} selected</span>
+                    <button onClick={() => setShowEnrollEmail(true)}
+                      style={{background:'var(--orange)',color:'#fff',border:'none',borderRadius:'6px',padding:'4px 12px',fontWeight:700,fontSize:'11px',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'}}>
+                      <i className="fa-solid fa-envelope"></i> Send Email
+                    </button>
+                    <button onClick={() => setSelectedEnrollIds(new Set())}
+                      style={{background:'rgba(255,255,255,0.15)',color:'#fff',border:'none',borderRadius:'6px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {/* Email compose panel for course enrollments */}
+              {showEnrollEmail && (
+                <div style={{background:'var(--off-white)',border:'2px solid var(--blue)',borderRadius:'12px',padding:'18px',marginBottom:'14px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+                    <div style={{fontWeight:800,color:'var(--blue)',fontSize:'14px'}}>
+                      <i className="fa-solid fa-envelope" style={{color:'var(--orange)',marginRight:'7px'}}></i>
+                      Email {selectedEnrollIds.size} enrolment{selectedEnrollIds.size!==1?'s':''}
+                    </div>
+                    <button onClick={()=>{setShowEnrollEmail(false);setEnrollEmailSubject('');setEnrollEmailContent('');}}
+                      style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'18px'}}>✕</button>
+                  </div>
+                  <div style={{fontSize:'12px',color:'var(--text-muted)',background:'var(--blue-pale)',padding:'7px 12px',borderRadius:'6px',marginBottom:'12px'}}>
+                    💡 Use <strong>{'{name}'}</strong> to personalise with each person's name
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Subject *</label>
+                    <input className="form-input" type="text" placeholder="Email subject"
+                      value={enrollEmailSubject} onChange={e=>setEnrollEmailSubject(e.target.value)}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Message *</label>
+                    <textarea className="form-input" rows={5} style={{resize:'vertical'}}
+                      placeholder={'Dear {name},\n\nYour message here...\n\nWarm regards,\nFIP Team'}
+                      value={enrollEmailContent} onChange={e=>setEnrollEmailContent(e.target.value)}/>
+                  </div>
+                  <div style={{display:'flex',gap:'10px'}}>
+                    <button disabled={!enrollEmailSubject.trim()||!enrollEmailContent.trim()||enrollEmailSending}
+                      style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'10px 22px',fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',gap:'7px',opacity:(!enrollEmailSubject.trim()||!enrollEmailContent.trim()||enrollEmailSending)?.55:1}}
+                      onClick={async () => {
+                        setEnrollEmailSending(true);
+                        const selected = courseEnrollments.filter(e => selectedEnrollIds.has(e.id));
+                        const recipients = selected.map(e => ({ name: e.full_name||'Participant', email: e.email })).filter(e=>e.email);
+                        try {
+                          const res = await fetch('/api/send-bulk-email', { method:'POST', headers:{'Content-Type':'application/json'},
+                            body: JSON.stringify({ userId:profile?.id, subject:enrollEmailSubject, content:enrollEmailContent, recipients }) });
+                          const d = await res.json();
+                          if (res.ok) {
+                            showToast(`Email sent to ${d.sent} participant${d.sent!==1?'s':''}!`);
+                            setShowEnrollEmail(false); setSelectedEnrollIds(new Set()); setEnrollEmailSubject(''); setEnrollEmailContent('');
+                          } else showToast('Error: '+(d.error||'Send failed'), true);
+                        } catch(e) { showToast('Network error: '+e.message, true); }
+                        setEnrollEmailSending(false);
+                      }}>
+                      {enrollEmailSending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</> : <><i className="fa-solid fa-paper-plane"></i> Send Now</>}
+                    </button>
+                    <button onClick={()=>{setShowEnrollEmail(false);setEnrollEmailSubject('');setEnrollEmailContent('');}}
+                      style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',borderRadius:'8px',padding:'10px 16px',cursor:'pointer',fontWeight:600}}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {courseEnrollmentsLoading ? (
                 <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
               ) : courseEnrollments.length === 0 ? (
@@ -1755,10 +1932,21 @@ export default function AdminPage() {
               ) : (
                 <div style={{overflowX:'auto'}}>
                   <table className="dboard-table">
-                    <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Registered On</th></tr></thead>
+                    <thead><tr>
+                      <th style={{width:'36px'}}>
+                        <input type="checkbox" title="Select all"
+                          checked={courseEnrollments.length>0 && courseEnrollments.every(e=>selectedEnrollIds.has(e.id))}
+                          onChange={ev => setSelectedEnrollIds(ev.target.checked ? new Set(courseEnrollments.map(e=>e.id)) : new Set())}/>
+                      </th>
+                      <th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Registered On</th>
+                    </tr></thead>
                     <tbody>
                       {courseEnrollments.map((e,i) => (
-                        <tr key={i}>
+                        <tr key={i} style={{background:selectedEnrollIds.has(e.id)?'rgba(26,60,110,0.04)':undefined}}>
+                          <td>
+                            <input type="checkbox" checked={selectedEnrollIds.has(e.id)}
+                              onChange={ev => setSelectedEnrollIds(prev => { const n=new Set(prev); ev.target.checked?n.add(e.id):n.delete(e.id); return n; })}/>
+                          </td>
                           <td>
                             <div className="dboard-table-name">{e.full_name || '—'}</div>
                           </td>
