@@ -362,21 +362,32 @@ export default async function handler(req, res) {
 
     // 4. Apply effect (activate membership OR enroll in course)
     if (payment.purchase_type === 'membership') {
-      // Generate unique FIP Member Number if not already assigned
-      let fipMemberNo = profile?.fip_member_no;
-      if (!fipMemberNo) {
-        const { data: seqData } = await supabaseAdmin.rpc('generate_fip_member_no');
-        fipMemberNo = seqData;
-      }
-
-      await supabaseAdmin.from('profiles').update({
+      // ── Step 1: Always update core membership fields (critical) ──────────
+      const { error: profileUpdateError } = await supabaseAdmin.from('profiles').update({
         account_type:      'fip_member',
         membership_status: 'Active',
         membership_plan:   payment.item_name.replace('FIP ', '').replace(' Membership', ''),
         membership_start:  validFrom,
         membership_end:    validUntil,
-        fip_member_no:     fipMemberNo,
       }).eq('id', userId);
+
+      if (profileUpdateError) {
+        console.error('CRITICAL: Profile membership update failed:', profileUpdateError.message, 'userId:', userId);
+      } else {
+        console.log('Profile updated to FIP Member:', userId);
+      }
+
+      // ── Step 2: Generate + save FIP Member Number (non-critical, safe fallback) ──
+      try {
+        let fipMemberNo = profile?.fip_member_no;
+        if (!fipMemberNo) {
+          const { data: seqData, error: seqErr } = await supabaseAdmin.rpc('generate_fip_member_no');
+          if (!seqErr && seqData) fipMemberNo = seqData;
+        }
+        if (fipMemberNo) {
+          await supabaseAdmin.from('profiles').update({ fip_member_no: fipMemberNo }).eq('id', userId);
+        }
+      } catch (e) { console.warn('FIP Member No generation failed (non-critical):', e.message); }
 
       // Complete referral if user was referred
       try {
