@@ -1165,9 +1165,9 @@ export default function AdminPage() {
                   <div className="dboard-stat-val">{dashStats.revenue >= 100000 ? `₹${(dashStats.revenue/100000).toFixed(1)}L` : `₹${(dashStats.revenue||0).toLocaleString('en-IN')}`}</div>
                   <div className="dboard-stat-lbl">Revenue This Year</div>
                   <div className="dboard-stat-trend trend-up" style={{flexDirection:'column',alignItems:'flex-start',gap:'3px',lineHeight:1.5}}>
-                    {dashStats.membershipRev > 0 && <span>🎫 Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.courseRev     > 0 && <span>📚 Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.eventRev      > 0 && <span>📅 Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.membershipRev > 0 && <span> Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.courseRev     > 0 && <span> Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.eventRev      > 0 && <span> Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
                   </div>
                 </div>
 
