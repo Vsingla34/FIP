@@ -892,6 +892,7 @@ export default function AdminPage() {
   /* ── All Payments tab ── */
   const [allPayments,        setAllPayments]        = useState([]);
   const [allPaymentsLoading, setAllPaymentsLoading] = useState(false);
+  const [totalCollected,      setTotalCollected]      = useState(0);
   const [paymentSearch,      setPaymentSearch]      = useState('');
   const [paymentStatusFilter,setPaymentStatusFilter]= useState('All');
 
@@ -934,8 +935,8 @@ export default function AdminPage() {
     setDashLoading(true);
     const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
     Promise.all([
-      // Revenue breakdown by purchase type
-      supabase.from('payments').select('total_amount,purchase_type').eq('status','paid').gte('created_at', yearStart),
+      // Revenue via server-side aggregate (immune to row limits)
+      supabase.rpc('admin_get_revenue_stats', { p_year_start: yearStart }),
       // Active events count
       supabase.from('events').select('id', { count:'exact', head:true }).in('status',['upcoming','ongoing']),
       // Course registrations count (all time)
@@ -952,16 +953,12 @@ export default function AdminPage() {
       supabase.from('profiles').select('id', { count:'exact', head:true })
         .in('account_type', ['guest_user','student']),
     ]).then(([revRes, evRes, courseRes, fipMembRes, activeMembRes, payRes, guestRes]) => {
-      const payments = revRes.data || [];
-      const membershipRev = payments.filter(p=>p.purchase_type==='membership').reduce((s,p)=>s+(Number(p.total_amount)||0),0);
-      const courseRev     = payments.filter(p=>p.purchase_type==='course').reduce((s,p)=>s+(Number(p.total_amount)||0),0);
-      const eventRev      = payments.filter(p=>p.purchase_type==='event').reduce((s,p)=>s+(Number(p.total_amount)||0),0);
-      const totalRevenue  = membershipRev + courseRev + eventRev;
+      const rev = revRes.data || { total:0, membership:0, courses:0, events:0 };
       setDashStats({
-        revenue:         totalRevenue,
-        membershipRev,
-        courseRev,
-        eventRev,
+        revenue:         Number(rev.total)      || 0,
+        membershipRev:   Number(rev.membership) || 0,
+        courseRev:       Number(rev.courses)    || 0,
+        eventRev:        Number(rev.events)     || 0,
         events:          evRes.count       || 0,
         enrollments:     courseRes.count   || 0,
         totalMembers:    fipMembRes.count  || 0,  // FIP Members only, not guests
@@ -976,6 +973,9 @@ export default function AdminPage() {
   /* ── Load all payments when tab opens ── */
   useEffect(() => {
     if (tab !== 'payments') return;
+    // Fetch true total (all pages) server-side
+    supabase.rpc('admin_get_revenue_stats', { p_year_start: new Date(0).toISOString() })
+      .then(({ data }) => { if (data?.total) setTotalCollected(Number(data.total)); });
     setAllPaymentsLoading(true);
     supabase
       .from('payments')
@@ -1165,12 +1165,12 @@ export default function AdminPage() {
                   <div className="dboard-stat-val">{dashStats.revenue >= 100000 ? `₹${(dashStats.revenue/100000).toFixed(1)}L` : `₹${(dashStats.revenue||0).toLocaleString('en-IN')}`}</div>
                   <div className="dboard-stat-lbl">Revenue This Year</div>
                   <div className="dboard-stat-trend trend-up" style={{flexDirection:'column',alignItems:'flex-start',gap:'3px',lineHeight:1.5}}>
-                    {dashStats.membershipRev > 0 && <span> Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.courseRev     > 0 && <span> Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.eventRev      > 0 && <span> Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.membershipRev > 0 && <span>🎫 Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.courseRev     > 0 && <span>📚 Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.eventRev      > 0 && <span>📅 Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
                   </div>
                 </div>
-                                                                                                                                                                                                                                                                                      
+
                 <div className="dboard-stat-card">
                   <div className="dboard-stat-icon dsi-green"><i className="fa-solid fa-calendar-check"></i></div>
                   <div className="dboard-stat-val">{dashStats.events}</div>
@@ -2212,7 +2212,7 @@ export default function AdminPage() {
                 </span>
                 <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
                   <span style={{fontSize:'13px',color:'var(--green)',fontWeight:700}}>
-                    ₹{filtPay.filter(p=>p.status==='paid').reduce((s,p)=>s+(Number(p.total_amount)||0),0).toLocaleString('en-IN')} collected
+                    ₹{(totalCollected || filtPay.filter(p=>p.status==='paid').reduce((s,p)=>s+(Number(p.total_amount)||0),0)).toLocaleString('en-IN')} collected (all time)
                   </span>
                   {allPayments.length > 0 && (
                     <button className="btn btn-sm"

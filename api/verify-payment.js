@@ -377,17 +377,37 @@ export default async function handler(req, res) {
         console.log('Profile updated to FIP Member:', userId);
       }
 
-      // ── Step 2: Generate + save FIP Member Number (non-critical, safe fallback) ──
+      // ── Step 2: Generate + save FIP Member Number (always assign one) ──────
       try {
-        let fipMemberNo = profile?.fip_member_no;
-        if (!fipMemberNo) {
-          const { data: seqData, error: seqErr } = await supabaseAdmin.rpc('generate_fip_member_no');
-          if (!seqErr && seqData) fipMemberNo = seqData;
+        // Only assign if not already set
+        if (!profile?.fip_member_no) {
+          let fipMemberNo = null;
+
+          // Try DB sequence first (preferred — gives sequential nice numbers)
+          try {
+            const { data: seqData, error: seqErr } = await supabaseAdmin
+              .rpc('generate_fip_member_no');
+            if (!seqErr && seqData) fipMemberNo = seqData;
+          } catch (_) { /* sequence not available */ }
+
+          // Fallback: generate from timestamp if RPC failed
+          if (!fipMemberNo) {
+            const ts = Date.now().toString().slice(-6); // last 6 digits of timestamp
+            fipMemberNo = `FIPM${ts}`;
+            // Ensure uniqueness — retry if collision
+            const { data: existing } = await supabaseAdmin
+              .from('profiles').select('id').eq('fip_member_no', fipMemberNo).maybeSingle();
+            if (existing) fipMemberNo = `FIPM${Date.now().toString().slice(-6)}`;
+          }
+
+          if (fipMemberNo) {
+            const { error: noErr } = await supabaseAdmin
+              .from('profiles').update({ fip_member_no: fipMemberNo }).eq('id', userId);
+            if (noErr) console.error('FIP Member No save failed:', noErr.message);
+            else console.log('FIP Member No assigned:', fipMemberNo, 'to', userId);
+          }
         }
-        if (fipMemberNo) {
-          await supabaseAdmin.from('profiles').update({ fip_member_no: fipMemberNo }).eq('id', userId);
-        }
-      } catch (e) { console.warn('FIP Member No generation failed (non-critical):', e.message); }
+      } catch (e) { console.error('FIP Member No assignment error:', e.message); }
 
       // Complete referral if user was referred
       try {
