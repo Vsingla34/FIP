@@ -41,6 +41,7 @@ export default function EventsPage() {
     full_name:'', email:'', phone:'', profession:'',
     designation:'', organisation:'', icai_membership_no:'', city:'',
     is_volunteer: false,
+    wants_gst: false, gst_number:'', gst_company_name:'', gst_address:'',
   });
 
   useEffect(() => {
@@ -112,6 +113,9 @@ export default function EventsPage() {
       is_volunteer:       form.is_volunteer,
       event_name:         rsvpOpen.title,
       status:             'confirmed',
+      gst_number:         form.wants_gst ? form.gst_number.trim() || null : null,
+      gst_company_name:   form.wants_gst ? form.gst_company_name.trim() || null : null,
+      gst_address:        form.wants_gst ? form.gst_address.trim() || null : null,
     });
     return error;
   };
@@ -216,6 +220,9 @@ export default function EventsPage() {
                 amount:             capturedEvent.price,
                 zoomLink:           capturedEvent.zoom_link,
                 whatsappGroupLink:  capturedEvent.whatsapp_group_link,
+                gstNumber:          capturedForm.wants_gst ? capturedForm.gst_number : null,
+                gstCompanyName:     capturedForm.wants_gst ? capturedForm.gst_company_name : null,
+                gstAddress:         capturedForm.wants_gst ? capturedForm.gst_address : null,
               }),
             }).catch(() => {});
             // Show flyer if enabled
@@ -563,6 +570,45 @@ export default function EventsPage() {
                         placeholder="Your city" required
                         value={form.city} onChange={handleChange} />
                     </div>
+                  </div>
+
+                  {/* GST Invoice section */}
+                  <div className="form-group">
+                    <label style={{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',padding:'12px 14px',background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'var(--radius-md)'}}>
+                      <input type="checkbox" checked={form.wants_gst}
+                        onChange={e => setForm(f => ({...f, wants_gst: e.target.checked, gst_number:'', gst_company_name:'', gst_address:''}))}
+                        style={{width:'16px',height:'16px',accentColor:'var(--blue)',flexShrink:0}}/>
+                      <div>
+                        <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
+                          <i className="fa-solid fa-file-invoice" style={{marginRight:'6px',color:'var(--orange)'}}></i>
+                          I need a GST Invoice
+                        </div>
+                        <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>
+                          A tax invoice will be sent to your email for business reimbursement
+                        </div>
+                      </div>
+                    </label>
+                    {form.wants_gst && (
+                      <div style={{marginTop:'12px',padding:'14px',background:'#F7F9FC',border:'1px solid var(--border)',borderRadius:'8px',display:'flex',flexDirection:'column',gap:'10px'}}>
+                        <div className="form-group" style={{margin:0}}>
+                          <label className="form-label">GSTIN (GST Number) *</label>
+                          <input className="form-input" type="text" placeholder="e.g. 07AABCU9603R1ZV"
+                            value={form.gst_number} onChange={e=>setForm(f=>({...f,gst_number:e.target.value.toUpperCase()}))}
+                            style={{textTransform:'uppercase',letterSpacing:'.5px'}}/>
+                        </div>
+                        <div className="form-group" style={{margin:0}}>
+                          <label className="form-label">Company / Firm Name *</label>
+                          <input className="form-input" type="text" placeholder="Registered business name"
+                            value={form.gst_company_name} onChange={e=>setForm(f=>({...f,gst_company_name:e.target.value}))}/>
+                        </div>
+                        <div className="form-group" style={{margin:0}}>
+                          <label className="form-label">Registered Address *</label>
+                          <textarea className="form-input" rows={2} placeholder="Full registered address with PIN code"
+                            value={form.gst_address} onChange={e=>setForm(f=>({...f,gst_address:e.target.value}))}
+                            style={{resize:'none'}}/>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Volunteer checkbox */}

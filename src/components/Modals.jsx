@@ -25,6 +25,10 @@ export default function Modals() {
   const [showNewPwd,    setShowNewPwd]    = useState(false);
   /* ── course coupon — top-level to satisfy Rules of Hooks ── */
   const [courseCouponCode,    setCourseCouponCode]    = useState('');
+  const [courseWantsGst,      setCourseWantsGst]      = useState(false);
+  const [courseGstNo,         setCourseGstNo]         = useState('');
+  const [courseGstName,       setCourseGstName]       = useState('');
+  const [courseGstAddress,    setCourseGstAddress]    = useState('');
   const [courseCouponResult,  setCourseCouponResult]  = useState(null);
   const [courseCouponLoading, setCourseCouponLoading] = useState(false);
   const [payStep,       setPayStep]       = useState(false);
@@ -872,6 +876,34 @@ export default function Modals() {
               <div className="enroll-price-row"><span>GST (18%)</span><span>₹{Math.round((courseCouponResult ? courseCouponResult.final_amount : (modalData?.course?.price || 0)) * 0.18).toLocaleString('en-IN')}</span></div>
               <div className="enroll-price-row enroll-price-total"><span>Total Payable</span><span>₹{Math.round((courseCouponResult ? courseCouponResult.final_amount : (modalData?.course?.price || 0)) * 1.18).toLocaleString('en-IN')}</span></div>
             </div>
+
+            {/* GST Invoice section */}
+            <div style={{marginBottom:'14px'}}>
+              <label style={{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',padding:'11px 14px',background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'8px'}}>
+                <input type="checkbox" checked={courseWantsGst}
+                  onChange={e=>{setCourseWantsGst(e.target.checked);setCourseGstNo('');setCourseGstName('');setCourseGstAddress('');}}
+                  style={{width:'15px',height:'15px',accentColor:'var(--blue)',flexShrink:0}}/>
+                <div>
+                  <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
+                    <i className="fa-solid fa-file-invoice" style={{marginRight:'6px',color:'var(--orange)'}}></i>
+                    I need a GST Invoice
+                  </div>
+                  <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'1px'}}>Tax invoice sent to email for business reimbursement</div>
+                </div>
+              </label>
+              {courseWantsGst && (
+                <div style={{marginTop:'10px',padding:'12px',background:'#F7F9FC',border:'1px solid var(--border)',borderRadius:'8px',display:'flex',flexDirection:'column',gap:'9px'}}>
+                  <input className="form-input" placeholder="GSTIN (e.g. 07AABCU9603R1ZV)"
+                    value={courseGstNo} onChange={e=>setCourseGstNo(e.target.value.toUpperCase())}
+                    style={{textTransform:'uppercase',letterSpacing:'.5px'}}/>
+                  <input className="form-input" placeholder="Company / Firm Name"
+                    value={courseGstName} onChange={e=>setCourseGstName(e.target.value)}/>
+                  <textarea className="form-input" rows={2} placeholder="Registered address with PIN code"
+                    value={courseGstAddress} onChange={e=>setCourseGstAddress(e.target.value)} style={{resize:'none'}}/>
+                </div>
+              )}
+            </div>
+
             {/* Coupon input */}
             {!courseCouponResult ? (
               <div style={{display:'flex',gap:'8px',marginBottom:'12px'}}>

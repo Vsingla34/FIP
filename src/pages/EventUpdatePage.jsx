@@ -81,9 +81,12 @@ export default function EventUpdatePage() {
     }
 
     setSaving(true);
-    const { error } = await supabase
-      .from('event_rsvps')
-      .update({
+    // Use API (service role) so RLS doesn't block anonymous update
+    const updateRes = await fetch('/api/send-update-links?action=update-rsvp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
         full_name:          form.full_name.trim(),
         phone:              form.phone.trim(),
         profession:         form.profession,
@@ -91,18 +94,16 @@ export default function EventUpdatePage() {
         organisation:       form.organisation.trim(),
         icai_membership_no: form.icai_membership_no.trim(),
         city:               form.city.trim(),
-      })
-      .eq('id', rsvpId);
+      }),
+    });
 
-    if (error) {
-      setErrMsg('Update failed. Please try again or contact support.');
+    const updateData = await updateRes.json().catch(() => ({}));
+    if (!updateRes.ok) {
+      setErrMsg(updateData.error || 'Update failed. Please try again or contact support.');
       setSaving(false);
       return;
     }
-
-    // Mark token as used
-    await supabase.from('event_rsvp_tokens')
-      .update({ used: true }).eq('token', token);
+    // Token is marked used by the API
 
     setSaving(false);
     setStatus('success');

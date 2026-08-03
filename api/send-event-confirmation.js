@@ -1,3 +1,11 @@
+function generateInvoice({ invoiceNo, invoiceDate, buyerName, buyerEmail, itemName, baseAmount, gstNumber, gstCompanyName, gstAddress, transactionId }) {
+  const gstAmt = Math.round(baseAmount * 0.18);
+  const total  = baseAmount + gstAmt;
+  const fmt    = n => Number(n).toLocaleString('en-IN');
+  const fmtD   = new Date(invoiceDate||Date.now()).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
+  return `<div style="margin:24px 0;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden"><div style="background:#1A3C6E;padding:14px 22px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:11px;color:#FFD09B;letter-spacing:1px;text-transform:uppercase;font-weight:700">Tax Invoice</div><div style="font-size:17px;font-weight:900;color:#fff">Federation of Indian Professionals</div></div><div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,0.5)">Invoice No.</div><div style="font-size:13px;font-weight:700;color:#FFD09B;font-family:monospace">${invoiceNo}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">${fmtD}</div></div></div><div style="padding:18px 22px;background:#fff"><div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #F3F4F6"><div><div style="font-size:10px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">From</div><div style="font-size:13px;font-weight:700;color:#1A3C6E">Federation of Indian Professionals</div><div style="font-size:12px;color:#6B7280;line-height:1.6">New Delhi, India<br/>www.fipin.org</div></div><div><div style="font-size:10px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Bill To</div><div style="font-size:13px;font-weight:700;color:#1A3C6E">${gstCompanyName||buyerName}</div><div style="font-size:12px;color:#6B7280;line-height:1.6">${buyerEmail}${gstAddress?'<br/>'+gstAddress:''}${gstNumber?'<br/>GSTIN: <strong>'+gstNumber+'</strong>':''}</div></div></div><table style="width:100%;border-collapse:collapse;margin-bottom:14px"><tr style="background:#F7F9FC"><th style="text-align:left;padding:8px 12px;font-size:11px;color:#6B7280;font-weight:700">Description</th><th style="text-align:right;padding:8px 12px;font-size:11px;color:#6B7280;font-weight:700">Amount</th></tr><tr style="border-bottom:1px solid #F3F4F6"><td style="padding:10px 12px;font-size:13px">${itemName}</td><td style="padding:10px 12px;font-size:13px;text-align:right">₹${fmt(baseAmount)}</td></tr><tr><td style="padding:6px 12px;font-size:12px;color:#6B7280;text-align:right">IGST @ 18%</td><td style="padding:6px 12px;font-size:12px;color:#6B7280;text-align:right">₹${fmt(gstAmt)}</td></tr><tr style="background:#F7F9FC"><td style="padding:10px 12px;font-size:14px;font-weight:800;color:#1A3C6E;text-align:right">Total</td><td style="padding:10px 12px;font-size:16px;font-weight:900;color:#F26522;text-align:right">₹${fmt(total)}</td></tr></table><div style="background:#F0FFF4;border:1px solid #86EFAC;border-radius:8px;padding:10px 16px;display:flex;justify-content:space-between"><div style="font-size:13px;font-weight:700;color:#15803D">✅ Payment Received</div>${transactionId?'<div style="font-size:11px;color:#166534;font-family:monospace">Txn: '+transactionId+'</div>':''}</div><p style="font-size:11px;color:#9CA3AF;text-align:center;margin:12px 0 0">Computer-generated invoice. No signature required.</p></div></div>`;
+}
+
 // /api/send-event-confirmation.js — Sends confirmation email after event registration
 import nodemailer from 'nodemailer';
 
@@ -18,7 +26,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
   if (!process.env.GMAIL_USER) return res.status(200).json({ skipped: true });
 
-  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink } = req.body || {};
+  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress } = req.body || {};
   if (!email || !eventTitle) return res.status(400).json({ error: 'email and eventTitle are required' });
 
   const dateStr   = formatDate(eventDate);
@@ -78,6 +86,17 @@ export default async function handler(req, res) {
       </div>` : ''}
     </div>
 
+    <!-- Tax Invoice -->
+    ${isPaid && amount ? generateInvoice({
+      invoiceNo:      'FIP-INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5),
+      invoiceDate:    new Date(),
+      buyerName:      name,
+      buyerEmail:     email,
+      itemName:       eventTitle,
+      baseAmount:     Math.round(Number(amount) / 1.18),
+      gstNumber, gstCompanyName, gstAddress, transactionId,
+    }) : ''}
+
     <!-- What to bring / notes -->
     <div style="background:#FFF5E6;border:1.5px solid #F2C06E;border-radius:8px;padding:16px 18px;margin-bottom:24px">
       <div style="font-size:13px;font-weight:700;color:#92400E;margin-bottom:8px">📋 Please note</div>
@@ -109,11 +128,35 @@ export default async function handler(req, res) {
 </div>`;
 
   try {
+    // Generate PDF invoice if paid
+    let pdfAttachment = null;
+    if (isPaid && amount) {
+      try {
+        const { generateInvoicePDF } = await import('./generate-invoice.js');
+        const pdfBuf = await generateInvoicePDF({
+          invoiceNo:      `FIP-INV-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`,
+          invoiceDate:    new Date(),
+          buyerName:      name,
+          buyerEmail:     email,
+          itemName:       eventTitle,
+          baseAmount:     Math.round(Number(amount) / 1.18),
+          transactionId,
+          gstNumber, gstCompanyName, gstAddress,
+        });
+        pdfAttachment = {
+          filename:    `FIP_Invoice_${String(eventTitle||'Event').replace(/[^a-z0-9]/gi,'_').slice(0,30)}.pdf`,
+          content:     pdfBuf,
+          contentType: 'application/pdf',
+        };
+      } catch(e) { console.warn('PDF generation failed:', e.message); }
+    }
+
     await getTransporter().sendMail({
       from:    `"FIP — Federation of Indian Professionals" <${process.env.GMAIL_USER}>`,
       to:      email,
       subject: `✅ Seat Confirmed: ${eventTitle}`,
       html,
+      ...(pdfAttachment ? { attachments: [pdfAttachment] } : {}),
     });
     return res.status(200).json({ sent: true });
   } catch (e) {

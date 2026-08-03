@@ -79,7 +79,7 @@ export function useRazorpay() {
           ondismiss: async () => {
             // User closed the popup without paying — mark order as failed
             try {
-              await fetch('/api/cancel-order', {
+              await fetch('/api/create-order', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({ razorpayOrderId: orderData.orderId }),
