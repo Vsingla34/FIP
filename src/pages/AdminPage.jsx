@@ -977,12 +977,26 @@ export default function AdminPage() {
     supabase.rpc('admin_get_revenue_stats', { p_year_start: new Date(0).toISOString() })
       .then(({ data }) => { if (data?.total) setTotalCollected(Number(data.total)); });
     setAllPaymentsLoading(true);
-    supabase
-      .from('payments')
-      .select('total_amount,amount,gst_amount,status,item_name,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
-      .order('created_at', { ascending: false })
-      .limit(200)
-      .then(({ data }) => { setAllPayments(data || []); setAllPaymentsLoading(false); });
+    // Fetch ALL payments using pagination (Supabase caps per request)
+    (async () => {
+      const PAGE_SIZE = 1000;
+      let allData = [];
+      let from = 0;
+      let keepGoing = true;
+      while (keepGoing) {
+        const { data, error } = await supabase
+          .from('payments')
+          .select('total_amount,amount,gst_amount,status,item_name,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error || !data?.length) { keepGoing = false; break; }
+        allData = [...allData, ...data];
+        if (data.length < PAGE_SIZE) keepGoing = false;
+        else from += PAGE_SIZE;
+      }
+      setAllPayments(allData);
+      setAllPaymentsLoading(false);
+    })();
   }, [tab]);
 
   /* ── Load slides when tab opens ── */
@@ -1165,9 +1179,9 @@ export default function AdminPage() {
                   <div className="dboard-stat-val">{dashStats.revenue >= 100000 ? `₹${(dashStats.revenue/100000).toFixed(1)}L` : `₹${(dashStats.revenue||0).toLocaleString('en-IN')}`}</div>
                   <div className="dboard-stat-lbl">Revenue This Year</div>
                   <div className="dboard-stat-trend trend-up" style={{flexDirection:'column',alignItems:'flex-start',gap:'3px',lineHeight:1.5}}>
-                    {dashStats.membershipRev > 0 && <span> Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.courseRev     > 0 && <span> Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.eventRev      > 0 && <span> Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.membershipRev > 0 && <span>🎫 Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.courseRev     > 0 && <span>📚 Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
+                    {dashStats.eventRev      > 0 && <span>📅 Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
                   </div>
                 </div>
 
