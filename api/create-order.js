@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Database not configured. Please contact support.' });
     }
 
-    const { userId, purchaseType, itemRefId, planName, planPrice } = req.body;
+    const { userId, purchaseType, itemRefId, planName, planPrice, rsvpData, gstData } = req.body;
     if (!userId || !purchaseType) {
       return res.status(400).json({ error: 'Missing required fields: userId and purchaseType' });
     }
@@ -107,6 +107,10 @@ export default async function handler(req, res) {
         total_amount:      total,
         razorpay_order_id: order.id,
         status:            'created',
+        metadata:          (rsvpData || gstData) ? {
+          ...(rsvpData ? { rsvp: rsvpData } : {}),
+          ...(gstData  ? { gst:  gstData  } : {}),
+        } : null,
       })
       .select().single();
 

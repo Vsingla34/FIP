@@ -182,6 +182,25 @@ export default function EventsPage() {
         purchaseType: 'event',
         itemName:     capturedEvent.title,
         itemRefId:    capturedEvent.id,
+        // Save form data with order so webhook can enroll if browser closes
+        rsvpData: {
+          event_id:           capturedEvent.id,
+          event_name:         capturedEvent.title,
+          user_id:            user?.id || null,
+          full_name:          capturedForm.full_name.trim(),
+          email:              capturedForm.email.trim(),
+          phone:              capturedForm.phone?.trim() || null,
+          profession:         capturedForm.profession || null,
+          designation:        capturedForm.designation?.trim() || null,
+          organisation:       capturedForm.organisation?.trim() || null,
+          icai_membership_no: capturedForm.icai_membership_no?.trim() || null,
+          city:               capturedForm.city?.trim() || null,
+          is_volunteer:       capturedForm.is_volunteer,
+          gst_number:         capturedForm.wants_gst ? capturedForm.gst_number : null,
+          gst_company_name:   capturedForm.wants_gst ? capturedForm.gst_company_name : null,
+          gst_address:        capturedForm.wants_gst ? capturedForm.gst_address : null,
+          status:             'confirmed',
+        },
         onSuccess: async () => {
           // Use captured data — not stale rsvpOpen/form
           const { error } = await supabase.from('event_rsvps').insert({

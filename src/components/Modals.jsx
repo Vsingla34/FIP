@@ -307,6 +307,18 @@ export default function Modals() {
       purchaseType: 'course',
       itemRefId:    course.slug || course.id,
       coupon_code:  courseCouponResult ? courseCouponCode : undefined,
+      // Save form + GST data so webhook can enroll if browser closes
+      rsvpData: {
+        full_name:  enrollDetails.full_name,
+        email:      enrollDetails.email,
+        phone:      enrollDetails.phone || null,
+        profession: enrollDetails.profession || null,
+      },
+      gstData: courseWantsGst ? {
+        gst_number:       courseGstNo.trim()      || null,
+        gst_company_name: courseGstName.trim()    || null,
+        gst_address:      courseGstAddress.trim() || null,
+      } : null,
       onSuccess:    () => {
         showToast('Enrolled successfully! 🎉');
         setCourseCouponCode(''); setCourseCouponResult(null);

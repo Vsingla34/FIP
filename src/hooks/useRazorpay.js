@@ -20,9 +20,12 @@ export function useRazorpay() {
   const { showToast } = useApp();
 
   const pay = useCallback(async ({
-    purchaseType,  // 'membership' | 'course'
+    purchaseType,  // 'membership' | 'course' | 'event'
     planName,      // 'Standard' | 'Renewal'  (membership only)
-    itemRefId,     // course slug              (course only)
+    itemRefId,     // course slug / event id
+    itemName,      // display name
+    rsvpData,      // form data — saved to DB so webhook can enroll if browser dies
+    gstData,       // GST details — saved to DB for invoice generation
     onSuccess,     // callback after verified
   }) => {
     if (!user) { showToast('Please log in first.', true); return false; }
@@ -37,7 +40,7 @@ export function useRazorpay() {
       const res = await fetch('/api/create-order', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ userId: user.id, purchaseType, planName, itemRefId }),
+        body:    JSON.stringify({ userId: user.id, purchaseType, planName, itemRefId, itemName, rsvpData, gstData }),
       });
 
       // On localhost Vite dev server, /api routes return 404
