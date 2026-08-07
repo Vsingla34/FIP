@@ -330,7 +330,14 @@ export default async function handler(req, res) {
       .single();
 
     if (fetchError || !payment) return res.status(404).json({ error: 'Payment record not found' });
-    if (payment.status === 'paid') return res.status(200).json({ verified: true, alreadyProcessed: true, payment });
+
+    // The Razorpay webhook usually wins the race and flips status to 'paid'
+    // server-side. This function used to return here, which meant the enrollment
+    // block below was skipped whenever the webhook fired first — if the webhook's
+    // own enrollment then failed for any reason, the user was left paid and NOT
+    // enrolled with nothing to catch it. Never return early: fall through and
+    // re-run the effects, which are all idempotent (guarded by existence checks).
+    const alreadyProcessed = payment.status === 'paid';
 
     // 3. Mark payment as paid
     const validFrom  = new Date().toISOString().split('T')[0];
@@ -345,20 +352,24 @@ export default async function handler(req, res) {
     }
     const validUntil = getMembershipExpiry();
 
-    const { data: updatedPayment, error: updateError } = await supabaseAdmin
-      .from('payments')
-      .update({
-        razorpay_payment_id,
-        razorpay_signature,
-        status:      'paid',
-        valid_from:  payment.purchase_type === 'membership' ? validFrom  : null,
-        valid_until: payment.purchase_type === 'membership' ? validUntil : null,
-      })
-      .eq('id', payment.id)
-      .select()
-      .single();
+    let updatedPayment = payment;
+    if (!alreadyProcessed) {
+      const { data: up, error: updateError } = await supabaseAdmin
+        .from('payments')
+        .update({
+          razorpay_payment_id,
+          razorpay_signature,
+          status:      'paid',
+          valid_from:  payment.purchase_type === 'membership' ? validFrom  : null,
+          valid_until: payment.purchase_type === 'membership' ? validUntil : null,
+        })
+        .eq('id', payment.id)
+        .select()
+        .single();
 
-    if (updateError) return res.status(500).json({ error: 'Failed to update payment status' });
+      if (updateError) return res.status(500).json({ error: 'Failed to update payment status' });
+      updatedPayment = up;
+    }
 
     // 4. Apply effect (activate membership OR enroll in course)
     if (payment.purchase_type === 'membership') {
@@ -379,8 +390,14 @@ export default async function handler(req, res) {
 
       // ── Step 2: Generate + save FIP Member Number (always assign one) ──────
       try {
-        // Only assign if not already set
-        if (!profile?.fip_member_no) {
+        // NOTE: this used to read `profile`, which is declared with `const` further
+        // down in this same function — a temporal-dead-zone ReferenceError that the
+        // surrounding catch swallowed, so no FIP member number was ever assigned
+        // here. Fetch the current row explicitly instead.
+        const { data: currentProfile } = await supabaseAdmin
+          .from('profiles').select('fip_member_no').eq('id', userId).maybeSingle();
+
+        if (!currentProfile?.fip_member_no) {
           let fipMemberNo = null;
 
           // Try DB sequence first (preferred — gives sequential nice numbers)
@@ -422,12 +439,26 @@ export default async function handler(req, res) {
       }
 
     } else if (payment.purchase_type === 'course') {
-      // Look up course by slug with all details needed
-      const { data: course } = await supabaseAdmin
-        .from('courses')
-        .select('id, title, event_date, event_time, zoom_link, zoom_password, whatsapp_group_link')
-        .eq('slug', payment.item_ref_id)
-        .maybeSingle();
+      // Look up course. item_ref_id is normally a slug but Modals.jsx falls back
+      // to the uuid (`course.slug || course.id`), so handle both, then fall back
+      // to the item_name captured at order time.
+      const ref    = payment.item_ref_id || '';
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+      const cols   = 'id, title, event_date, event_time, zoom_link, zoom_password, whatsapp_group_link';
+
+      let course = null;
+      if (ref) {
+        const { data } = isUuid
+          ? await supabaseAdmin.from('courses').select(cols).eq('id', ref).maybeSingle()
+          : await supabaseAdmin.from('courses').select(cols).eq('slug', ref).maybeSingle();
+        course = data || null;
+      }
+      if (!course && payment.item_name) {
+        const { data } = await supabaseAdmin.from('courses')
+          .select(cols).ilike('title', `${payment.item_name.trim()}%`).maybeSingle();
+        course = data || null;
+      }
+      if (!course) console.error('verify-payment: course not found for', ref, '/', payment.item_name);
 
       // Fetch user profile for name/email
       const { data: payer } = await supabaseAdmin
@@ -442,44 +473,67 @@ export default async function handler(req, res) {
       // columns, and none exists. That was why paid enrollments were silently
       // never written even though the payment succeeded. Using a plain insert here,
       // guarded by a pre-check so retries/duplicate webhooks don't create dup rows.
-      let regError = null;
-      const { data: existingReg } = await supabaseAdmin
-        .from('course_registrations')
-        .select('id')
-        .eq('course_id', course?.id || null)
-        .eq('email', payer?.email || '')
-        .maybeSingle();
+      // Prefer the form data captured at order time, fall back to the profile.
+      const rsvpMeta  = payment.metadata?.rsvp || {};
+      const gstMeta   = payment.metadata?.gst  || {};
+      const regEmail  = rsvpMeta.email     || payer?.email     || null;
+      const regName   = rsvpMeta.full_name || payer?.full_name || null;
 
-      if (!existingReg) {
-        const { error } = await supabaseAdmin
+      let regError = null;
+      let didInsert = false;
+
+      // course_id is NOT NULL — never attempt an insert without a resolved course.
+      if (course && regEmail) {
+        let existingReg = null;
+        const { data: byEmail } = await supabaseAdmin
           .from('course_registrations')
-          .insert({
-            user_id:    userId,
-            course_id:  course?.id || null,
-            course_title: course?.title || payment.item_name,
-            full_name:  payer?.full_name || '',
-            email:      payer?.email || '',
-            phone:      payer?.phone || null,
-            profession: payer?.profession || null,
-            status:     'registered',
-            zoom_link:  course?.zoom_link || null,
-          });
-        regError = error;
+          .select('id').eq('course_id', course.id).ilike('email', regEmail).limit(1);
+        existingReg = byEmail?.[0] || null;
+        if (!existingReg) {
+          const { data: byUser } = await supabaseAdmin
+            .from('course_registrations')
+            .select('id').eq('course_id', course.id).eq('user_id', userId).limit(1);
+          existingReg = byUser?.[0] || null;
+        }
+
+        if (!existingReg) {
+          const { error } = await supabaseAdmin
+            .from('course_registrations')
+            .insert({
+              user_id:    userId,
+              course_id:  course.id,
+              course_title: course.title || payment.item_name,
+              full_name:  regName || regEmail,
+              email:      regEmail,
+              phone:      rsvpMeta.phone      || payer?.phone      || null,
+              profession: rsvpMeta.profession || payer?.profession || null,
+              gst_number:       gstMeta.gst_number       || null,
+              gst_company_name: gstMeta.gst_company_name || null,
+              gst_address:      gstMeta.gst_address      || null,
+              status:     'registered',
+              zoom_link:  course.zoom_link || null,
+            });
+          regError = error;
+          didInsert = !error;
+          if (!error) console.log('verify-payment: enrolled', regEmail, 'in', course.id);
+        }
       }
 
       if (regError) {
         console.error('course_registrations insert error:', regError.message);
       }
 
-      // Send course confirmation email with WhatsApp link
-      if (payer?.email && course) {
+      // Send course confirmation email with WhatsApp link.
+      // If the webhook already processed this payment it already sent the email —
+      // only send here when this call is the one that actually created the row.
+      if (regEmail && course && (!alreadyProcessed || didInsert)) {
         try {
           await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-course-confirmation`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              name:               payer.full_name || payer.email,
-              email:              payer.email,
+              name:               regName || regEmail,
+              email:              regEmail,
               courseTitle:        course.title,
               eventDate:          course.event_date,
               eventTime:          course.event_time,
@@ -498,9 +552,14 @@ export default async function handler(req, res) {
       .eq('id', userId).single();
 
     // Generate friendly Member ID
-    const memberId = profile?.fip_member_no || profile?.profile_slug
-      ? 'FIP-' + profile.profile_slug.split('-').slice(-1)[0].toUpperCase()
-      : 'FIP-' + userId.slice(0,6).toUpperCase();
+    // Guard every branch: profile_slug is nullable, and the old ternary
+    // dereferenced it whenever fip_member_no was set but the slug was null.
+    const memberId =
+      profile?.fip_member_no
+        ? profile.fip_member_no
+        : profile?.profile_slug
+          ? 'FIP-' + profile.profile_slug.split('-').slice(-1)[0].toUpperCase()
+          : 'FIP-' + userId.slice(0, 6).toUpperCase();
 
     // 6. Send confirmation email (non-blocking)
     sendPaymentEmail({

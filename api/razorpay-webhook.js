@@ -136,29 +136,79 @@ export default async function handler(req, res) {
     const rsvp = meta.rsvp || {};
 
     try {
-      // Find course
-      const { data: course } = await supabaseAdmin.from('courses')
-        .select('id,title,event_date,event_time,zoom_link,zoom_password,whatsapp_group_link')
-        .or(`slug.eq.${payment.item_ref_id},id.eq.${payment.item_ref_id}`)
-        .maybeSingle();
+      // ── Find course ────────────────────────────────────────────────
+      // CRITICAL: item_ref_id is normally a SLUG (Modals.jsx sends
+      // `course.slug || course.id`). The previous implementation used
+      //   .or(`slug.eq.${ref},id.eq.${ref}`)
+      // which asks Postgres to compare the uuid column `id` against a
+      // non-uuid string. Postgres aborts the WHOLE query with
+      // "invalid input syntax for type uuid" (22P02), so `course` came back
+      // null for EVERY slug-based course payment — the webhook then skipped
+      // enrollment entirely while the payment had already been flipped to
+      // 'paid', which also made verify-payment.js short-circuit. Result:
+      // 100% paid-but-not-enrolled. Branch on the format instead.
+      const ref = payment.item_ref_id || '';
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
 
-      if (!course) { console.error('Webhook: course not found:', payment.item_ref_id); }
+      const courseCols = 'id,title,event_date,event_time,zoom_link,zoom_password,whatsapp_group_link';
+      let course = null;
+
+      if (ref) {
+        const { data, error } = isUuid
+          ? await supabaseAdmin.from('courses').select(courseCols).eq('id', ref).maybeSingle()
+          : await supabaseAdmin.from('courses').select(courseCols).eq('slug', ref).maybeSingle();
+        if (error) console.error('Webhook: course lookup error:', error.message);
+        course = data || null;
+      }
+
+      // Fallback: match on the item_name we stored at order time.
+      if (!course && payment.item_name) {
+        const { data } = await supabaseAdmin.from('courses')
+          .select(courseCols).ilike('title', `${payment.item_name.trim()}%`).maybeSingle();
+        course = data || null;
+      }
+
+      if (!course) { console.error('Webhook: course not found:', payment.item_ref_id, '/', payment.item_name); }
       else {
-        // Check if already enrolled
-        const { data: existing } = await supabaseAdmin.from('course_registrations')
-          .select('id')
-          .eq('course_id', course.id)
-          .eq(userId ? 'user_id' : 'email', userId || rsvp.email)
-          .maybeSingle();
+        // course_registrations.full_name and .email are NOT NULL. If metadata.rsvp
+        // is empty (older orders, or a client that didn't send rsvpData) the insert
+        // would fail with a null-violation, so always fall back to the payer profile.
+        let payer = null;
+        if (userId) {
+          const { data } = await supabaseAdmin.from('profiles')
+            .select('full_name,email,phone,profession').eq('id', userId).maybeSingle();
+          payer = data || null;
+        }
+        const regName  = rsvp.full_name || payer?.full_name || null;
+        const regEmail = rsvp.email     || payer?.email     || null;
+
+        if (!regEmail) {
+          console.error('Webhook: cannot enroll — no email for order', razorpay_order_id);
+        } else {
+        // Check if already enrolled — match on user_id OR email so a row created
+        // by either path (webhook, verify-payment, manual backfill) is detected.
+        let existing = null;
+        {
+          const { data: byEmail } = await supabaseAdmin.from('course_registrations')
+            .select('id').eq('course_id', course.id).ilike('email', regEmail).limit(1);
+          existing = byEmail?.[0] || null;
+          if (!existing && userId) {
+            const { data: byUser } = await supabaseAdmin.from('course_registrations')
+              .select('id').eq('course_id', course.id).eq('user_id', userId).limit(1);
+            existing = byUser?.[0] || null;
+          }
+        }
 
         if (!existing) {
           const { error: crErr } = await supabaseAdmin.from('course_registrations').insert({
             user_id:    userId   || null,
             course_id:  course.id,
-            full_name:  rsvp.full_name  || null,
-            email:      rsvp.email      || null,
-            phone:      rsvp.phone      || null,
-            profession: rsvp.profession || null,
+            course_title: course.title,
+            full_name:  regName || regEmail,
+            email:      regEmail,
+            phone:      rsvp.phone      || payer?.phone      || null,
+            profession: rsvp.profession || payer?.profession || null,
+            zoom_link:  course.zoom_link || null,
             gst_number:       meta.gst?.gst_number      || null,
             gst_company_name: meta.gst?.gst_company_name || null,
             gst_address:      meta.gst?.gst_address      || null,
@@ -172,8 +222,8 @@ export default async function handler(req, res) {
 
         // Send course confirmation email
         await sendEmail('send-course-confirmation', {
-          name:              rsvp.full_name || null,
-          email:             rsvp.email     || null,
+          name:              regName  || null,
+          email:             regEmail || null,
           courseTitle:       course.title,
           eventDate:         course.event_date,
           eventTime:         course.event_time,
@@ -186,6 +236,7 @@ export default async function handler(req, res) {
           gstCompanyName:    meta.gst?.gst_company_name || null,
           gstAddress:        meta.gst?.gst_address      || null,
         });
+        } // end: regEmail present
       }
     } catch (e) { console.error('Webhook: course error:', e.message); }
   }
