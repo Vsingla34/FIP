@@ -158,25 +158,60 @@ export default async function handler(req, res) {
     }
 
     if (evt === 'refund.failed') {
+      // A pending refund can still fail bank-side after we already marked it
+      // as processing and revoked access. Put both back the way they were.
+      const revertStatus = Number(pay.amount_refunded || 0) > 0.01 ? 'partially_refunded' : 'paid';
+      await supabaseAdmin.from('payments').update({
+        status: revertStatus, razorpay_status: 'refund_failed',
+        sync_note: 'Refund failed at Razorpay — access restored', last_synced_at: new Date().toISOString(),
+      }).eq('id', pay.id);
+
+      const restorePatch = { status: pay.purchase_type === 'event' ? 'confirmed' : 'registered',
+                              revoked_at: null, revoke_reason: null };
+      if (pay.purchase_type === 'course')
+        await supabaseAdmin.from('course_registrations').update(restorePatch).eq('payment_id', pay.id);
+      if (pay.purchase_type === 'event')
+        await supabaseAdmin.from('event_rsvps').update(restorePatch).eq('payment_id', pay.id);
+      if (pay.purchase_type === 'membership')
+        console.warn('Webhook: refund.failed on a membership payment — verify membership_status by hand:', pay.id);
+
       await logSync({ payment_id: pay.id, payment_rzp_id: refund.payment_id, source: 'webhook',
-                      event: evt, oldStatus: pay.status, newStatus: pay.status,
+                      event: evt, oldStatus: pay.status, newStatus: revertStatus,
                       detail: { refund_id: refund.id } });
-      return res.status(200).json({ received: true, note: 'refund failed, access unchanged' });
+      return res.status(200).json({ received: true, note: 'refund failed, access restored' });
     }
 
-    // Razorpay reports money in paise; our columns are in rupees.
-    const refundedRupees = (refund.amount || 0) / 100;
-    const totalRefunded  = Number(pay.amount_refunded || 0) + refundedRupees;
-    const isFull         = totalRefunded >= Number(pay.total_amount || 0) - 0.01;
-    const newStatus      = isFull ? 'refunded' : 'partially_refunded';
+    // Razorpay includes the PARENT payment alongside the refund in this payload.
+    // Its amount_refunded is Razorpay's own running total for this payment — use
+    // that instead of adding refund.amount ourselves. Adding manually breaks the
+    // moment the same refund fires twice (refund.created, then refund.processed
+    // for the identical refund): a naive add would double-count it.
+    const parentPayment       = body.payload?.payment?.entity;
+    const cumulativeRefunded  = parentPayment?.amount_refunded != null
+      ? parentPayment.amount_refunded / 100
+      : Math.max(Number(pay.amount_refunded || 0), (refund.amount || 0) / 100); // fallback only
+    const isFull  = parentPayment?.refund_status
+      ? parentPayment.refund_status === 'full'
+      : cumulativeRefunded >= Number(pay.total_amount || 0) - 0.01;
 
-    // Idempotency: refund.created and refund.processed both fire for the same
-    // refund, so only count a given refund id once.
+    // refund.status on the REFUND entity itself is what actually distinguishes
+    // "money committed, bank transfer in flight" (pending) from "credited"
+    // (processed) — this is the piece that was missing before.
+    const settled   = refund.status === 'processed';
+    const newStatus = settled
+      ? (isFull ? 'refunded' : 'partially_refunded')
+      : (isFull ? 'refund_processing' : 'partial_refund_processing');
+
+    // Idempotency keyed per EVENT TYPE, not "any refund event" — refund.created
+    // and refund.processed for the same refund id must each still be allowed
+    // through once, since together they carry the Paid → Processing → Refunded
+    // transition. Deduping across both (the earlier version of this code) would
+    // let refund.created's log entry silently swallow refund.processed forever.
     const { data: seen } = await supabaseAdmin
       .from('payment_sync_log').select('id')
       .eq('razorpay_payment_id', refund.payment_id)
+      .eq('event', evt)
       .eq('detail->>refund_id', refund.id)
-      .in('event', ['refund.created', 'refund.processed'])
       .limit(1);
 
     if (seen?.length) {
@@ -186,21 +221,22 @@ export default async function handler(req, res) {
 
     await supabaseAdmin.from('payments').update({
       status:          newStatus,
-      razorpay_status: refund.status || evt,
-      amount_refunded: totalRefunded,
+      razorpay_status: refund.status,
+      amount_refunded: cumulativeRefunded,
       refund_id:       refund.id,
-      refunded_at:     new Date().toISOString(),
+      refunded_at:     settled ? new Date().toISOString() : null,  // only set once money actually lands
       refund_reason:   refund.notes?.reason || 'Refunded via Razorpay',
       last_synced_at:  new Date().toISOString(),
     }).eq('id', pay.id);
 
-    // Only a FULL refund removes access. A partial refund (e.g. a goodwill
-    // discount after the fact) leaves the person enrolled.
+    // Access is revoked as soon as a FULL refund is confirmed initiated — not
+    // only once the bank transfer settles days later. If it later fails, the
+    // refund.failed branch above restores it. A partial refund never revokes.
     if (isFull) await revokeAccess({ ...pay, id: pay.id }, `Refund ${refund.id}`);
 
     await logSync({ payment_id: pay.id, payment_rzp_id: refund.payment_id, source: 'webhook',
                     event: evt, oldStatus: pay.status, newStatus,
-                    detail: { refund_id: refund.id, amount: refundedRupees, full: isFull } });
+                    detail: { refund_id: refund.id, amount: cumulativeRefunded, full: isFull, settled } });
 
     console.log(`Webhook: ${evt} — ${refund.id} → ${newStatus}`);
     return res.status(200).json({ received: true, status: newStatus, accessRevoked: isFull });

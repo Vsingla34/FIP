@@ -2392,6 +2392,8 @@ export default function AdminPage() {
                   <option value="created">Pending</option>
                   <option value="failed">Failed</option>
                   <option value="refunded_any">Refunded (any)</option>
+                  <option value="refund_processing">Refund initiated</option>
+                  <option value="partial_refund_processing">Part. refund initiated</option>
                   <option value="refunded">Fully refunded</option>
                   <option value="partially_refunded">Partially refunded</option>
                 </select>
@@ -2469,13 +2471,19 @@ export default function AdminPage() {
                       {filtPay.map((p,i) => {
                         const refunded   = Number(p.amount_refunded || 0);
                         const total      = Number(p.total_amount || 0);
-                        const isFull     = p.status === 'refunded';
-                        const isPartial  = p.status === 'partially_refunded' || (refunded > 0 && !isFull);
+                        const isFull       = p.status === 'refunded';
+                        const isPartial    = p.status === 'partially_refunded';
+                        const isProcessing = p.status === 'refund_processing';
+                        const isPartProc   = p.status === 'partial_refund_processing';
                         const refundable = total - refunded;
+                        // No further refund action while one is already in flight —
+                        // avoids two refunds racing on the same payment.
                         const canRefund  = p.razorpay_payment_id && refundable > 0.01
                                            && ['paid','partially_refunded'].includes(p.status);
-                        const pill = isFull ? {bg:'#FEE2E2',fg:'#B91C1C',label:'Refunded'}
-                                  : isPartial ? {bg:'#FFEDD5',fg:'#C2410C',label:'Part. refunded'}
+                        const pill = isFull       ? {bg:'#FEE2E2',fg:'#B91C1C',label:'Refunded'}
+                                  : isPartial      ? {bg:'#FFEDD5',fg:'#C2410C',label:'Part. refunded'}
+                                  : isProcessing   ? {bg:'#DBEAFE',fg:'#1D4ED8',label:'Refund initiated'}
+                                  : isPartProc     ? {bg:'#DBEAFE',fg:'#1D4ED8',label:'Part. refund initiated'}
                                   : p.status === 'paid'   ? {bg:'#DCFCE7',fg:'#15803D',label:'Paid'}
                                   : p.status === 'failed' ? {bg:'#FEE2E2',fg:'#B91C1C',label:'Failed'}
                                   : {bg:'#FEF3C7',fg:'#B45309',label:p.status || '—'};
@@ -2483,6 +2491,7 @@ export default function AdminPage() {
                         <tr key={p.id || i} style={isFull ? {opacity:.72} : undefined}>
                           <td>
                             <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
+
                             <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{p.profiles?.email || ''}</div>
                           </td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{p.profiles?.phone || '—'}</td>
@@ -2495,8 +2504,8 @@ export default function AdminPage() {
                               ₹{total.toLocaleString('en-IN')}
                             </span>
                             {refunded > 0 && (
-                              <div style={{fontSize:'11px',color:'#DC2626',fontWeight:600}}>
-                                −₹{refunded.toLocaleString('en-IN')} refunded
+                              <div style={{fontSize:'11px',color:(isProcessing||isPartProc)?'#1D4ED8':'#DC2626',fontWeight:600}}>
+                                −₹{refunded.toLocaleString('en-IN')} {(isProcessing||isPartProc) ? 'processing' : 'refunded'}
                               </div>
                             )}
                           </td>
