@@ -21,6 +21,72 @@ async function sendEmail(endpoint, body) {
   } catch (e) { console.warn(`Email ${endpoint} failed:`, e.message); }
 }
 
+/* ── Audit every state change, whatever triggered it ── */
+async function logSync({ payment_id, order_id, payment_rzp_id, source, event, oldStatus, newStatus, detail }) {
+  try {
+    await supabaseAdmin.from('payment_sync_log').insert({
+      payment_id, razorpay_order_id: order_id, razorpay_payment_id: payment_rzp_id,
+      source, event, old_status: oldStatus, new_status: newStatus, detail: detail || null,
+    });
+  } catch (e) { console.warn('sync log failed:', e.message); }
+}
+
+/* ── Revoke access when money goes back ──────────────────────────────────────
+   Enrollment is a PROJECTION of payment state, so a refund must always undo it.
+   Rows are marked cancelled rather than deleted: the audit trail survives and a
+   disputed refund can be reversed by simply re-running the reconciler. */
+async function revokeAccess(payment, reason) {
+  const userId = payment.user_id;
+
+  if (payment.purchase_type === 'course') {
+    const patch = { status: 'cancelled', revoked_at: new Date().toISOString(), revoke_reason: reason };
+    let done = false;
+    if (payment.id) {
+      const { data } = await supabaseAdmin.from('course_registrations')
+        .update(patch).eq('payment_id', payment.id).select('id');
+      done = (data?.length || 0) > 0;
+    }
+    if (!done && userId) {
+      const ref = payment.item_ref_id || '';
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+      const { data: course } = isUuid
+        ? await supabaseAdmin.from('courses').select('id').eq('id', ref).maybeSingle()
+        : await supabaseAdmin.from('courses').select('id').eq('slug', ref).maybeSingle();
+      if (course) {
+        await supabaseAdmin.from('course_registrations')
+          .update(patch).eq('course_id', course.id).eq('user_id', userId);
+      }
+    }
+  }
+
+  if (payment.purchase_type === 'event') {
+    const patch = { status: 'cancelled', revoked_at: new Date().toISOString(), revoke_reason: reason };
+    let done = false;
+    if (payment.id) {
+      const { data } = await supabaseAdmin.from('event_rsvps')
+        .update(patch).eq('payment_id', payment.id).select('id');
+      done = (data?.length || 0) > 0;
+    }
+    if (!done && userId && payment.item_ref_id) {
+      await supabaseAdmin.from('event_rsvps')
+        .update(patch).eq('event_id', payment.item_ref_id).eq('user_id', userId);
+    }
+  }
+
+  if (payment.purchase_type === 'membership' && userId) {
+    // Membership is revoked but fip_member_no is deliberately NOT cleared —
+    // the number is an identity, not an entitlement, and reissuing it later
+    // would break every past invoice and email that referenced it.
+    await supabaseAdmin.from('profiles').update({
+      membership_status: 'Cancelled',
+      account_type:      'member',
+      membership_end:    new Date().toISOString().split('T')[0],
+    }).eq('id', userId);
+  }
+
+  console.log(`Revoked ${payment.purchase_type} access for payment ${payment.id} (${reason})`);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -34,14 +100,110 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid signature' });
   }
 
-  if (req.body.event !== 'payment.captured')
-    return res.status(200).json({ received: true });
+  const evt = req.body.event;
+
+  // Events we act on. Everything else is acknowledged and ignored so Razorpay
+  // does not retry it forever.
+  const HANDLED = [
+    'payment.captured',
+    'payment.failed',
+    'refund.created',
+    'refund.processed',
+    'refund.failed',
+  ];
+  if (!HANDLED.includes(evt)) return res.status(200).json({ received: true, ignored: evt });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REFUNDS — Razorpay is the source of truth for money, so a refund initiated
+  // ANYWHERE (our admin UI, the Razorpay dashboard, or Razorpay support) lands
+  // here and revokes access through exactly one code path.
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (evt.startsWith('refund.')) {
+    const refund = req.body.payload?.refund?.entity;
+    if (!refund) return res.status(400).json({ error: 'No refund entity' });
+
+    const { data: pay } = await supabaseAdmin
+      .from('payments')
+      .select('id,status,user_id,purchase_type,item_ref_id,item_name,total_amount,amount_refunded')
+      .eq('razorpay_payment_id', refund.payment_id)
+      .maybeSingle();
+
+    if (!pay) {
+      console.error('Webhook: refund for unknown payment', refund.payment_id);
+      return res.status(200).json({ received: true, skipped: 'payment_not_found' });
+    }
+
+    if (evt === 'refund.failed') {
+      await logSync({ payment_id: pay.id, payment_rzp_id: refund.payment_id, source: 'webhook',
+                      event: evt, oldStatus: pay.status, newStatus: pay.status,
+                      detail: { refund_id: refund.id } });
+      return res.status(200).json({ received: true, note: 'refund failed, access unchanged' });
+    }
+
+    // Razorpay reports money in paise; our columns are in rupees.
+    const refundedRupees = (refund.amount || 0) / 100;
+    const totalRefunded  = Number(pay.amount_refunded || 0) + refundedRupees;
+    const isFull         = totalRefunded >= Number(pay.total_amount || 0) - 0.01;
+    const newStatus      = isFull ? 'refunded' : 'partially_refunded';
+
+    // Idempotency: refund.created and refund.processed both fire for the same
+    // refund, so only count a given refund id once.
+    const { data: seen } = await supabaseAdmin
+      .from('payment_sync_log').select('id')
+      .eq('razorpay_payment_id', refund.payment_id)
+      .eq('detail->>refund_id', refund.id)
+      .in('event', ['refund.created', 'refund.processed'])
+      .limit(1);
+
+    if (seen?.length) {
+      console.log('Webhook: refund already applied', refund.id);
+      return res.status(200).json({ received: true, skipped: 'refund_already_applied' });
+    }
+
+    await supabaseAdmin.from('payments').update({
+      status:          newStatus,
+      razorpay_status: refund.status || evt,
+      amount_refunded: totalRefunded,
+      refund_id:       refund.id,
+      refunded_at:     new Date().toISOString(),
+      refund_reason:   refund.notes?.reason || 'Refunded via Razorpay',
+      last_synced_at:  new Date().toISOString(),
+    }).eq('id', pay.id);
+
+    // Only a FULL refund removes access. A partial refund (e.g. a goodwill
+    // discount after the fact) leaves the person enrolled.
+    if (isFull) await revokeAccess({ ...pay, id: pay.id }, `Refund ${refund.id}`);
+
+    await logSync({ payment_id: pay.id, payment_rzp_id: refund.payment_id, source: 'webhook',
+                    event: evt, oldStatus: pay.status, newStatus,
+                    detail: { refund_id: refund.id, amount: refundedRupees, full: isFull } });
+
+    console.log(`Webhook: ${evt} — ${refund.id} → ${newStatus}`);
+    return res.status(200).json({ received: true, status: newStatus, accessRevoked: isFull });
+  }
 
   const rp_payment  = req.body.payload?.payment?.entity;
   if (!rp_payment)  return res.status(400).json({ error: 'No payment entity' });
 
   const razorpay_payment_id = rp_payment.id;
   const razorpay_order_id   = rp_payment.order_id;
+
+  // ── Failed payments: record, never grant access ──────────────────────────
+  if (evt === 'payment.failed') {
+    const { data: pf } = await supabaseAdmin.from('payments')
+      .select('id,status').eq('razorpay_order_id', razorpay_order_id).maybeSingle();
+    if (pf && pf.status !== 'paid') {
+      await supabaseAdmin.from('payments').update({
+        status: 'failed', razorpay_status: rp_payment.status,
+        razorpay_payment_id, sync_note: rp_payment.error_description || null,
+        last_synced_at: new Date().toISOString(),
+      }).eq('id', pf.id);
+      await logSync({ payment_id: pf.id, order_id: razorpay_order_id,
+                      payment_rzp_id: razorpay_payment_id, source: 'webhook', event: evt,
+                      oldStatus: pf.status, newStatus: 'failed' });
+    }
+    return res.status(200).json({ received: true, status: 'failed' });
+  }
 
   // ── 2. Fetch payment record (includes metadata with form data) ───
   const { data: payment } = await supabaseAdmin
@@ -64,8 +226,14 @@ export default async function handler(req, res) {
   // ── 4. Mark payment as paid ──────────────────────────────────────
   await supabaseAdmin.from('payments').update({
     status:              'paid',
+    razorpay_status:     rp_payment.status || 'captured',
     razorpay_payment_id: razorpay_payment_id,
+    last_synced_at:      new Date().toISOString(),
   }).eq('razorpay_order_id', razorpay_order_id);
+
+  await logSync({ payment_id: payment.id, order_id: razorpay_order_id,
+                  payment_rzp_id: razorpay_payment_id, source: 'webhook',
+                  event: 'payment.captured', oldStatus: payment.status, newStatus: 'paid' });
 
   console.log(`Webhook: marked paid — ${razorpay_payment_id} (${payment.purchase_type})`);
 
@@ -213,6 +381,7 @@ export default async function handler(req, res) {
             gst_company_name: meta.gst?.gst_company_name || null,
             gst_address:      meta.gst?.gst_address      || null,
             status:     'registered',
+            payment_id: payment.id,   // lets a later refund revoke exactly this row
           });
           if (crErr) console.error('Webhook: course enrollment failed:', crErr.message);
           else console.log('Webhook: enrolled in course', course.id, rsvp.email || userId);
@@ -272,6 +441,7 @@ export default async function handler(req, res) {
             gst_company_name:   rsvp.gst_company_name || null,
             gst_address:        rsvp.gst_address      || null,
             status:             'confirmed',
+            payment_id:         payment.id,
           });
           if (rsvpErr) console.error('Webhook: event enroll failed:', rsvpErr.message);
           else console.log('Webhook: enrolled in event', rsvp.event_id, rsvp.email);

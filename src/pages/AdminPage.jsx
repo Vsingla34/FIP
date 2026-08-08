@@ -365,18 +365,24 @@ export default function AdminPage() {
   };
 
   const downloadPaymentsExcel = function(paymentsList) {
-    var headers = ['Member Name', 'Email', 'Phone', 'Item / Plan', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Transaction ID', 'Order ID', 'Status', 'Date'];
+    var headers = ['Member Name', 'Email', 'Phone', 'Item / Plan', 'Type', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Refunded (₹)', 'Net (₹)', 'Transaction ID', 'Order ID', 'Refund ID', 'Refund Reason', 'Refunded On', 'Status', 'Date'];
     var rows = paymentsList.map(function(p) {
       return [
         p.profiles?.full_name || '',
         p.profiles?.email     || '',
         p.profiles?.phone     || '',
         p.item_name           || '',
+        p.purchase_type       || '',
         p.amount              || 0,
         p.gst_amount          || 0,
         p.total_amount        || 0,
+        p.amount_refunded     || 0,
+        (Number(p.total_amount||0) - Number(p.amount_refunded||0)),
         p.razorpay_payment_id || '',
         p.razorpay_order_id   || '',
+        p.refund_id           || '',
+        p.refund_reason       || '',
+        p.refunded_at ? new Date(p.refunded_at).toLocaleDateString('en-IN') : '',
         p.status              || '',
         p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '',
       ];
@@ -895,6 +901,16 @@ export default function AdminPage() {
   const [totalCollected,      setTotalCollected]      = useState(0);
   const [paymentSearch,      setPaymentSearch]      = useState('');
   const [paymentStatusFilter,setPaymentStatusFilter]= useState('All');
+  const [paymentTypeFilter,  setPaymentTypeFilter]  = useState('All');
+  const [payDateFrom,        setPayDateFrom]        = useState('');
+  const [payDateTo,          setPayDateTo]          = useState('');
+  /* Refund + reconcile */
+  const [refundTarget,   setRefundTarget]   = useState(null);   // payment row
+  const [refundAmount,   setRefundAmount]   = useState('');
+  const [refundReason,   setRefundReason]   = useState('');
+  const [refundBusy,     setRefundBusy]     = useState(false);
+  const [reconcileBusy,  setReconcileBusy]  = useState(false);
+  const [reconcileResult,setReconcileResult]= useState(null);
 
   /* ── Search states for all admin tabs ── */
   /* ── Bulk Email system ── */
@@ -917,7 +933,7 @@ export default function AdminPage() {
   const dEventSearch  = useDebounce(eventSearch,  1500, 3);
   const dCourseSearch = useDebounce(courseSearch, 1500, 3);
   const dJobSearch    = useDebounce(jobSearch,    1500, 3);
-  const dPaySearch    = useDebounce(paymentSearch,1500, 3);
+  const dPaySearch    = useDebounce(paymentSearch, 250, 1);
   const dTestiSearch  = useDebounce(testiSearch,  1500, 3);
   const dBlogSearch   = useDebounce(blogSearch,   1500, 3);
 
@@ -970,6 +986,82 @@ export default function AdminPage() {
     });
   }, [tab]);
 
+
+  /* ── Refund + reconcile handlers ────────────────────────────────────────
+     Refunds are initiated at Razorpay and nothing else. Access revocation is
+     done by the razorpay-webhook when Razorpay confirms the refund, so a
+     dashboard refund and a site refund follow the identical path and can
+     never disagree. */
+  const reloadPayments = async () => {
+    const PAGE_SIZE = 1000; let allData = []; let from = 0; let keepGoing = true;
+    while (keepGoing) {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id,total_amount,amount,gst_amount,status,razorpay_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error || !data?.length) break;
+      allData = [...allData, ...data];
+      if (data.length < PAGE_SIZE) keepGoing = false; else from += PAGE_SIZE;
+    }
+    setAllPayments(allData);
+  };
+
+  const openRefund = (p) => {
+    const refundable = Number(p.total_amount || 0) - Number(p.amount_refunded || 0);
+    setRefundTarget(p);
+    setRefundAmount(refundable > 0 ? String(refundable) : '');
+    setRefundReason('');
+  };
+
+  const submitRefund = async () => {
+    if (!refundTarget) return;
+    const amt = Number(refundAmount);
+    const refundable = Number(refundTarget.total_amount || 0) - Number(refundTarget.amount_refunded || 0);
+    if (!(amt > 0))            { showToast('Enter a refund amount greater than zero.', true); return; }
+    if (amt > refundable + 0.01) { showToast(`Only ₹${refundable.toFixed(2)} can still be refunded.`, true); return; }
+    if (!refundReason.trim())  { showToast('Please give a reason — it is stored on the audit trail.', true); return; }
+
+    setRefundBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/verify-payment?action=refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ paymentId: refundTarget.id, amount: amt, reason: refundReason.trim() }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || 'Refund failed');
+      showToast(`Refund of ₹${amt.toLocaleString('en-IN')} initiated (${out.refundId}).`);
+      setRefundTarget(null);
+      // Razorpay confirms asynchronously; give the webhook a moment, then refresh.
+      setTimeout(reloadPayments, 2500);
+    } catch (e) {
+      showToast('Refund failed: ' + e.message, true);
+    } finally { setRefundBusy(false); }
+  };
+
+  const runReconcile = async (dryRun = true) => {
+    setReconcileBusy(true); setReconcileResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/verify-payment?action=reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ days: 30, dryRun }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || 'Reconcile failed');
+      setReconcileResult(out);
+      if (!dryRun) { showToast(`Reconciled — ${out.statusChanges} payment(s) corrected.`); reloadPayments(); }
+      else showToast(out.statusChanges === 0 && out.enrollmentDrift === 0
+        ? 'All in sync with Razorpay.'
+        : `Found ${out.statusChanges} status mismatch(es), ${out.enrollmentDrift} enrollment drift(s).`);
+    } catch (e) {
+      showToast('Reconcile failed: ' + e.message, true);
+    } finally { setReconcileBusy(false); }
+  };
+
   /* ── Load all payments when tab opens ── */
   useEffect(() => {
     if (tab !== 'payments') return;
@@ -986,7 +1078,7 @@ export default function AdminPage() {
       while (keepGoing) {
         const { data, error } = await supabase
           .from('payments')
-          .select('total_amount,amount,gst_amount,status,item_name,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+          .select('id,total_amount,amount,gst_amount,status,razorpay_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
         if (error || !data?.length) { keepGoing = false; break; }
@@ -2213,21 +2305,49 @@ export default function AdminPage() {
 
           {/* ═══ PAYMENTS ═══ */}
           {tab === 'payments' && (() => {
+            const inRange = (p) => {
+              if (!payDateFrom && !payDateTo) return true;
+              const d = p.created_at ? new Date(p.created_at) : null;
+              if (!d) return false;
+              if (payDateFrom && d < new Date(payDateFrom + 'T00:00:00')) return false;
+              if (payDateTo   && d > new Date(payDateTo   + 'T23:59:59')) return false;
+              return true;
+            };
+            const q = (dPaySearch || '').toLowerCase().trim();
             const filtPay = allPayments
-              .filter(p => paymentStatusFilter === 'All' || p.status === paymentStatusFilter)
-              .filter(p => !dPaySearch || [p.profiles?.full_name, p.profiles?.email, p.item_name, p.razorpay_payment_id].some(v => v?.toLowerCase().includes(dPaySearch.toLowerCase())));
+              .filter(p => paymentStatusFilter === 'All'
+                || (paymentStatusFilter === 'refunded_any'
+                      ? (p.status === 'refunded' || p.status === 'partially_refunded' || Number(p.amount_refunded) > 0)
+                      : p.status === paymentStatusFilter))
+              .filter(p => paymentTypeFilter === 'All' || p.purchase_type === paymentTypeFilter)
+              .filter(inRange)
+              .filter(p => !q || [
+                p.profiles?.full_name, p.profiles?.email, p.profiles?.phone,
+                p.item_name, p.razorpay_payment_id, p.razorpay_order_id, p.refund_id, p.status,
+              ].some(v => v && String(v).toLowerCase().includes(q)));
+
+            const sum   = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
+            const gross = sum(filtPay.filter(p => p.status === 'paid' || Number(p.amount_refunded) > 0), p => p.total_amount);
+            const refunded = sum(filtPay, p => p.amount_refunded);
+            const anyFilter = paymentStatusFilter !== 'All' || paymentTypeFilter !== 'All'
+                              || payDateFrom || payDateTo || q;
+
             return (
             <div className="admin-form-card">
               <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px',marginBottom:'14px'}}>
                 <span>All Payments
                   <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400,marginLeft:'8px'}}>
-                    ({filtPay.length})
+                    ({filtPay.length}{anyFilter ? ` of ${allPayments.length}` : ''})
                   </span>
                 </span>
                 <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
-                  <span style={{fontSize:'13px',color:'var(--green)',fontWeight:700}}>
-                    ₹{(totalCollected || filtPay.filter(p=>p.status==='paid').reduce((s,p)=>s+(Number(p.total_amount)||0),0)).toLocaleString('en-IN')} collected (all time)
-                  </span>
+                  <button className="btn btn-sm" disabled={reconcileBusy}
+                    title="Ask Razorpay what really happened and report any mismatch. Changes nothing."
+                    style={{background:'var(--blue)',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
+                    onClick={() => runReconcile(true)}>
+                    <i className={`fa-solid ${reconcileBusy?'fa-spinner fa-spin':'fa-rotate'}`}></i>
+                    {reconcileBusy ? 'Checking…' : 'Check sync'}
+                  </button>
                   {allPayments.length > 0 && (
                     <button className="btn btn-sm"
                       style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
@@ -2237,21 +2357,92 @@ export default function AdminPage() {
                   )}
                 </div>
               </div>
-              {/* Search + Status filter */}
-              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-                <div className="search-wrap" style={{flex:1,minWidth:'200px',marginBottom:0}}>
+
+              {/* Totals */}
+              <div style={{display:'flex',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
+                <div style={{flex:1,minWidth:'150px',background:'var(--surface-2,#F7F9FC)',border:'1px solid var(--border)',borderRadius:'10px',padding:'10px 14px'}}>
+                  <div style={{fontSize:'10px',textTransform:'uppercase',letterSpacing:'1px',color:'var(--text-muted)'}}>Collected (all time)</div>
+                  <div style={{fontSize:'18px',fontWeight:800,color:'var(--green)'}}>₹{(totalCollected||0).toLocaleString('en-IN')}</div>
+                </div>
+                <div style={{flex:1,minWidth:'150px',background:'var(--surface-2,#F7F9FC)',border:'1px solid var(--border)',borderRadius:'10px',padding:'10px 14px'}}>
+                  <div style={{fontSize:'10px',textTransform:'uppercase',letterSpacing:'1px',color:'var(--text-muted)'}}>Gross (filtered)</div>
+                  <div style={{fontSize:'18px',fontWeight:800,color:'var(--blue)'}}>₹{gross.toLocaleString('en-IN')}</div>
+                </div>
+                <div style={{flex:1,minWidth:'150px',background:'var(--surface-2,#F7F9FC)',border:'1px solid var(--border)',borderRadius:'10px',padding:'10px 14px'}}>
+                  <div style={{fontSize:'10px',textTransform:'uppercase',letterSpacing:'1px',color:'var(--text-muted)'}}>Refunded (filtered)</div>
+                  <div style={{fontSize:'18px',fontWeight:800,color:'#DC2626'}}>₹{refunded.toLocaleString('en-IN')}</div>
+                </div>
+                <div style={{flex:1,minWidth:'150px',background:'var(--surface-2,#F7F9FC)',border:'1px solid var(--border)',borderRadius:'10px',padding:'10px 14px'}}>
+                  <div style={{fontSize:'10px',textTransform:'uppercase',letterSpacing:'1px',color:'var(--text-muted)'}}>Net (filtered)</div>
+                  <div style={{fontSize:'18px',fontWeight:800,color:'var(--orange)'}}>₹{(gross-refunded).toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+
+              {/* Search + filters */}
+              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap',alignItems:'center'}}>
+                <div className="search-wrap" style={{flex:1,minWidth:'220px',marginBottom:0}}>
                   <i className="fa-solid fa-magnifying-glass"></i>
-                  <input type="search" placeholder="Search by name, email, item, transaction ID…"
+                  <input type="search" placeholder="Search name, email, phone, item, payment / order / refund ID…"
                     value={paymentSearch} onChange={e=>setPaymentSearch(e.target.value)}/>
                 </div>
-                <select className="form-select" style={{width:'140px'}} value={paymentStatusFilter}
+                <select className="form-select" style={{width:'165px'}} value={paymentStatusFilter}
                   onChange={e=>setPaymentStatusFilter(e.target.value)}>
                   <option value="All">All Status</option>
                   <option value="paid">Paid</option>
-                  <option value="pending">Pending</option>
+                  <option value="created">Pending</option>
                   <option value="failed">Failed</option>
+                  <option value="refunded_any">Refunded (any)</option>
+                  <option value="refunded">Fully refunded</option>
+                  <option value="partially_refunded">Partially refunded</option>
                 </select>
+                <select className="form-select" style={{width:'140px'}} value={paymentTypeFilter}
+                  onChange={e=>setPaymentTypeFilter(e.target.value)}>
+                  <option value="All">All Types</option>
+                  <option value="membership">Membership</option>
+                  <option value="course">Course</option>
+                  <option value="event">Event</option>
+                </select>
+                <input type="date" className="form-input" style={{width:'150px'}} value={payDateFrom}
+                  title="From date" onChange={e=>setPayDateFrom(e.target.value)}/>
+                <input type="date" className="form-input" style={{width:'150px'}} value={payDateTo}
+                  title="To date" onChange={e=>setPayDateTo(e.target.value)}/>
+                {anyFilter && (
+                  <button className="btn btn-sm" style={{background:'var(--border)',border:'none',fontWeight:600}}
+                    onClick={()=>{setPaymentSearch('');setPaymentStatusFilter('All');setPaymentTypeFilter('All');setPayDateFrom('');setPayDateTo('');}}>
+                    <i className="fa-solid fa-xmark"></i> Clear
+                  </button>
+                )}
               </div>
+
+              {/* Reconcile result */}
+              {reconcileResult && (
+                <div style={{marginBottom:'16px',padding:'14px 16px',borderRadius:'10px',
+                  border:'1px solid ' + ((reconcileResult.statusChanges||reconcileResult.enrollmentDrift)?'#FCD34D':'#BBF7D0'),
+                  background:(reconcileResult.statusChanges||reconcileResult.enrollmentDrift)?'#FFFBEB':'#F0FDF4'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
+                    <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
+                      Checked {reconcileResult.checked} order(s) against Razorpay —{' '}
+                      {reconcileResult.statusChanges} status mismatch(es), {reconcileResult.enrollmentDrift} enrollment drift(s).
+                    </div>
+                    {reconcileResult.dryRun && reconcileResult.statusChanges > 0 && (
+                      <button className="btn btn-sm btn-primary" disabled={reconcileBusy}
+                        onClick={()=>runReconcile(false)}>Apply corrections</button>
+                    )}
+                    <button className="btn btn-sm" style={{background:'transparent',border:'1px solid var(--border)'}}
+                      onClick={()=>setReconcileResult(null)}>Dismiss</button>
+                  </div>
+                  {(reconcileResult.changes||[]).slice(0,10).map((c,i)=>(
+                    <div key={i} style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'6px',fontFamily:'monospace'}}>
+                      {c.order}: {c.from} → {c.to} ({c.issue})
+                    </div>
+                  ))}
+                  {(reconcileResult.drift||[]).slice(0,10).map((d,i)=>(
+                    <div key={'d'+i} style={{fontSize:'11px',color:'#B45309',marginTop:'6px',fontFamily:'monospace'}}>
+                      {d.drift}: {d.item_name} ({d.razorpay_payment_id||'no payment id'})
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {allPaymentsLoading ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
@@ -2262,41 +2453,142 @@ export default function AdminPage() {
                   <i className="fa-solid fa-indian-rupee-sign" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
                   No payments recorded yet.
                 </div>
+              ) : filtPay.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-filter-circle-xmark" style={{fontSize:'28px',display:'block',marginBottom:'8px',opacity:.3}}></i>
+                  No payments match these filters.
+                </div>
               ) : (
                 <div style={{overflowX:'auto'}}>
                   <table className="dboard-table">
                     <thead>
-                      <tr><th>Member</th><th>Phone</th><th>Item / Plan</th><th>Amount</th><th>Transaction ID</th><th>Date</th><th>Status</th></tr>
+                      <tr><th>Member</th><th>Phone</th><th>Item / Plan</th><th>Type</th><th>Amount</th>
+                          <th>Transaction ID</th><th>Date</th><th>Status</th><th>Action</th></tr>
                     </thead>
                     <tbody>
-                      {filtPay.map((p,i) => (
-                        <tr key={i}>
+                      {filtPay.map((p,i) => {
+                        const refunded   = Number(p.amount_refunded || 0);
+                        const total      = Number(p.total_amount || 0);
+                        const isFull     = p.status === 'refunded';
+                        const isPartial  = p.status === 'partially_refunded' || (refunded > 0 && !isFull);
+                        const refundable = total - refunded;
+                        const canRefund  = p.razorpay_payment_id && refundable > 0.01
+                                           && ['paid','partially_refunded'].includes(p.status);
+                        const pill = isFull ? {bg:'#FEE2E2',fg:'#B91C1C',label:'Refunded'}
+                                  : isPartial ? {bg:'#FFEDD5',fg:'#C2410C',label:'Part. refunded'}
+                                  : p.status === 'paid'   ? {bg:'#DCFCE7',fg:'#15803D',label:'Paid'}
+                                  : p.status === 'failed' ? {bg:'#FEE2E2',fg:'#B91C1C',label:'Failed'}
+                                  : {bg:'#FEF3C7',fg:'#B45309',label:p.status || '—'};
+                        return (
+                        <tr key={p.id || i} style={isFull ? {opacity:.72} : undefined}>
                           <td>
                             <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
                             <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{p.profiles?.email || ''}</div>
                           </td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{p.profiles?.phone || '—'}</td>
-                          <td style={{fontSize:'12px',color:'var(--text-muted)',maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                            {p.item_name || '—'}
-                          </td>
+                          <td style={{fontSize:'12px',color:'var(--text-muted)',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}
+                              title={p.item_name || ''}>{p.item_name || '—'}</td>
+                          <td style={{fontSize:'11px',color:'var(--text-muted)',textTransform:'capitalize'}}>{p.purchase_type || '—'}</td>
                           <td>
-                            <span style={{color:'var(--orange)',fontWeight:700}}>₹{Number(p.total_amount||0).toLocaleString('en-IN')}</span>
+                            <span style={{color:isFull?'var(--text-muted)':'var(--orange)',fontWeight:700,
+                              textDecoration:isFull?'line-through':'none'}}>
+                              ₹{total.toLocaleString('en-IN')}
+                            </span>
+                            {refunded > 0 && (
+                              <div style={{fontSize:'11px',color:'#DC2626',fontWeight:600}}>
+                                −₹{refunded.toLocaleString('en-IN')} refunded
+                              </div>
+                            )}
                           </td>
                           <td style={{fontSize:'11px',color:'var(--text-muted)',fontFamily:'monospace'}}>
                             {p.razorpay_payment_id || '—'}
+                            {p.refund_id && <div style={{color:'#DC2626'}}>{p.refund_id}</div>}
                           </td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
                             {p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}
+                            {p.refunded_at && (
+                              <div style={{fontSize:'10px',color:'#DC2626'}}>
+                                ref. {new Date(p.refunded_at).toLocaleDateString('en-IN',{day:'numeric',month:'short'})}
+                              </div>
+                            )}
                           </td>
                           <td>
-                            <span className={`dboard-pill ${p.status==='paid'?'pill-green':p.status==='failed'?'pill-red':'pill-orange'}`}>
-                              {p.status}
+                            <span style={{background:pill.bg,color:pill.fg,fontWeight:700,fontSize:'11px',
+                              padding:'3px 10px',borderRadius:'20px',whiteSpace:'nowrap',display:'inline-block'}}
+                              title={p.refund_reason || p.razorpay_status || ''}>
+                              {pill.label}
                             </span>
                           </td>
+                          <td>
+                            {canRefund ? (
+                              <button className="btn btn-sm"
+                                style={{background:'#FEE2E2',color:'#B91C1C',border:'1px solid #FCA5A5',fontWeight:700,fontSize:'11px',whiteSpace:'nowrap'}}
+                                onClick={()=>openRefund(p)}>
+                                <i className="fa-solid fa-rotate-left"></i> Refund
+                              </button>
+                            ) : (
+                              <span style={{fontSize:'11px',color:'var(--text-muted)'}}>—</span>
+                            )}
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* ── Refund confirmation modal ── */}
+              {refundTarget && (
+                <div className="modal-overlay">
+                  <div className="modal-box" style={{maxWidth:'440px'}} onClick={e=>e.stopPropagation()}>
+                    <button className="modal-close" onClick={()=>!refundBusy && setRefundTarget(null)}>&#x2715;</button>
+                    <h3 style={{fontSize:'18px',fontWeight:800,color:'var(--blue)',marginBottom:'6px'}}>Issue refund</h3>
+                    <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'16px'}}>
+                      {refundTarget.profiles?.full_name || refundTarget.profiles?.email} — {refundTarget.item_name}
+                    </p>
+
+                    <div style={{background:'#F9FAFB',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 14px',marginBottom:'16px',fontSize:'13px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0'}}>
+                        <span style={{color:'var(--text-muted)'}}>Paid</span>
+                        <strong>₹{Number(refundTarget.total_amount||0).toLocaleString('en-IN')}</strong>
+                      </div>
+                      {Number(refundTarget.amount_refunded||0) > 0 && (
+                        <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',color:'#DC2626'}}>
+                          <span>Already refunded</span>
+                          <strong>₹{Number(refundTarget.amount_refunded).toLocaleString('en-IN')}</strong>
+                        </div>
+                      )}
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderTop:'1px solid var(--border)',marginTop:'4px',paddingTop:'7px'}}>
+                        <span style={{color:'var(--text-muted)'}}>Refundable now</span>
+                        <strong>₹{(Number(refundTarget.total_amount||0)-Number(refundTarget.amount_refunded||0)).toLocaleString('en-IN')}</strong>
+                      </div>
+                    </div>
+
+                    <label className="form-label">Refund amount (₹)</label>
+                    <input className="form-input" type="number" min="1" step="0.01" value={refundAmount}
+                      onChange={e=>setRefundAmount(e.target.value)} disabled={refundBusy}/>
+
+                    <label className="form-label" style={{marginTop:'12px'}}>Reason (stored on the audit trail)</label>
+                    <input className="form-input" type="text" value={refundReason} placeholder="e.g. Duplicate payment"
+                      onChange={e=>setRefundReason(e.target.value)} disabled={refundBusy}/>
+
+                    <div style={{background:'#FFFBEB',border:'1px solid #FCD34D',borderRadius:'8px',padding:'10px 12px',margin:'14px 0',fontSize:'12px',color:'#92400E',lineHeight:1.6}}>
+                      {Number(refundAmount) >= Number(refundTarget.total_amount||0) - Number(refundTarget.amount_refunded||0) - 0.01
+                        ? <>This is a <strong>full refund</strong>. Once Razorpay confirms it, this person’s {refundTarget.purchase_type} access is revoked automatically.</>
+                        : <>This is a <strong>partial refund</strong>. Access is <strong>not</strong> revoked — only a full refund removes access.</>}
+                      <div style={{marginTop:'6px'}}>Refunds cannot be undone at Razorpay.</div>
+                    </div>
+
+                    <div style={{display:'flex',gap:'10px'}}>
+                      <button className="btn" style={{flex:1,background:'var(--border)',border:'none',fontWeight:700}}
+                        onClick={()=>setRefundTarget(null)} disabled={refundBusy}>Cancel</button>
+                      <button className="btn" style={{flex:1,background:'#DC2626',color:'#fff',border:'none',fontWeight:700}}
+                        onClick={submitRefund} disabled={refundBusy}>
+                        {refundBusy ? <><i className="fa-solid fa-spinner fa-spin"></i> Processing…</> : 'Confirm refund'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

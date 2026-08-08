@@ -299,9 +299,214 @@ async function sendPaymentEmail({ profile, payment, validFrom, validUntil, membe
   }
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ADMIN ACTIONS — merged into this function because Vercel Hobby caps the
+   project at 12 serverless functions and we are at the cap. Routed by
+   ?action= on the query string. Both require an admin Supabase JWT.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const RZP_AUTH = 'Basic ' + Buffer
+  .from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`)
+  .toString('base64');
+
+async function rzp(path, init = {}) {
+  const r = await fetch(`https://api.razorpay.com/v1${path}`, {
+    ...init,
+    headers: { Authorization: RZP_AUTH, 'Content-Type': 'application/json', ...(init.headers || {}) },
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body?.error?.description || `Razorpay ${r.status}`);
+  return body;
+}
+
+/* Verify the caller is a real admin. Never trust an isAdmin flag from the
+   client — resolve the JWT to a user, then read that user's own profile. */
+async function requireAdmin(req) {
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!token) return { ok: false, error: 'Missing authorization token' };
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) return { ok: false, error: 'Invalid session' };
+  const { data: prof } = await supabaseAdmin
+    .from('profiles').select('id,role,is_admin').eq('id', user.id).maybeSingle();
+  if (!prof || (prof.role !== 'admin' && prof.is_admin !== true)) {
+    return { ok: false, error: 'Admin access required' };
+  }
+  return { ok: true, adminId: user.id };
+}
+
+async function logSync(row) {
+  try { await supabaseAdmin.from('payment_sync_log').insert(row); }
+  catch (e) { console.warn('sync log failed:', e.message); }
+}
+
+/* ── action=refund ─────────────────────────────────────────────────────────
+   Initiates the refund at Razorpay and stops. It deliberately does NOT revoke
+   access here: Razorpay will fire refund.processed, and the webhook revokes.
+   One path for dashboard refunds and site refunds alike means they can never
+   diverge. */
+async function handleRefund(req, res) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return res.status(403).json({ error: auth.error });
+
+  const { paymentId, amount, reason, speed } = req.body || {};
+  if (!paymentId) return res.status(400).json({ error: 'paymentId (our payments.id) required' });
+
+  const { data: pay } = await supabaseAdmin
+    .from('payments')
+    .select('id,razorpay_payment_id,total_amount,amount_refunded,status,item_name,purchase_type')
+    .eq('id', paymentId).maybeSingle();
+
+  if (!pay)                          return res.status(404).json({ error: 'Payment not found' });
+  if (!pay.razorpay_payment_id)      return res.status(400).json({ error: 'No Razorpay payment id — nothing was captured' });
+  if (pay.status === 'refunded')     return res.status(400).json({ error: 'Already fully refunded' });
+
+  const alreadyRefunded = Number(pay.amount_refunded || 0);
+  const refundable      = Number(pay.total_amount || 0) - alreadyRefunded;
+  const amountRupees    = amount != null ? Number(amount) : refundable;
+
+  if (!(amountRupees > 0))            return res.status(400).json({ error: 'Refund amount must be positive' });
+  if (amountRupees > refundable + 0.01)
+    return res.status(400).json({ error: `Only ₹${refundable.toFixed(2)} remains refundable` });
+
+  try {
+    const refund = await rzp(`/payments/${pay.razorpay_payment_id}/refund`, {
+      method: 'POST',
+      body: JSON.stringify({
+        amount: Math.round(amountRupees * 100),          // Razorpay works in paise
+        speed:  speed === 'optimum' ? 'optimum' : 'normal',
+        notes:  { reason: reason || 'Refund issued by FIP admin', item: pay.item_name || '' },
+      }),
+    });
+
+    await supabaseAdmin.from('payments').update({
+      refund_reason: reason || 'Refund issued by FIP admin',
+      refunded_by:   auth.adminId,
+    }).eq('id', pay.id);
+
+    await logSync({
+      payment_id: pay.id, razorpay_payment_id: pay.razorpay_payment_id,
+      source: 'admin_refund', event: 'refund.initiated',
+      old_status: pay.status, new_status: pay.status,
+      detail: { refund_id: refund.id, amount: amountRupees, by: auth.adminId },
+    });
+
+    return res.status(200).json({
+      success: true,
+      refundId: refund.id,
+      amount: amountRupees,
+      note: 'Refund initiated. Access is revoked automatically when Razorpay confirms it.',
+    });
+  } catch (e) {
+    console.error('Refund failed:', e.message);
+    return res.status(500).json({ error: 'Refund failed: ' + e.message });
+  }
+}
+
+/* ── action=reconcile ──────────────────────────────────────────────────────
+   Pulls the truth from Razorpay for recent orders and repairs any drift. This
+   is the backstop that would have caught the Aug-6 enrollment outage on day
+   one: the webhook can silently fail, but this notices the DB disagrees with
+   Razorpay and says so. Pass dryRun to inspect before changing anything. */
+async function handleReconcile(req, res) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return res.status(403).json({ error: auth.error });
+
+  const days   = Math.min(Number(req.body?.days || 7), 90);
+  const dryRun = req.body?.dryRun !== false;   // safe by default
+  const since  = new Date(Date.now() - days * 864e5).toISOString();
+
+  const { data: rows } = await supabaseAdmin
+    .from('payments')
+    .select('id,razorpay_order_id,razorpay_payment_id,status,total_amount,amount_refunded,purchase_type,item_name,user_id,created_at')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  const changes = [];
+  let checked = 0, errors = 0;
+
+  for (const row of rows || []) {
+    if (!row.razorpay_order_id) continue;
+    checked++;
+    try {
+      const { items = [] } = await rzp(`/orders/${row.razorpay_order_id}/payments`);
+      const captured = items.find(i => i.status === 'captured' || i.status === 'refunded');
+
+      // Razorpay has no captured payment, but we think it is paid.
+      if (!captured) {
+        if (row.status === 'paid') {
+          changes.push({ payment_id: row.id, order: row.razorpay_order_id,
+                         from: row.status, to: 'failed',
+                         issue: 'DB says paid, Razorpay has no captured payment' });
+          if (!dryRun) {
+            await supabaseAdmin.from('payments')
+              .update({ status: 'failed', last_synced_at: new Date().toISOString(),
+                        sync_note: 'Reconciler: no captured payment at Razorpay' })
+              .eq('id', row.id);
+          }
+        }
+        continue;
+      }
+
+      const refundedRupees = (captured.amount_refunded || 0) / 100;
+      const totalRupees    = (captured.amount || 0) / 100;
+      const fullyRefunded  = refundedRupees >= totalRupees - 0.01 && refundedRupees > 0;
+      const truth = fullyRefunded ? 'refunded' : refundedRupees > 0 ? 'partially_refunded' : 'paid';
+
+      const statusDrift = row.status !== truth;
+      const amountDrift = Math.abs(Number(row.amount_refunded || 0) - refundedRupees) > 0.01;
+
+      if (statusDrift || amountDrift) {
+        changes.push({ payment_id: row.id, order: row.razorpay_order_id,
+                       from: row.status, to: truth,
+                       issue: statusDrift ? 'status differs from Razorpay' : 'refund amount differs' });
+        if (!dryRun) {
+          await supabaseAdmin.from('payments').update({
+            status: truth,
+            razorpay_status: captured.status,
+            razorpay_payment_id: captured.id,
+            amount_refunded: refundedRupees,
+            last_synced_at: new Date().toISOString(),
+            sync_note: 'Corrected by reconciler',
+          }).eq('id', row.id);
+
+          await logSync({ payment_id: row.id, razorpay_order_id: row.razorpay_order_id,
+                          razorpay_payment_id: captured.id, source: 'reconcile',
+                          event: 'status.corrected', old_status: row.status, new_status: truth,
+                          detail: { refunded: refundedRupees, by: auth.adminId } });
+        }
+      }
+    } catch (e) { errors++; console.error('Reconcile', row.razorpay_order_id, e.message); }
+  }
+
+  // Second pass: money and access disagree. Reads the SQL view.
+  let drift = [];
+  try {
+    const { data } = await supabaseAdmin.from('payment_enrollment_drift').select('*').limit(200);
+    drift = data || [];
+  } catch (e) { console.warn('drift view unavailable — run razorpay_sync_schema.sql'); }
+
+  return res.status(200).json({
+    dryRun, days, checked, errors,
+    statusChanges: changes.length,
+    changes,
+    enrollmentDrift: drift.length,
+    drift,
+    note: dryRun
+      ? 'Nothing was written. Re-send with dryRun:false to apply.'
+      : 'Payment statuses corrected. Enrollment drift is listed for review.',
+  });
+}
+
 /* ── Main handler ── */
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Admin sub-routes (see note above on the 12-function cap)
+  const action = req.query?.action;
+  if (action === 'refund')    return handleRefund(req, res);
+  if (action === 'reconcile') return handleReconcile(req, res);
 
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId } = req.body;
@@ -512,6 +717,7 @@ export default async function handler(req, res) {
               gst_address:      gstMeta.gst_address      || null,
               status:     'registered',
               zoom_link:  course.zoom_link || null,
+              payment_id: payment.id,   // lets a later refund revoke exactly this row
             });
           regError = error;
           didInsert = !error;
