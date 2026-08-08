@@ -87,20 +87,44 @@ async function revokeAccess(payment, reason) {
   console.log(`Revoked ${payment.purchase_type} access for payment ${payment.id} (${reason})`);
 }
 
+// Vercel auto-parses JSON bodies before the handler runs. Razorpay signs the
+// EXACT raw bytes it sent — a JSON.stringify() of the already-parsed body is
+// not guaranteed to match byte-for-byte (whitespace, key order, number
+// formatting), so signature verification against the re-serialized body is
+// unreliable and was silently rejecting real webhook calls. Reading the raw
+// body ourselves is the only correct way to verify Razorpay's signature.
+export const config = { api: { bodyParser: false } };
+
+function getRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => { data += chunk; });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  // ── 1. Verify signature ──────────────────────────────────────────
-  const secret      = process.env.RAZORPAY_WEBHOOK_SECRET;
-  const received    = req.headers['x-razorpay-signature'];
-  const expected    = crypto.createHmac('sha256', secret)
-                        .update(JSON.stringify(req.body)).digest('hex');
-  if (received !== expected) {
+  // ── 1. Verify signature against the RAW body ────────────────────
+  const secret   = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const received = req.headers['x-razorpay-signature'];
+  const rawBody  = await getRawBody(req);
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+
+  // Constant-time comparison — avoids leaking timing info about the secret.
+  const validSig = received
+    && expected.length === received.length
+    && crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+
+  if (!validSig) {
     console.error('Webhook: invalid signature');
     return res.status(400).json({ error: 'Invalid signature' });
   }
 
-  const evt = req.body.event;
+  const body = JSON.parse(rawBody);
+  const evt  = body.event;
 
   // Events we act on. Everything else is acknowledged and ignored so Razorpay
   // does not retry it forever.
@@ -119,7 +143,7 @@ export default async function handler(req, res) {
   // here and revokes access through exactly one code path.
   // ═══════════════════════════════════════════════════════════════════════════
   if (evt.startsWith('refund.')) {
-    const refund = req.body.payload?.refund?.entity;
+    const refund = body.payload?.refund?.entity;
     if (!refund) return res.status(400).json({ error: 'No refund entity' });
 
     const { data: pay } = await supabaseAdmin
@@ -182,7 +206,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ received: true, status: newStatus, accessRevoked: isFull });
   }
 
-  const rp_payment  = req.body.payload?.payment?.entity;
+  const rp_payment  = body.payload?.payment?.entity;
   if (!rp_payment)  return res.status(400).json({ error: 'No payment entity' });
 
   const razorpay_payment_id = rp_payment.id;
