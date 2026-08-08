@@ -424,7 +424,7 @@ async function handleReconcile(req, res) {
     .limit(500);
 
   const changes = [];
-  let checked = 0, errors = 0;
+  let checked = 0, errors = 0, firstError = null;
 
   for (const row of rows || []) {
     if (!row.razorpay_order_id) continue;
@@ -477,7 +477,11 @@ async function handleReconcile(req, res) {
                           detail: { refunded: refundedRupees, by: auth.adminId } });
         }
       }
-    } catch (e) { errors++; console.error('Reconcile', row.razorpay_order_id, e.message); }
+    } catch (e) {
+      errors++;
+      if (!firstError) firstError = `${row.razorpay_order_id}: ${e.message}`;
+      console.error('Reconcile', row.razorpay_order_id, e.message);
+    }
   }
 
   // Second pass: money and access disagree. Reads the SQL view.
@@ -488,14 +492,21 @@ async function handleReconcile(req, res) {
   } catch (e) { console.warn('drift view unavailable — run razorpay_sync_schema.sql'); }
 
   return res.status(200).json({
-    dryRun, days, checked, errors,
+    dryRun, days, checked, errors, firstError,
     statusChanges: changes.length,
     changes,
     enrollmentDrift: drift.length,
     drift,
-    note: dryRun
-      ? 'Nothing was written. Re-send with dryRun:false to apply.'
-      : 'Payment statuses corrected. Enrollment drift is listed for review.',
+    // If every check errored, "0 mismatches" is not the same claim as "in sync" —
+    // say so explicitly rather than let a silent Razorpay-API failure read as
+    // a clean bill of health.
+    note: errors > 0 && errors === checked
+      ? `Could not reach Razorpay for any of the ${checked} order(s) checked — nothing was verified. First error: ${firstError}`
+      : errors > 0
+        ? `${errors} of ${checked} order(s) could not be checked (Razorpay API error) — treat this run as partial. First error: ${firstError}`
+        : dryRun
+          ? 'Nothing was written. Re-send with dryRun:false to apply.'
+          : 'Payment statuses corrected. Enrollment drift is listed for review.',
   });
 }
 

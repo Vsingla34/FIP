@@ -1054,6 +1054,7 @@ export default function AdminPage() {
       if (!res.ok) throw new Error(out.error || 'Reconcile failed');
       setReconcileResult(out);
       if (!dryRun) { showToast(`Reconciled — ${out.statusChanges} payment(s) corrected.`); reloadPayments(); }
+      else if (out.errors > 0) showToast(`⚠️ ${out.errors}/${out.checked} order(s) failed to check — see the panel below.`, true);
       else showToast(out.statusChanges === 0 && out.enrollmentDrift === 0
         ? 'All in sync with Razorpay.'
         : `Found ${out.statusChanges} status mismatch(es), ${out.enrollmentDrift} enrollment drift(s).`);
@@ -2419,12 +2420,16 @@ export default function AdminPage() {
               {/* Reconcile result */}
               {reconcileResult && (
                 <div style={{marginBottom:'16px',padding:'14px 16px',borderRadius:'10px',
-                  border:'1px solid ' + ((reconcileResult.statusChanges||reconcileResult.enrollmentDrift)?'#FCD34D':'#BBF7D0'),
-                  background:(reconcileResult.statusChanges||reconcileResult.enrollmentDrift)?'#FFFBEB':'#F0FDF4'}}>
+                  border:'1px solid ' + (reconcileResult.errors > 0 ? '#FCA5A5'
+                    : (reconcileResult.statusChanges||reconcileResult.enrollmentDrift)?'#FCD34D':'#BBF7D0'),
+                  background: reconcileResult.errors > 0 ? '#FEF2F2'
+                    : (reconcileResult.statusChanges||reconcileResult.enrollmentDrift)?'#FFFBEB':'#F0FDF4'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
-                    <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
-                      Checked {reconcileResult.checked} order(s) against Razorpay —{' '}
-                      {reconcileResult.statusChanges} status mismatch(es), {reconcileResult.enrollmentDrift} enrollment drift(s).
+                    <div style={{fontSize:'13px',fontWeight:700,color:reconcileResult.errors>0?'#B91C1C':'var(--blue)'}}>
+                      {reconcileResult.errors > 0
+                        ? `⚠️ ${reconcileResult.errors} of ${reconcileResult.checked} order(s) could not be checked — Razorpay API call failed.`
+                        : <>Checked {reconcileResult.checked} order(s) against Razorpay —{' '}
+                           {reconcileResult.statusChanges} status mismatch(es), {reconcileResult.enrollmentDrift} enrollment drift(s).</>}
                     </div>
                     {reconcileResult.dryRun && reconcileResult.statusChanges > 0 && (
                       <button className="btn btn-sm btn-primary" disabled={reconcileBusy}
@@ -2433,6 +2438,16 @@ export default function AdminPage() {
                     <button className="btn btn-sm" style={{background:'transparent',border:'1px solid var(--border)'}}
                       onClick={()=>setReconcileResult(null)}>Dismiss</button>
                   </div>
+                  {reconcileResult.errors > 0 && (
+                    <div style={{fontSize:'11px',color:'#B91C1C',marginTop:'8px',fontFamily:'monospace',
+                      background:'#FEE2E2',padding:'8px 10px',borderRadius:'6px'}}>
+                      {reconcileResult.firstError || reconcileResult.note}
+                      <div style={{marginTop:'4px',color:'#7F1D1D'}}>
+                        Usually RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET missing or wrong in Vercel env vars.
+                        Results below (if any) only reflect orders that DID succeed.
+                      </div>
+                    </div>
+                  )}
                   {(reconcileResult.changes||[]).slice(0,10).map((c,i)=>(
                     <div key={i} style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'6px',fontFamily:'monospace'}}>
                       {c.order}: {c.from} → {c.to} ({c.issue})
