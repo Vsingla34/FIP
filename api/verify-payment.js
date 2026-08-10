@@ -418,7 +418,7 @@ async function handleReconcile(req, res) {
 
   const { data: rows } = await supabaseAdmin
     .from('payments')
-    .select('id,razorpay_order_id,razorpay_payment_id,status,total_amount,amount_refunded,purchase_type,item_name,user_id,created_at')
+    .select('id,razorpay_order_id,razorpay_payment_id,status,refund_status,total_amount,amount_refunded,purchase_type,item_name,user_id,created_at')
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(500);
@@ -449,32 +449,64 @@ async function handleReconcile(req, res) {
         continue;
       }
 
-      const refundedRupees = (captured.amount_refunded || 0) / 100;
-      const totalRupees    = (captured.amount || 0) / 100;
-      const fullyRefunded  = refundedRupees >= totalRupees - 0.01 && refundedRupees > 0;
-      const truth = fullyRefunded ? 'refunded' : refundedRupees > 0 ? 'partially_refunded' : 'paid';
+      // refund_status here is copied straight off the payment object Razorpay
+      // just returned — same rule as the webhook: never compute full/partial
+      // ourselves, always read Razorpay's own classification. The reconciler
+      // doesn't distinguish "processing" vs "settled" (it only sees the payment
+      // aggregate, not the individual refund's own lifecycle status) — that's
+      // fine, refund_status='full' already means Razorpay itself has finalized
+      // the refund on its side, independent of how long the bank transfer takes.
+      const refundedRupees  = (captured.amount_refunded || 0) / 100;
+      const rzpRefundStatus = captured.refund_status || null;    // null | 'partial' | 'full'
+      const truth = rzpRefundStatus === 'full' ? 'refunded'
+                  : rzpRefundStatus === 'partial' ? 'partially_refunded'
+                  : 'paid';
 
-      const statusDrift = row.status !== truth;
-      const amountDrift = Math.abs(Number(row.amount_refunded || 0) - refundedRupees) > 0.01;
+      const statusDrift       = row.status !== truth
+                                 && !(truth === 'refunded' && row.status === 'refund_processing')
+                                 && !(truth === 'partially_refunded' && row.status === 'partial_refund_processing');
+      const refundStatusDrift = (row.refund_status || null) !== rzpRefundStatus;
+      const amountDrift       = Math.abs(Number(row.amount_refunded || 0) - refundedRupees) > 0.01;
 
-      if (statusDrift || amountDrift) {
+      if (statusDrift || refundStatusDrift || amountDrift) {
         changes.push({ payment_id: row.id, order: row.razorpay_order_id,
                        from: row.status, to: truth,
-                       issue: statusDrift ? 'status differs from Razorpay' : 'refund amount differs' });
+                       issue: statusDrift ? 'status differs from Razorpay'
+                              : refundStatusDrift ? 'refund_status differs from Razorpay'
+                              : 'refund amount differs' });
         if (!dryRun) {
           await supabaseAdmin.from('payments').update({
             status: truth,
             razorpay_status: captured.status,
+            refund_status: rzpRefundStatus,
             razorpay_payment_id: captured.id,
             amount_refunded: refundedRupees,
+            refunded_at: truth === 'refunded' || truth === 'partially_refunded' ? new Date().toISOString() : null,
             last_synced_at: new Date().toISOString(),
             sync_note: 'Corrected by reconciler',
           }).eq('id', row.id);
 
+          if (truth === 'refunded' && row.status !== 'refunded' && row.purchase_type) {
+            // The reconciler found a refund the webhook never told us about —
+            // this is exactly the scenario in this conversation, so revoke
+            // access here too rather than leaving it stuck active.
+            const patch = { status: 'cancelled', revoked_at: new Date().toISOString(),
+                             revoke_reason: 'Reconciler: refund found at Razorpay' };
+            if (row.purchase_type === 'course')
+              await supabaseAdmin.from('course_registrations').update(patch).eq('payment_id', row.id);
+            if (row.purchase_type === 'event')
+              await supabaseAdmin.from('event_rsvps').update(patch).eq('payment_id', row.id);
+            if (row.purchase_type === 'membership' && row.user_id)
+              await supabaseAdmin.from('profiles').update({
+                membership_status: 'Cancelled',
+                membership_end: new Date().toISOString().split('T')[0],
+              }).eq('id', row.user_id);
+          }
+
           await logSync({ payment_id: row.id, razorpay_order_id: row.razorpay_order_id,
                           razorpay_payment_id: captured.id, source: 'reconcile',
                           event: 'status.corrected', old_status: row.status, new_status: truth,
-                          detail: { refunded: refundedRupees, by: auth.adminId } });
+                          detail: { refunded: refundedRupees, refund_status: rzpRefundStatus, by: auth.adminId } });
         }
       }
     } catch (e) {

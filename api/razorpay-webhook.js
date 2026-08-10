@@ -159,10 +159,16 @@ export default async function handler(req, res) {
 
     if (evt === 'refund.failed') {
       // A pending refund can still fail bank-side after we already marked it
-      // as processing and revoked access. Put both back the way they were.
-      const revertStatus = Number(pay.amount_refunded || 0) > 0.01 ? 'partially_refunded' : 'paid';
+      // as processing and revoked access. Razorpay includes the parent payment
+      // here too, so read its refund_status directly rather than guessing from
+      // our own amount_refunded — same "mirror Razorpay, don't infer" rule as
+      // everywhere else in this handler.
+      const parentPayment = body.payload?.payment?.entity;
+      const rzpRefundStatus = parentPayment?.refund_status ?? null;
+      const revertStatus = rzpRefundStatus === 'partial' ? 'partially_refunded' : 'paid';
+
       await supabaseAdmin.from('payments').update({
-        status: revertStatus, razorpay_status: 'refund_failed',
+        status: revertStatus, razorpay_status: 'failed', refund_status: rzpRefundStatus,
         sync_note: 'Refund failed at Razorpay — access restored', last_synced_at: new Date().toISOString(),
       }).eq('id', pay.id);
 
@@ -177,7 +183,7 @@ export default async function handler(req, res) {
 
       await logSync({ payment_id: pay.id, payment_rzp_id: refund.payment_id, source: 'webhook',
                       event: evt, oldStatus: pay.status, newStatus: revertStatus,
-                      detail: { refund_id: refund.id } });
+                      detail: { refund_id: refund.id, refund_status: rzpRefundStatus } });
       return res.status(200).json({ received: true, note: 'refund failed, access restored' });
     }
 
@@ -186,17 +192,27 @@ export default async function handler(req, res) {
     // that instead of adding refund.amount ourselves. Adding manually breaks the
     // moment the same refund fires twice (refund.created, then refund.processed
     // for the identical refund): a naive add would double-count it.
-    const parentPayment       = body.payload?.payment?.entity;
-    const cumulativeRefunded  = parentPayment?.amount_refunded != null
+    const parentPayment = body.payload?.payment?.entity;
+    const cumulativeRefunded = parentPayment?.amount_refunded != null
       ? parentPayment.amount_refunded / 100
       : Math.max(Number(pay.amount_refunded || 0), (refund.amount || 0) / 100); // fallback only
-    const isFull  = parentPayment?.refund_status
-      ? parentPayment.refund_status === 'full'
-      : cumulativeRefunded >= Number(pay.total_amount || 0) - 0.01;
+
+    // rzpRefundStatus is copied VERBATIM into its own column below (null |
+    // 'partial' | 'full') — it is Razorpay's own classification, not ours.
+    // Every other status value in this file is derived FROM this one field, in
+    // exactly one place, so there is a single source of truth for "is this a
+    // full or partial refund" instead of that logic being reimplemented (and
+    // able to quietly diverge) in the webhook and the reconciler separately.
+    const rzpRefundStatus = parentPayment?.refund_status
+      ?? (cumulativeRefunded >= Number(pay.total_amount || 0) - 0.01 ? 'full'
+          : cumulativeRefunded > 0 ? 'partial' : null); // fallback only, if Razorpay ever omits the field
+    const isFull = rzpRefundStatus === 'full';
 
     // refund.status on the REFUND entity itself is what actually distinguishes
     // "money committed, bank transfer in flight" (pending) from "credited"
-    // (processed) — this is the piece that was missing before.
+    // (processed) — this is the piece the refund_status field above can't tell
+    // you, since Razorpay marks refund_status='full' the moment the refund is
+    // INITIATED, not once the bank has actually settled it days later.
     const settled   = refund.status === 'processed';
     const newStatus = settled
       ? (isFull ? 'refunded' : 'partially_refunded')
@@ -221,7 +237,8 @@ export default async function handler(req, res) {
 
     await supabaseAdmin.from('payments').update({
       status:          newStatus,
-      razorpay_status: refund.status,
+      razorpay_status: refund.status,       // pending | processed | failed — the REFUND's own stage
+      refund_status:   rzpRefundStatus,     // null | partial | full — Razorpay's own classification, verbatim
       amount_refunded: cumulativeRefunded,
       refund_id:       refund.id,
       refunded_at:     settled ? new Date().toISOString() : null,  // only set once money actually lands
@@ -236,10 +253,10 @@ export default async function handler(req, res) {
 
     await logSync({ payment_id: pay.id, payment_rzp_id: refund.payment_id, source: 'webhook',
                     event: evt, oldStatus: pay.status, newStatus,
-                    detail: { refund_id: refund.id, amount: cumulativeRefunded, full: isFull, settled } });
+                    detail: { refund_id: refund.id, amount: cumulativeRefunded, refund_status: rzpRefundStatus, settled } });
 
-    console.log(`Webhook: ${evt} — ${refund.id} → ${newStatus}`);
-    return res.status(200).json({ received: true, status: newStatus, accessRevoked: isFull });
+    console.log(`Webhook: ${evt} — ${refund.id} → ${newStatus} (razorpay refund_status: ${rzpRefundStatus})`);
+    return res.status(200).json({ received: true, status: newStatus, refundStatus: rzpRefundStatus, accessRevoked: isFull });
   }
 
   const rp_payment  = body.payload?.payment?.entity;

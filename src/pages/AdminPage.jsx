@@ -997,7 +997,7 @@ export default function AdminPage() {
     while (keepGoing) {
       const { data, error } = await supabase
         .from('payments')
-        .select('id,total_amount,amount,gst_amount,status,razorpay_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+        .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
       if (error || !data?.length) break;
@@ -1079,7 +1079,7 @@ export default function AdminPage() {
       while (keepGoing) {
         const { data, error } = await supabase
           .from('payments')
-          .select('id,total_amount,amount,gst_amount,status,razorpay_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+          .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
         if (error || !data?.length) { keepGoing = false; break; }
@@ -2542,6 +2542,12 @@ export default function AdminPage() {
                               title={p.refund_reason || p.razorpay_status || ''}>
                               {pill.label}
                             </span>
+                            {p.refund_status && (
+                              <div style={{fontSize:'10px',color:'var(--text-muted)',marginTop:'3px',fontFamily:'monospace'}}
+                                title="Razorpay's own classification for this payment — copied verbatim, not computed by us">
+                                razorpay: {p.refund_status}
+                              </div>
+                            )}
                           </td>
                           <td>
                             {canRefund ? (
