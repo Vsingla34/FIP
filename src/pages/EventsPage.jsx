@@ -45,8 +45,15 @@ export default function EventsPage() {
   });
 
   useEffect(() => {
+    // status alone isn't enough — nothing auto-flips an event to 'completed'
+    // once its date passes, so a past event with status still 'upcoming'
+    // (the common case: nobody remembered to update it) used to stay stuck
+    // in this list forever. Cross-check event_date >= today too, so a stale
+    // status can no longer surface a past event here.
+    const todayStr = new Date().toISOString().split('T')[0];
     supabase.from('events').select('*')
       .in('status', ['upcoming','ongoing'])
+      .or(`event_date.gte.${todayStr},event_date.is.null`)
       .order('event_date', { ascending: true, nullsFirst: false })
       .then(async ({ data }) => {
         if (!data?.length) { setLoading(false); return; }

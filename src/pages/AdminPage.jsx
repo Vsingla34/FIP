@@ -2425,11 +2425,16 @@ export default function AdminPage() {
                   background: reconcileResult.errors > 0 ? '#FEF2F2'
                     : (reconcileResult.statusChanges||reconcileResult.enrollmentDrift)?'#FFFBEB':'#F0FDF4'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
-                    <div style={{fontSize:'13px',fontWeight:700,color:reconcileResult.errors>0?'#B91C1C':'var(--blue)'}}>
+                    <div style={{fontSize:'13px',fontWeight:700,color:reconcileResult.errors>0?'#B91C1C':(reconcileResult.dryRun?'var(--blue)':'#15803D')}}>
                       {reconcileResult.errors > 0
                         ? `⚠️ ${reconcileResult.errors} of ${reconcileResult.checked} order(s) could not be checked — Razorpay API call failed.`
-                        : <>Checked {reconcileResult.checked} order(s) against Razorpay —{' '}
-                           {reconcileResult.statusChanges} status mismatch(es), {reconcileResult.enrollmentDrift} enrollment drift(s).</>}
+                        : reconcileResult.dryRun
+                          ? <>Checked {reconcileResult.checked} order(s) against Razorpay — found{' '}
+                             {reconcileResult.statusChanges} status mismatch(es), {reconcileResult.enrollmentDrift} enrollment drift(s).
+                             {reconcileResult.statusChanges === 0 && <strong> Nothing to apply.</strong>}</>
+                          : <>✅ Corrected {reconcileResult.statusChanges} payment(s) to match Razorpay.
+                             {reconcileResult.enrollmentDrift > 0 &&
+                               <strong> {reconcileResult.enrollmentDrift} enrollment drift(s) still need manual backfill — status alone doesn't create missing enrollment rows.</strong>}</>}
                     </div>
                     {reconcileResult.dryRun && reconcileResult.statusChanges > 0 && (
                       <button className="btn btn-sm btn-primary" disabled={reconcileBusy}
