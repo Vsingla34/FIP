@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
+import { applyRefundUpdate } from './_lib/refundSync.js';
 
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -354,7 +355,7 @@ async function handleRefund(req, res) {
 
   const { data: pay } = await supabaseAdmin
     .from('payments')
-    .select('id,razorpay_payment_id,total_amount,amount_refunded,status,item_name,purchase_type')
+    .select('id,razorpay_payment_id,total_amount,amount_refunded,status,refund_status,item_name,item_ref_id,purchase_type,user_id')
     .eq('id', paymentId).maybeSingle();
 
   if (!pay)                          return res.status(404).json({ error: 'Payment not found' });
@@ -379,23 +380,35 @@ async function handleRefund(req, res) {
       }),
     });
 
-    await supabaseAdmin.from('payments').update({
-      refund_reason: reason || 'Refund issued by FIP admin',
-      refunded_by:   auth.adminId,
-    }).eq('id', pay.id);
+    // The refund object alone doesn't carry the PAYMENT's cumulative
+    // amount_refunded/refund_status — that lives on the payment entity, so
+    // fetch it fresh right now instead of guessing. This is the same shape
+    // of data the webhook eventually gets in payload.payment.entity, just
+    // read synchronously instead of waiting for that async callback — which
+    // is what let the admin panel keep showing "Paid" until a manual Check
+    // sync ran. Applying it here means the DB is already correct by the time
+    // this request returns, and the eventual real webhook event for this
+    // same refund becomes a no-op via the shared idempotency check.
+    let parentPayment = null;
+    try { parentPayment = await rzp(`/payments/${pay.razorpay_payment_id}`); }
+    catch (e) { console.warn('Could not re-fetch payment after refund — DB will catch up via the webhook or Check sync:', e.message); }
 
-    await logSync({
-      payment_id: pay.id, razorpay_payment_id: pay.razorpay_payment_id,
-      source: 'admin_refund', event: 'refund.initiated',
-      old_status: pay.status, new_status: pay.status,
-      detail: { refund_id: refund.id, amount: amountRupees, by: auth.adminId },
+    await supabaseAdmin.from('payments').update({ refunded_by: auth.adminId }).eq('id', pay.id);
+
+    const eventLabel = refund.status === 'processed' ? 'refund.processed' : 'refund.created';
+    const result = await applyRefundUpdate(supabaseAdmin, {
+      pay, refund, parentPayment, eventLabel, source: 'admin_refund',
     });
 
     return res.status(200).json({
       success: true,
       refundId: refund.id,
       amount: amountRupees,
-      note: 'Refund initiated. Access is revoked automatically when Razorpay confirms it.',
+      status: result.status,
+      accessRevoked: result.accessRevoked,
+      note: result.accessRevoked
+        ? 'Refund initiated and access revoked immediately.'
+        : 'Refund initiated. Access unchanged (partial refund, or not yet fully refunded).',
     });
   } catch (e) {
     console.error('Refund failed:', e.message);

@@ -46,13 +46,23 @@ function fetchBuffer(url) {
 const W = 841.89;
 const H = 595.28;
 
-function buildPDF(style, recipientName, courseName, date, templateImageBuffer, certNo, signatureBuffer) {
+function buildPDF(style, recipientName, courseName, date, templateImageBuffer, certNo, signatureBuffer, layout, recipientEmail, background) {
   return new Promise((resolve, reject) => {
     const doc    = new PDFDocument({ size: [W, H], margin: 0, info: { Title: 'Certificate of Completion' } });
     const chunks = [];
     doc.on('data',  c => chunks.push(c));
     doc.on('end',   ()  => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
+
+    if (style === 'custom-layout') {
+      // Drag-and-drop designer output — background (image or solid design)
+      // plus every element's position, all coming from the saved template.
+      drawCustomLayout(doc, layout, background, templateImageBuffer, signatureBuffer, {
+        name: recipientName, courseName, date, certNo, email: recipientEmail,
+      });
+      doc.end();
+      return;
+    }
 
     // ── Helper: add cert number + signature at bottom of any template ──
     const addFooterExtras = () => {
@@ -203,8 +213,88 @@ function buildPDF(style, recipientName, courseName, date, templateImageBuffer, c
 }
 
 /* ─────────────────────────────────────────────────────
-   HANDLER
+   CUSTOM-LAYOUT RENDERER (drag-and-drop designer output)
+   Every element's x/y/width are stored as PERCENT of the canvas the admin
+   designed on — that's resolution-independent, so this is the only place
+   percent gets converted to the PDF's point-based W×H. Font/size/color are
+   applied literally; text elements wrap+align within their box.
 ───────────────────────────────────────────────────── */
+
+const FONT_MAP = {
+  'Helvetica-Bold': 'Helvetica-Bold', 'Helvetica': 'Helvetica',
+  'Helvetica-Oblique': 'Helvetica-Oblique', 'Helvetica-BoldOblique': 'Helvetica-BoldOblique',
+  'Times-Roman': 'Times-Roman', 'Times-Bold': 'Times-Bold',
+  'Times-Italic': 'Times-Italic', 'Times-BoldItalic': 'Times-BoldItalic',
+  'Courier': 'Courier', 'Courier-Bold': 'Courier-Bold',
+};
+
+function resolveKeyText(key, ctx) {
+  switch (key) {
+    case 'name':               return ctx.name;
+    case 'course':              return ctx.courseName;
+    case 'date':                 return ctx.date;
+    case 'certificate_number':   return ctx.certNo;
+    case 'organisation':         return 'Federation of Indian Professionals';
+    case 'email':                return ctx.email || '';
+    default:                     return '';
+  }
+}
+
+function pickFont(el) {
+  if (el.fontFamily && FONT_MAP[el.fontFamily]) return FONT_MAP[el.fontFamily];
+  const base = el.italic ? 'Oblique' : '';
+  return el.bold ? (el.italic ? 'Helvetica-BoldOblique' : 'Helvetica-Bold')
+                 : (el.italic ? 'Helvetica-Oblique' : 'Helvetica');
+}
+
+function drawBackground(doc, background, templateImageBuffer) {
+  if (background?.kind === 'image' || (!background && templateImageBuffer)) {
+    if (templateImageBuffer) doc.image(templateImageBuffer, 0, 0, { width: W, height: H });
+    return;
+  }
+  const bg = background || {};
+  doc.rect(0, 0, W, H).fill(bg.bgColor || '#FFFFFF');
+  if (bg.topBar)    doc.rect(0, 0, W, bg.topBar.height).fill(bg.topBar.color);
+  if (bg.bottomBar) doc.rect(0, H - bg.bottomBar.height, W, bg.bottomBar.height).fill(bg.bottomBar.color);
+  if (bg.outerBorder) {
+    const w = bg.outerBorder.width || 4;
+    doc.rect(w/2, w/2, W - w, H - w).strokeColor(bg.outerBorder.color).lineWidth(w).stroke();
+  }
+  if (bg.innerBorder) {
+    const inset = bg.innerBorder.inset || 22, w = bg.innerBorder.width || 2;
+    doc.rect(inset, inset, W - inset*2, H - inset*2).strokeColor(bg.innerBorder.color).lineWidth(w).stroke();
+  }
+}
+
+function drawCustomLayout(doc, layout, background, templateImageBuffer, signatureBuffer, ctx) {
+  drawBackground(doc, background, templateImageBuffer);
+
+  for (const el of (layout || [])) {
+    const xPt = ((el.xPct ?? 50) / 100) * W;
+    const yPt = ((el.yPct ?? 50) / 100) * H;
+    const wPt = ((el.widthPct ?? 40) / 100) * W;
+
+    if (el.type === 'image' || el.key === 'signature') {
+      if (!signatureBuffer) continue;
+      const imgWPt = ((el.imgWidthPct ?? 14) / 100) * W;
+      const imgHPt = ((el.imgHeightPct ?? 7) / 100) * H;
+      try {
+        doc.image(signatureBuffer, xPt - imgWPt / 2, yPt - imgHPt / 2, { width: imgWPt, height: imgHPt });
+      } catch (e) { /* skip a bad signature image rather than fail the whole certificate */ }
+      continue;
+    }
+
+    const text = el.key === 'custom' ? (el.text || '') : resolveKeyText(el.key, ctx);
+    if (!text) continue;
+
+    doc.fontSize(el.fontSize || 20)
+       .fillColor(el.color || '#1A3C6E')
+       .font(pickFont(el))
+       .text(text, xPt - wPt / 2, yPt, { width: wPt, align: el.align || 'center' });
+  }
+}
+
+
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -214,8 +304,10 @@ export default async function handler(req, res) {
     const {
       courseId,
       recipients,
-      templateUrl,
+      templateUrl,           // legacy field, kept for old 'custom' style
       templateStyle = 'classic',
+      layout,                // array of positioned elements, for templateStyle='custom-layout'
+      background,            // {kind:'image',url} or {kind:'solid',...}, for templateStyle='custom-layout'
       signatureUrl,          // optional: URL of admin's signature image
       sendEmails    = true,
     } = req.body;
@@ -223,17 +315,23 @@ export default async function handler(req, res) {
     if (!courseId)         return res.status(400).json({ error: 'courseId is required' });
     if (!recipients?.length) return res.status(400).json({ error: 'recipients list is empty' });
     if (templateStyle === 'custom' && !templateUrl)
-      return res.status(400).json({ error: 'templateUrl required for custom template' });
+      return res.status(400).json({ error: 'templateUrl required for a custom template' });
+    if (templateStyle === 'custom-layout') {
+      if (!Array.isArray(layout)) return res.status(400).json({ error: 'layout array required for templateStyle=custom-layout' });
+      if (!background) return res.status(400).json({ error: 'background required for templateStyle=custom-layout' });
+    }
 
     // Fetch course
     const { data: course, error: cErr } = await supabaseAdmin
       .from('courses').select('title,event_date').eq('id', courseId).single();
     if (cErr || !course) return res.status(404).json({ error: 'Course not found: ' + (cErr?.message||'') });
 
-    // Pre-fetch custom template image once (if custom)
+    // Pre-fetch custom template image once (legacy 'custom', or custom-layout with an image background)
     let templateImageBuffer = null;
-    if (templateStyle === 'custom' && templateUrl) {
-      try { templateImageBuffer = await fetchBuffer(templateUrl); }
+    const imageSourceUrl = templateStyle === 'custom' ? templateUrl
+      : (templateStyle === 'custom-layout' && background?.kind === 'image') ? background.url : null;
+    if (imageSourceUrl) {
+      try { templateImageBuffer = await fetchBuffer(imageSourceUrl); }
       catch (e) { return res.status(400).json({ error: 'Could not load template image: ' + e.message }); }
     }
 
@@ -258,7 +356,7 @@ export default async function handler(req, res) {
 
       try {
         // Generate PDF certificate
-        const pdfBuffer = await buildPDF(templateStyle, name, course.title, dateFormatted, templateImageBuffer, certNo, signatureBuffer);
+        const pdfBuffer = await buildPDF(templateStyle, name, course.title, dateFormatted, templateImageBuffer, certNo, signatureBuffer, layout, email, background);
 
         // Upload PDF to Supabase Storage
         const fileName = `${courseId}/${Date.now()}_${name.replace(/[^a-z0-9]/gi,'_')}.pdf`;
@@ -276,7 +374,8 @@ export default async function handler(req, res) {
           recipient_name:  name,
           recipient_email: email,
           certificate_url: certUrl,
-          template_url:    templateStyle === 'custom' ? templateUrl : templateStyle,
+          template_url:    templateStyle === 'custom' ? templateUrl
+                            : templateStyle === 'custom-layout' ? (background?.kind === 'image' ? background.url : 'custom-layout') : templateStyle,
           email_sent:      false,
         }).select().single();
 

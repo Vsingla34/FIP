@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase.js';
 import { useDebounce } from '../hooks/useDebounce.js';
 import { committees as defaultCommittees } from '../data/index.js';
 import * as XLSX from 'xlsx';
+import CertificateTemplateEditor from '../components/CertificateTemplateEditor.jsx';
 
 const ROLE_OPTIONS   = ['President','Vice President','Chairman','Co-Chairman','Co-Chairperson','Secretary','Treasurer','Member'];
 const CATEGORY_ICONS = {
@@ -630,19 +631,39 @@ export default function AdminPage() {
   const [certList,        setCertList]        = useState([]);
   const [certGenerating,  setCertGenerating]  = useState(false);
   const [certResult,      setCertResult]      = useState(null);
+  const [certProgress,    setCertProgress]    = useState(null); // {done, total} while sending
 
   // Excel recipient upload
   const [certRecipients,  setCertRecipients]  = useState([]);   // [{name,email}]
   const [certExcelName,   setCertExcelName]   = useState('');   // file name for display
 
-  // Template selection
-  const [certTemplateMode,  setCertTemplateMode]  = useState('classic');  // 'classic'|'modern'|'professional'|'custom'
-  const [certTemplateUrl,   setCertTemplateUrl]   = useState('');         // only used when mode='custom'
+  // Template selection — unified: everything (uploaded or built-in) is a
+  // {background, layout} pair opened in the same editor. certTemplateMode is
+  // just 'legacy' (old hardcoded styles, kept only for certificates already
+  // issued before this rewrite) or 'custom-layout' (everything going forward).
+  const [certTemplateMode,  setCertTemplateMode]  = useState('custom-layout');
+  const [certBackground,    setCertBackground]    = useState(null);   // {kind:'image',url} | {kind:'solid',...} | null
 
-  const DEFAULT_TEMPLATES = [
-    { id:'classic',      label:'Classic Blue',     desc:'Formal design — navy border, gold name',   bg:'#F8F6F0', accent:'#C9A84C', text:'#1A3C6E' },
-    { id:'modern',       label:'Modern Orange',    desc:'Clean white with FIP orange accents',       bg:'#FFFFFF', accent:'#F26122', text:'#1A3C6E' },
-    { id:'professional', label:'Dark Professional',desc:'Premium dark navy with gold lettering',     bg:'#0F2044', accent:'#DAA520', text:'#FFFFFF' },
+  // Drag-and-drop designer
+  const [certSavedTemplates, setCertSavedTemplates] = useState([]);  // rows from certificate_templates (built-in + custom)
+  const [certLayout,         setCertLayout]         = useState([]);  // current element array being edited
+  const [certSignatureUrl,   setCertSignatureUrl]   = useState('');  // one shared signature image for this batch
+  const [certTemplateName,   setCertTemplateName]   = useState('');
+  const [certSavingTemplate, setCertSavingTemplate]  = useState(false);
+  const [certActiveTemplateId, setCertActiveTemplateId] = useState(null); // if editing a saved one
+  const [certActiveIsBuiltin,  setCertActiveIsBuiltin]  = useState(false); // built-ins fork into a copy on save
+
+  // Recipient search + selection
+  const [certRecipientSearch,   setCertRecipientSearch]   = useState('');
+  const [certSelectedEmails,    setCertSelectedEmails]    = useState(() => new Set());
+
+  // Applied automatically the first time an admin uploads a fresh template
+  // image, so they land in the editor with a sensible starting point instead
+  // of a blank canvas — they can still drag/delete/restyle anything.
+  const DEFAULT_TEXT_LAYOUT = [
+    { type:'text', key:'name',   xPct:50, yPct:45, widthPct:80, fontSize:34, color:'#1A3C6E', fontFamily:'Helvetica-Bold', align:'center' },
+    { type:'text', key:'course', xPct:50, yPct:58, widthPct:70, fontSize:18, color:'#F26122', fontFamily:'Helvetica',      align:'center' },
+    { type:'text', key:'date',   xPct:50, yPct:68, widthPct:50, fontSize:12, color:'#666666', fontFamily:'Helvetica',      align:'center' },
   ];
 
   useEffect(() => {
@@ -651,6 +672,9 @@ export default function AdminPage() {
       .order('created_at',{ascending:false})
       .then(({ data }) => setCertCourses(data || []));
     supabase.rpc('admin_get_certificates').then(({ data }) => setCertList(data || []));
+    supabase.from('certificate_templates').select('id,name,image_url,background,layout,is_builtin,created_at')
+      .order('is_builtin',{ ascending:false }).order('created_at',{ ascending:false })
+      .then(({ data }) => setCertSavedTemplates(data || []));
   }, [tab]);
 
   const loadCertCourse = (cId) => {
@@ -678,39 +702,154 @@ export default function AdminPage() {
       .filter(r => r.name && r.email.includes('@'));
   };
 
+  /* ── Recipient search + selection ── */
+  const filteredRecipients = certRecipients.filter(r => {
+    if (!certRecipientSearch.trim()) return true;
+    const q = certRecipientSearch.toLowerCase();
+    return r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q);
+  });
+  const allFilteredSelected = filteredRecipients.length > 0
+    && filteredRecipients.every(r => certSelectedEmails.has(r.email));
+
+  const toggleRecipient = (email) => {
+    setCertSelectedEmails(prev => {
+      const next = new Set(prev);
+      next.has(email) ? next.delete(email) : next.add(email);
+      return next;
+    });
+  };
+  const toggleSelectAllFiltered = () => {
+    setCertSelectedEmails(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filteredRecipients.forEach(r => next.delete(r.email));
+      else filteredRecipients.forEach(r => next.add(r.email));
+      return next;
+    });
+  };
+
+  /* ── Signature image upload (shared across the whole batch) ── */
+  const uploadCertSignature = async (file) => {
+    const fileName = 'signatures/' + Date.now() + '_' + file.name.replace(/[^a-z0-9._]/gi,'_');
+    const { error } = await supabase.storage.from('certificates').upload(fileName, file, { upsert:true });
+    if (error) { showToast('Signature upload failed: ' + error.message, true); return; }
+    const { data: urlData } = supabase.storage.from('certificates').getPublicUrl(fileName);
+    setCertSignatureUrl(urlData.publicUrl);
+    showToast('Signature uploaded!');
+  };
+
+  /* ── Template image upload — used both for a brand-new design and to
+     replace the image on an existing image-based one ── */
+  const uploadDesignerTemplate = async (file) => {
+    const fileName = 'templates/' + Date.now() + '_' + file.name.replace(/[^a-z0-9._]/gi,'_');
+    const { error } = await supabase.storage.from('certificates').upload(fileName, file, { upsert:true });
+    if (error) { showToast('Upload failed: ' + error.message, true); return; }
+    const { data: urlData } = supabase.storage.from('certificates').getPublicUrl(fileName);
+    setCertBackground({ kind: 'image', url: urlData.publicUrl });
+    if (!certLayout.length) setCertLayout(DEFAULT_TEXT_LAYOUT.map(el => ({ ...el, id: `el_${Date.now()}_${Math.random()}` })));
+    showToast('Template uploaded — drag the elements onto it below.');
+  };
+
+  /* ── Save the current design. Built-ins are never mutated in place — saving
+     one always creates a new template so the shipped preset stays intact for
+     everyone else. ── */
+  const saveCertTemplate = async () => {
+    if (!certBackground) { showToast('Upload or choose a template first.', true); return; }
+    if (!certLayout.length) { showToast('Add at least one element to the layout first.', true); return; }
+    if (!certTemplateName.trim()) { showToast('Give this template a name.', true); return; }
+    setCertSavingTemplate(true);
+    const payload = {
+      name: certTemplateName.trim(),
+      background: certBackground,
+      image_url: certBackground.kind === 'image' ? certBackground.url : null,
+      layout: certLayout,
+      updated_at: new Date().toISOString(),
+    };
+    const editingOwnCustom = certActiveTemplateId && !certActiveIsBuiltin;
+    const { data, error } = editingOwnCustom
+      ? await supabase.from('certificate_templates').update(payload).eq('id', certActiveTemplateId).select().single()
+      : await supabase.from('certificate_templates').insert(payload).select().single();
+    setCertSavingTemplate(false);
+    if (error) { showToast('Save failed: ' + error.message, true); return; }
+    setCertActiveTemplateId(data.id);
+    setCertActiveIsBuiltin(false);
+    setCertSavedTemplates(prev => editingOwnCustom ? prev.map(t => t.id === data.id ? data : t) : [data, ...prev]);
+    showToast(certActiveIsBuiltin ? 'Saved as a new template — the original preset is unchanged.' : 'Template saved.');
+  };
+
+  const loadSavedTemplate = (tpl) => {
+    setCertTemplateMode('custom-layout');
+    setCertBackground(tpl.background || (tpl.image_url ? { kind:'image', url: tpl.image_url } : null));
+    setCertLayout(tpl.layout || []);
+    setCertTemplateName(tpl.is_builtin ? `${tpl.name} (copy)` : tpl.name);
+    setCertActiveTemplateId(tpl.id);
+    setCertActiveIsBuiltin(!!tpl.is_builtin);
+  };
+
+  const startNewDesign = () => {
+    setCertTemplateMode('custom-layout');
+    setCertBackground(null);
+    setCertLayout([]);
+    setCertTemplateName('');
+    setCertActiveTemplateId(null);
+    setCertActiveIsBuiltin(false);
+  };
+
   const generateCertificates = async () => {
     if (!certCourseId) { showToast('Please select a course.', true); return; }
     if (!certRecipients.length) { showToast('Please upload an Excel file with recipients.', true); return; }
-    if (certTemplateMode === 'custom' && !certTemplateUrl) {
-      showToast('Please upload a custom template image.', true); return;
+    if (!certBackground) { showToast('Choose or design a template first.', true); return; }
+    if (!certLayout.length) { showToast('Add at least one element to the layout (Name, Signature, etc.).', true); return; }
+    if (certLayout.some(e => e.type === 'image') && !certSignatureUrl) {
+      showToast('Upload the signature image, or remove the signature element.', true); return;
     }
-    setCertGenerating(true); setCertResult(null);
+    const selectedRecipients = certRecipients.filter(r => certSelectedEmails.has(r.email));
+    if (!selectedRecipients.length) { showToast('Select at least one recipient.', true); return; }
+
+    setCertGenerating(true); setCertResult(null); setCertProgress({ done: 0, total: selectedRecipients.length });
+
+    // A single request covering many recipients risks Vercel's 10s Hobby-plan
+    // function timeout — each cert involves a PDF render, a storage upload, and
+    // an SMTP send, which adds up fast. Chunking means a timeout only loses the
+    // current small batch, not the whole run, and the admin sees live progress
+    // instead of a single request silently going quiet for 30+ seconds.
+    const BATCH_SIZE = 5;
+    const aggregate = { generated: 0, failed: 0, total: 0, results: [] };
+
     try {
-      const res = await fetch('/api/generate-certificates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          courseId:      certCourseId,
-          recipients:    certRecipients,
-          templateStyle: certTemplateMode,
-          templateUrl:   certTemplateMode === 'custom' ? certTemplateUrl : null,
-          sendEmails:    true,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const msg = data?.error || ('Server error ' + res.status);
-        showToast('Error: ' + msg, true);
-        setCertGenerating(false);
-        return;
+      for (let i = 0; i < selectedRecipients.length; i += BATCH_SIZE) {
+        const batch = selectedRecipients.slice(i, i + BATCH_SIZE);
+        const res = await fetch('/api/generate-certificates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            courseId:      certCourseId,
+            recipients:    batch,
+            templateStyle: 'custom-layout',
+            background:    certBackground,
+            layout:        certLayout,
+            signatureUrl:  certSignatureUrl || undefined,
+            sendEmails:    true,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showToast(`Stopped after ${aggregate.total} of ${selectedRecipients.length} — ` + (data?.error || `server error ${res.status}`), true);
+          break;
+        }
+        aggregate.generated += data.generated;
+        aggregate.failed    += data.failed;
+        aggregate.total     += data.total;
+        aggregate.results.push(...(data.results || []));
+        setCertResult({ ...aggregate });
+        setCertProgress({ done: Math.min(i + BATCH_SIZE, selectedRecipients.length), total: selectedRecipients.length });
       }
-      setCertResult(data);
       supabase.rpc('admin_get_certificates').then(({ data: d }) => setCertList(d || []));
-      showToast(`${data.generated} certificates sent!`);
+      if (aggregate.total > 0) showToast(`${aggregate.generated} of ${aggregate.total} certificates sent!`);
     } catch (err) {
       showToast('Network error: ' + err.message, true);
     }
     setCertGenerating(false);
+    setCertProgress(null);
   };
   /* ── membership settings state ── */
   const [memSettings,     setMemSettings]     = useState(null);
@@ -3367,9 +3506,12 @@ export default function AdminPage() {
                         if (!file) return;
                         setCertExcelName(file.name);
                         setCertRecipients([]);
+                        setCertSelectedEmails(new Set());
+                        setCertRecipientSearch('');
                         const parsed = await parseExcelFile(file);
                         setCertRecipients(parsed);
-                        if (parsed.length) showToast(parsed.length + ' recipients loaded from file.');
+                        setCertSelectedEmails(new Set(parsed.map(r => r.email))); // select all by default
+                        if (parsed.length) showToast(parsed.length + ' recipients loaded — all selected.');
                       }}/>
                   </label>
                   {certExcelName && (
@@ -3390,158 +3532,176 @@ export default function AdminPage() {
                   <span>Your Excel file must have a <strong>Name</strong> column and an <strong>Email</strong> column (header row required). Both .xlsx and .csv formats are supported.</span>
                 </div>
 
-                {/* Recipients preview table */}
+                {/* Recipients — search + select */}
                 {certRecipients.length > 0 && (
                   <div style={{marginTop:'14px'}}>
-                    <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',marginBottom:'8px'}}>Preview — first 5 recipients:</div>
-                    <div style={{overflowX:'auto'}}>
-                      <table className="dboard-table" style={{fontSize:'12px'}}>
-                        <thead><tr><th>#</th><th>Name</th><th>Email</th></tr></thead>
+                    <div style={{display:'flex', gap:'10px', alignItems:'center', flexWrap:'wrap', marginBottom:'10px'}}>
+                      <div className="search-wrap" style={{flex:'1 1 200px', marginBottom:0}}>
+                        <i className="fa-solid fa-magnifying-glass"></i>
+                        <input type="search" placeholder="Search name or email…"
+                          value={certRecipientSearch} onChange={e => setCertRecipientSearch(e.target.value)}/>
+                      </div>
+                      <span style={{fontSize:'12px', fontWeight:700, color:'var(--blue)', whiteSpace:'nowrap'}}>
+                        {certSelectedEmails.size} of {certRecipients.length} selected
+                      </span>
+                    </div>
+
+                    <div style={{maxHeight:'280px', overflowY:'auto', border:'1px solid var(--border)', borderRadius:'8px'}}>
+                      <table className="dboard-table" style={{fontSize:'12px', margin:0}}>
+                        <thead style={{position:'sticky', top:0, background:'var(--surface)', zIndex:1}}>
+                          <tr>
+                            <th style={{width:'36px'}}>
+                              <input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAllFiltered}/>
+                            </th>
+                            <th>Name</th><th>Email</th>
+                          </tr>
+                        </thead>
                         <tbody>
-                          {certRecipients.slice(0,5).map((r,i) => (
-                            <tr key={i}>
-                              <td style={{color:'var(--text-muted)',width:'36px'}}>{i+1}</td>
+                          {filteredRecipients.map((r,i) => (
+                            <tr key={r.email + i} style={{cursor:'pointer'}} onClick={() => toggleRecipient(r.email)}>
+                              <td onClick={e => e.stopPropagation()}>
+                                <input type="checkbox" checked={certSelectedEmails.has(r.email)} onChange={() => toggleRecipient(r.email)}/>
+                              </td>
                               <td style={{fontWeight:600}}>{r.name}</td>
                               <td style={{color:'var(--text-muted)'}}>{r.email}</td>
                             </tr>
                           ))}
-                          {certRecipients.length > 5 && (
-                            <tr>
-                              <td colSpan={3} style={{textAlign:'center',color:'var(--text-muted)',fontStyle:'italic',padding:'8px'}}>
-                                … and {certRecipients.length - 5} more
-                              </td>
-                            </tr>
+                          {filteredRecipients.length === 0 && (
+                            <tr><td colSpan={3} style={{textAlign:'center', color:'var(--text-muted)', padding:'14px', fontStyle:'italic'}}>No match for "{certRecipientSearch}"</td></tr>
                           )}
                         </tbody>
                       </table>
                     </div>
                     <button style={{marginTop:'8px',fontSize:'11px',color:'#C0392B',background:'none',border:'none',cursor:'pointer',padding:0}}
-                      onClick={() => { setCertRecipients([]); setCertExcelName(''); }}>
+                      onClick={() => { setCertRecipients([]); setCertExcelName(''); setCertSelectedEmails(new Set()); }}>
                       <i className="fa-solid fa-xmark" style={{marginRight:'4px'}}></i>Clear recipients
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* ── STEP 3: Choose Template ── */}
+              {/* ── STEP 3: Template ── */}
               <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'20px',marginBottom:'20px'}}>
                 <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'16px',display:'flex',alignItems:'center',gap:'8px'}}>
                   <div style={{width:'24px',height:'24px',borderRadius:'50%',background:'var(--blue)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:800}}>3</div>
-                  Choose Certificate Template
+                  Choose or Design a Template
                 </div>
+                <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'14px'}}>
+                  Pick a built-in design or a saved template to open it in the editor below — every one of them, including the built-ins, is fully editable. Or start from a blank upload.
+                </p>
 
-                {/* Default templates grid */}
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))',gap:'12px',marginBottom:'16px'}}>
-                  {DEFAULT_TEMPLATES.map(t => (
-                    <div key={t.id}
-                      onClick={() => setCertTemplateMode(t.id)}
-                      style={{
-                        border: certTemplateMode===t.id ? '2px solid var(--orange)' : '2px solid var(--border)',
-                        borderRadius:'10px', overflow:'hidden', cursor:'pointer',
-                        transition:'border-color .15s',
-                        boxShadow: certTemplateMode===t.id ? '0 0 0 3px rgba(242,97,34,0.15)' : 'none',
-                      }}>
-                      {/* Mini certificate preview */}
-                      <div style={{height:'110px',background:t.bg,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'10px',gap:'5px',position:'relative'}}>
-                        <div style={{width:'90%',height:'2px',background:t.accent,opacity:.7,borderRadius:'1px'}}/>
-                        <div style={{fontSize:'8px',fontWeight:700,color:t.text,fontFamily:'Georgia,serif',textAlign:'center',letterSpacing:'.5px'}}>
-                          CERTIFICATE OF COMPLETION
+                {/* Template gallery — built-ins + saved custom ones, all editable */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:'12px',marginBottom:'18px'}}>
+                  {certSavedTemplates.map(t => {
+                    const bg = t.background || (t.image_url ? { kind:'image', url:t.image_url } : null);
+                    const active = certActiveTemplateId === t.id;
+                    return (
+                      <div key={t.id} onClick={() => loadSavedTemplate(t)}
+                        style={{border: active ? '2px solid var(--orange)' : '1px solid var(--border)', borderRadius:'10px',
+                          overflow:'hidden', cursor:'pointer', boxShadow: active ? '0 0 0 3px rgba(242,97,34,0.15)' : 'none'}}>
+                        <div style={{position:'relative', width:'100%', aspectRatio:'841.89/595.28', background:'#eee', overflow:'hidden'}}>
+                          {bg?.kind === 'image'
+                            ? <img src={bg.url} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'fill'}}/>
+                            : bg && (
+                              <div style={{position:'absolute', inset:0, background: bg.bgColor || '#fff'}}>
+                                {bg.topBar && <div style={{position:'absolute',top:0,left:0,right:0,height:`${(bg.topBar.height/595.28)*100}%`,background:bg.topBar.color}}/>}
+                                {bg.bottomBar && <div style={{position:'absolute',bottom:0,left:0,right:0,height:`${(bg.bottomBar.height/595.28)*100}%`,background:bg.bottomBar.color}}/>}
+                                {bg.outerBorder && <div style={{position:'absolute',inset:'6%',border:`2px solid ${bg.outerBorder.color}`}}/>}
+                                {bg.innerBorder && <div style={{position:'absolute',inset:'10%',border:`1px solid ${bg.innerBorder.color}`}}/>}
+                                <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'9px',fontStyle:'italic',color:'var(--text-muted)'}}>Aa</div>
+                              </div>
+                            )}
+                          {active && (
+                            <div style={{position:'absolute',top:'6px',right:'6px',width:'18px',height:'18px',borderRadius:'50%',background:'var(--orange)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                              <i className="fa-solid fa-check" style={{fontSize:'9px',color:'#fff'}}></i>
+                            </div>
+                          )}
                         </div>
-                        <div style={{fontSize:'11px',fontWeight:700,color:t.accent,fontFamily:'Georgia,serif',fontStyle:'italic'}}>
-                          Recipient Name
+                        <div style={{padding:'7px 9px',background:'var(--surface)',borderTop:'1px solid var(--border)'}}>
+                          <div style={{fontSize:'11px',fontWeight:700,color:'var(--blue)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.name}</div>
+                          <div style={{fontSize:'9px',color:'var(--text-muted)'}}>{t.is_builtin ? 'Built-in · editable' : 'Saved'}</div>
                         </div>
-                        <div style={{fontSize:'7px',color:t.text,opacity:.7,textAlign:'center',fontFamily:'Georgia,serif'}}>Course Title</div>
-                        <div style={{width:'90%',height:'1px',background:t.accent,opacity:.4,borderRadius:'1px'}}/>
-                        {certTemplateMode===t.id && (
-                          <div style={{position:'absolute',top:'6px',right:'6px',width:'18px',height:'18px',borderRadius:'50%',background:'var(--orange)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                            <i className="fa-solid fa-check" style={{fontSize:'9px',color:'#fff'}}></i>
-                          </div>
-                        )}
                       </div>
-                      <div style={{padding:'8px 10px',background:'var(--surface)',borderTop:'1px solid var(--border)'}}>
-                        <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)'}}>{t.label}</div>
-                        <div style={{fontSize:'10px',color:'var(--text-muted)',marginTop:'2px'}}>{t.desc}</div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
-                  {/* Custom upload option */}
-                  <div
-                    onClick={() => setCertTemplateMode('custom')}
-                    style={{
-                      border: certTemplateMode==='custom' ? '2px solid var(--orange)' : '2px dashed var(--border)',
-                      borderRadius:'10px', overflow:'hidden', cursor:'pointer',
-                      transition:'border-color .15s',
-                      boxShadow: certTemplateMode==='custom' ? '0 0 0 3px rgba(242,97,34,0.15)' : 'none',
-                    }}>
-                    <div style={{height:'110px',background:'var(--blue-pale)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'8px',position:'relative'}}>
-                      <i className="fa-solid fa-upload" style={{fontSize:'22px',color:'var(--blue)',opacity:.6}}></i>
-                      <span style={{fontSize:'11px',color:'var(--blue)',fontWeight:600}}>Custom Template</span>
-                      {certTemplateMode==='custom' && (
-                        <div style={{position:'absolute',top:'6px',right:'6px',width:'18px',height:'18px',borderRadius:'50%',background:'var(--orange)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                          <i className="fa-solid fa-check" style={{fontSize:'9px',color:'#fff'}}></i>
-                        </div>
-                      )}
+                  {/* Start a fresh upload */}
+                  <div onClick={startNewDesign}
+                    style={{border: (certTemplateMode==='custom-layout' && !certActiveTemplateId) ? '2px solid var(--orange)' : '2px dashed var(--border)',
+                      borderRadius:'10px', overflow:'hidden', cursor:'pointer'}}>
+                    <div style={{aspectRatio:'841.89/595.28', background:'var(--blue-pale)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'6px'}}>
+                      <i className="fa-solid fa-upload" style={{fontSize:'20px',color:'var(--blue)',opacity:.6}}></i>
+                      <span style={{fontSize:'11px',color:'var(--blue)',fontWeight:600}}>Upload new</span>
                     </div>
-                    <div style={{padding:'8px 10px',background:'var(--surface)',borderTop:'1px solid var(--border)'}}>
-                      <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)'}}>Custom Image</div>
-                      <div style={{fontSize:'10px',color:'var(--text-muted)',marginTop:'2px'}}>Upload your own design</div>
+                    <div style={{padding:'7px 9px',background:'var(--surface)',borderTop:'1px solid var(--border)'}}>
+                      <div style={{fontSize:'11px',fontWeight:700,color:'var(--blue)'}}>Start from an image</div>
+                      <div style={{fontSize:'9px',color:'var(--text-muted)'}}>Opens the editor</div>
                     </div>
                   </div>
                 </div>
 
-                {/* Custom template upload — only shown when custom is selected */}
-                {certTemplateMode === 'custom' && (
+                {/* Editor — shown once a background exists (uploaded, or a gallery pick) */}
+                {certTemplateMode === 'custom-layout' && (
                   <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'10px',padding:'16px'}}>
-                    <label style={{display:'inline-flex',alignItems:'center',gap:'8px',background:'var(--blue)',color:'#fff',padding:'10px 18px',borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:700}}>
-                      <i className="fa-solid fa-upload"></i>
-                      {certTemplateUrl && certTemplateUrl !== 'uploading' ? 'Change Template' : 'Upload Template Image'}
-                      <input type="file" accept="image/png,image/jpeg,image/jpg" style={{display:'none'}}
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          setCertTemplateUrl('uploading');
-                          const fileName = 'templates/' + Date.now() + '_' + file.name.replace(/[^a-z0-9._]/gi,'_');
-                          const { error } = await supabase.storage.from('certificates').upload(fileName, file, { upsert:true });
-                          if (error) { showToast('Upload failed: ' + error.message, true); setCertTemplateUrl(''); return; }
-                          const { data: urlData } = supabase.storage.from('certificates').getPublicUrl(fileName);
-                          setCertTemplateUrl(urlData.publicUrl);
-                          showToast('Template uploaded!');
-                        }}/>
-                    </label>
-                    {certTemplateUrl === 'uploading' && (
-                      <span style={{marginLeft:'12px',fontSize:'13px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{marginRight:'5px'}}></i>Uploading…</span>
-                    )}
-                    {certTemplateUrl && certTemplateUrl !== 'uploading' && (
-                      <div style={{marginTop:'12px',position:'relative',display:'inline-block'}}>
-                        <img src={certTemplateUrl} alt="Template preview"
-                          style={{maxWidth:'100%',maxHeight:'200px',objectFit:'contain',border:'1px solid var(--border)',borderRadius:'8px',display:'block'}}
-                          onError={e=>e.target.style.display='none'}/>
-                        <button onClick={() => setCertTemplateUrl('')}
-                          style={{position:'absolute',top:'5px',right:'5px',background:'rgba(0,0,0,0.5)',color:'#fff',border:'none',borderRadius:'50%',width:'22px',height:'22px',cursor:'pointer',fontSize:'11px',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                    {!certBackground ? (
+                      <label style={{display:'inline-flex',alignItems:'center',gap:'8px',background:'var(--blue)',color:'#fff',padding:'10px 18px',borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:700}}>
+                        <i className="fa-solid fa-upload"></i>Upload a template image to start designing
+                        <input type="file" accept="image/png,image/jpeg,image/jpg" style={{display:'none'}}
+                          onChange={(e) => e.target.files?.[0] && uploadDesignerTemplate(e.target.files[0])}/>
+                      </label>
+                    ) : (
+                      <div>
+                        {certActiveIsBuiltin && (
+                          <div style={{fontSize:'11px',color:'#5B4500',background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:'6px',padding:'8px 10px',marginBottom:'12px'}}>
+                            <i className="fa-solid fa-circle-info" style={{marginRight:'5px'}}></i>
+                            Editing a built-in template — saving creates your own copy, the original preset stays available for everyone.
+                          </div>
+                        )}
+                        <CertificateTemplateEditor
+                          background={certBackground}
+                          onBackgroundChange={setCertBackground}
+                          onUploadImage={uploadDesignerTemplate}
+                          layout={certLayout}
+                          onChange={setCertLayout}
+                          onUploadSignature={uploadCertSignature}
+                          signatureUrl={certSignatureUrl}
+                        />
+                        <div style={{display:'flex',gap:'10px',alignItems:'center',flexWrap:'wrap',marginTop:'14px',paddingTop:'14px',borderTop:'1px solid #C0CDE8'}}>
+                          <input type="text" placeholder="Name this template (e.g. GST Course Certificate)"
+                            value={certTemplateName} onChange={e => setCertTemplateName(e.target.value)}
+                            className="form-input" style={{flex:'1 1 220px', minWidth:'200px', padding:'8px 12px', fontSize:'13px'}}/>
+                          <button type="button" onClick={saveCertTemplate} disabled={certSavingTemplate}
+                            className="btn btn-sm" style={{background:'var(--blue)',color:'#fff',border:'none',fontWeight:700}}>
+                            {certSavingTemplate ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-floppy-disk"></i> {certActiveIsBuiltin ? 'Save as new template' : 'Save template'}</>}
+                          </button>
+                          <button type="button" onClick={startNewDesign}
+                            className="btn btn-sm" style={{background:'transparent',border:'1px solid var(--border)'}}>
+                            Start over
+                          </button>
+                        </div>
                       </div>
                     )}
-                    <div style={{marginTop:'10px',fontSize:'11px',color:'#5B4500',background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:'6px',padding:'8px 10px'}}>
-                      <i className="fa-solid fa-circle-info" style={{marginRight:'5px'}}></i>
-                      Leave blank spaces at ~52% (name), ~61% (course), ~73% (date) from the top of your template.
-                    </div>
                   </div>
                 )}
               </div>
+
 
               {/* ── GENERATE BUTTON ── */}
               <div style={{marginBottom:'24px'}}>
                 <button className="btn btn-primary"
                   onClick={generateCertificates}
-                  disabled={certGenerating || !certCourseId || !certRecipients.length || (certTemplateMode==='custom' && (!certTemplateUrl||certTemplateUrl==='uploading'))}
+                  disabled={certGenerating || !certCourseId || !certSelectedEmails.size || !certBackground || !certLayout.length}
                   style={{fontSize:'14px',padding:'13px 28px'}}>
                   {certGenerating
-                    ? <><i className="fa-solid fa-spinner fa-spin"></i> Generating &amp; Emailing…</>
-                    : <><i className="fa-solid fa-certificate"></i> Generate &amp; Email Certificates ({certRecipients.length})</>
+                    ? <><i className="fa-solid fa-spinner fa-spin"></i> {certProgress ? `Sending ${certProgress.done}/${certProgress.total}…` : 'Generating…'}</>
+                    : <><i className="fa-solid fa-certificate"></i> Generate &amp; Email Certificates ({certSelectedEmails.size})</>
                   }
                 </button>
                 {!certCourseId && <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>Select a course first.</span>}
                 {certCourseId && !certRecipients.length && <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>Upload an Excel file with recipients.</span>}
+                {certCourseId && certRecipients.length > 0 && !certSelectedEmails.size && <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>Select at least one recipient.</span>}
+                {!certBackground && <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>Choose or upload a template.</span>}
+                {certBackground && !certLayout.length && <span style={{marginLeft:'12px',fontSize:'12px',color:'var(--text-muted)'}}>Add at least one element to the design.</span>}
               </div>
 
               {/* Result */}
