@@ -26,11 +26,47 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
   if (!process.env.GMAIL_USER) return res.status(200).json({ skipped: true });
 
-  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress } = req.body || {};
+  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress, customSubject, customBody } = req.body || {};
   if (!email || !eventTitle) return res.status(400).json({ error: 'email and eventTitle are required' });
 
   const dateStr   = formatDate(eventDate);
   const isOnline  = eventType === 'Online' || eventType === 'Webinar';
+
+  // Per-event custom message, if the admin set one. Appended after the
+  // functional payment/registration status line — never replaces it, so the
+  // confirmation status itself is never accidentally hidden by a custom note.
+  const firstName = name?.split(' ')[0] || 'there';
+  const fillVars = (s) => (s || '')
+    .replaceAll('{{name}}',  firstName)
+    .replaceAll('{{title}}', eventTitle || '')
+    .replaceAll('{{date}}',  dateStr || '')
+    .replaceAll('{{time}}',  eventTime || '');
+  const customMessageHtml = customBody
+    ? fillVars(customBody).split('\n').filter(Boolean).map(line =>
+        `<p style="font-size:14px;color:#4A5568;line-height:1.8;margin:0 0 20px">${line}</p>`).join('')
+    : '';
+  const emailSubject = isPaid
+    ? `${eventTitle} — Your Registration is Under Review for the time being`
+    : (customSubject ? fillVars(customSubject) : `✅ Seat Confirmed: ${eventTitle}`);
+
+  // Paid events now send a "pending review" acknowledgement instead of an
+  // immediate confirmation — this applies to EVERY paid event going forward
+  // (per-event email customization was deferred), not just one specific
+  // event. Free registrations are unaffected — they keep the original
+  // "seat confirmed" email below, since there's no payment/review context.
+  const reviewParagraphs = [
+    `Dear ${name || 'Participant'},`,
+    `Thank you for your interest in ${eventTitle}.`,
+    `We are pleased to confirm that your registration and payment have been successfully received.`,
+    `To ensure a high-quality, focused and curated learning experience, all registrations for ${eventTitle} undergo a brief review process. Accordingly, your registration is currently under review.`,
+    `Please note that this email is an acknowledgement of your application and payment, and not the final confirmation of participation. A final Confirmation mail will be sent within 12 Working Hours.`,
+    `Once the review is completed, you will receive a separate Final Confirmation Email from our team. In the unlikely event that your registration is not confirmed, the entire amount paid by you will be refunded in full.`,
+    `For any registration-related queries, please write to us at fipmediaoffice@gmail.com`,
+    `We appreciate your interest in being a part of ${eventTitle} and look forward to welcoming a thoughtfully curated cohort of professionals.`,
+  ];
+  const reviewBodyHtml = reviewParagraphs.map((p, i) =>
+    `<p style="font-size:14px;color:#4A5568;line-height:1.8;margin:0 0 ${i === 0 ? '6' : '16'}px;${i===0?'font-weight:700;color:#1A3C6E;font-size:16px;':''}">${p}</p>`
+  ).join('');
 
   const html = `
 <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden">
@@ -41,23 +77,24 @@ export default async function handler(req, res) {
     <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:3px">www.fipin.org</div>
   </div>
 
-  <!-- Green success bar -->
-  <div style="background:#16A34A;padding:12px 28px;display:flex;align-items:center;gap:10px">
-    <span style="font-size:18px">✅</span>
+  <!-- Status bar -->
+  <div style="background:${isPaid ? '#B45309' : '#16A34A'};padding:12px 28px;display:flex;align-items:center;gap:10px">
+    <span style="font-size:18px">${isPaid ? '' : '✅'}</span>
     <span style="color:#fff;font-weight:700;font-size:14px">
-      ${isPaid ? 'Payment Confirmed — Seat Reserved!' : 'Registration Confirmed — Seat Reserved!'}
+      ${isPaid ? 'Registration Received — Under Review' : 'Registration Confirmed — Seat Reserved!'}
     </span>
   </div>
 
   <!-- Body -->
   <div style="padding:28px;background:#fff">
+    ${isPaid ? reviewBodyHtml : `
     <p style="font-size:16px;color:#1A3C6E;font-weight:700;margin:0 0 6px">Dear ${name || 'Participant'},</p>
     <p style="font-size:14px;color:#4A5568;line-height:1.8;margin:0 0 20px">
-      ${isPaid
-        ? `Your payment of <strong>₹${Number(amount||0).toLocaleString('en-IN')}</strong> has been received and your seat is confirmed.`
-        : 'Your registration has been received and your seat is confirmed.'}
+      Your registration has been received and your seat is confirmed.
     </p>
+    ${customMessageHtml}`}
 
+    ${!isPaid ? `
     <!-- Event card -->
     <div style="background:#F7F9FC;border-left:4px solid #1A3C6E;border-radius:0 8px 8px 0;padding:18px 20px;margin-bottom:24px">
       <div style="font-size:11px;font-weight:700;color:#F26522;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">
@@ -84,7 +121,7 @@ export default async function handler(req, res) {
           💬 Join WhatsApp Group →
         </a>
       </div>` : ''}
-    </div>
+    </div>` : ''}
 
     <!-- Tax Invoice -->
     ${isPaid && amount ? generateInvoice({
@@ -97,6 +134,7 @@ export default async function handler(req, res) {
       gstNumber, gstCompanyName, gstAddress, transactionId,
     }) : ''}
 
+    ${!isPaid ? `
     <!-- What to bring / notes -->
     <div style="background:#FFF5E6;border:1.5px solid #F2C06E;border-radius:8px;padding:16px 18px;margin-bottom:24px">
       <div style="font-size:13px;font-weight:700;color:#92400E;margin-bottom:8px">📋 Please note</div>
@@ -116,7 +154,13 @@ export default async function handler(req, res) {
       <p style="font-size:12px;color:#A0AEC0;margin:0 0 2px">Warm regards,</p>
       <p style="font-size:13px;color:#2D3748;font-weight:700;margin:0">Team FIP</p>
       <p style="font-size:11px;color:#A0AEC0;margin:4px 0 0">Federation of Indian Professionals · www.fipin.org</p>
-    </div>
+    </div>` : `
+    <div style="border-top:1px solid #E2E8F0;padding-top:16px">
+      <p style="font-size:12px;color:#A0AEC0;margin:0 0 2px">Warm Regards,</p>
+      <p style="font-size:13px;color:#2D3748;font-weight:700;margin:0">GCC Committee of Federation of Indian Professionals</p>
+      <p style="font-size:11px;color:#A0AEC0;margin:6px 0 0">Mobile 9968103591</p>
+      <p style="font-size:11px;color:#A0AEC0;margin:2px 0 0">Mobile 9999830938</p>
+    </div>`}
   </div>
 
   <!-- Footer -->
@@ -154,7 +198,7 @@ export default async function handler(req, res) {
     await getTransporter().sendMail({
       from:    `"FIP — Federation of Indian Professionals" <${process.env.GMAIL_USER}>`,
       to:      email,
-      subject: `✅ Seat Confirmed: ${eventTitle}`,
+      subject: emailSubject,
       html,
       ...(pdfAttachment ? { attachments: [pdfAttachment] } : {}),
     });

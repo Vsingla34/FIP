@@ -397,75 +397,117 @@ export default function EventsPage() {
                 const ts = TYPE_STYLE[ev.event_type] || TYPE_STYLE.Physical;
                 const dl = daysLeft(ev.event_date, ev.event_end_date);
                 return (
-                  <div className="ev-light" key={ev.id}>
-                    {/* Event banner image if provided */}
-                    {ev.image_url && (
-                      <div style={{margin:'-20px -20px 16px',borderRadius:'12px 12px 0 0',overflow:'hidden',height:'160px'}}>
+                  <div className="ev-card" key={ev.id}>
+                    {ev.image_url ? (
+                      <div className="ev-card-banner">
                         <img src={ev.image_url} alt={ev.title}
-                          style={{width:'100%',height:'100%',objectFit:'cover'}}
-                          onError={e => e.target.closest('div').style.display='none'}/>
+                          onError={e => e.target.closest('.ev-card-banner').style.display='none'}/>
                       </div>
-                    )}
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
-                      <div className="ev-date">
-                        <i className="fa-regular fa-calendar"></i> {formatDateRange(ev.event_date, ev.event_end_date)}
-                        {ev.event_time && <span style={{marginLeft:'6px',opacity:.7}}>· {ev.event_time}</span>}
-                      </div>
-                      {dl && <span style={{fontSize:'11px',fontWeight:700,color:'var(--orange)',background:'var(--orange-pale)',border:'1px solid #F5C4A8',padding:'2px 8px',borderRadius:'10px'}}>{dl}</span>}
-                    </div>
-                    <div className="ev-title">{ev.title}</div>
-                    <div className="ev-desc">{ev.description}</div>
+                    ) : <div className="ev-card-accent"/>}
 
-                    {/* Tags */}
-                    {ev.tags?.length > 0 && (
-                      <div style={{display:'flex',flexWrap:'wrap',gap:'5px',margin:'10px 0'}}>
-                        {ev.tags.map((t,i) => (
-                          <span key={i} style={{fontSize:'10px',fontWeight:600,color:'var(--blue-mid)',background:'var(--blue-pale)',border:'1px solid #C0CDE8',padding:'2px 8px',borderRadius:'10px'}}>{t}</span>
-                        ))}
+                    <div className="ev-card-body">
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
+                        <div className="ev-datestamp">
+                          <div className="ev-datestamp-box">
+                            <span className="ev-datestamp-day">{ev.event_date ? new Date(ev.event_date).getDate() : '—'}</span>
+                            <span className="ev-datestamp-month">{ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-IN',{month:'short'}) : ''}</span>
+                          </div>
+                          <div className="ev-datestamp-text">
+                            <strong>{formatDateRange(ev.event_date, ev.event_end_date)}</strong>
+                            {ev.event_time && <><br/>{ev.event_time}</>}
+                          </div>
+                        </div>
+                        {dl && <span style={{fontSize:'10.5px',fontWeight:700,color:'var(--orange)',background:'var(--orange-pale)',border:'1px solid #F5C4A8',padding:'3px 10px',borderRadius:'20px',whiteSpace:'nowrap'}}>{dl}</span>}
                       </div>
-                    )}
 
-                    <div className="ev-footer">
-                      <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
-                        <span className={`ev-type ${ts.cls}`}>
+                      <div className="ev-card-title">{ev.title}</div>
+                      <div className="ev-card-desc">{ev.description}</div>
+
+                      {ev.tags?.length > 0 && (
+                        <div className="ev-tag-row">
+                          {ev.tags.map((t,i) => <span key={i} className="ev-tag">{t}</span>)}
+                        </div>
+                      )}
+
+                      <div className="ev-meta-row">
+                        <span className={`ev-meta-chip ${ts.cls}`}>
                           <i className={`fa-solid ${ts.icon}`}></i> {ev.event_type}
                           {ev.city && ` · ${ev.city}`}
                         </span>
                         {ev.is_private && (
-                          <span style={{fontSize:'10px',background:'rgba(242,101,34,0.1)',color:'var(--orange)',padding:'2px 8px',borderRadius:'10px',fontWeight:700,border:'1px solid rgba(242,101,34,0.3)'}}>
-                            <i className="fa-solid fa-lock" style={{marginRight:'4px'}}></i>Members Only
+                          <span className="ev-meta-chip" style={{background:'rgba(242,101,34,0.1)',color:'var(--orange)',border:'1px solid rgba(242,101,34,0.3)'}}>
+                            <i className="fa-solid fa-lock"></i> Members Only
                           </span>
                         )}
                         {ev.capacity && (
-                          <span style={{fontSize:'11px',color:'var(--text-light)'}}>
-                            <i className="fa-solid fa-users" style={{marginRight:'3px'}}></i>{(ev.registered_count||0)>=(ev.capacity||999999)?'Fully Booked':`${ev.registered_count||0}/${ev.capacity} seats filled`}
+                          <span className="ev-meta-note">
+                            <i className="fa-solid fa-users" style={{marginRight:'4px'}}></i>
+                            {(ev.registered_count||0) >= (ev.capacity||999999)
+                              ? 'Fully booked'
+                              : (profile?.role === 'admin' || profile?.is_admin)
+                                ? `${ev.registered_count||0}/${ev.capacity} seats filled`
+                                : null}
                           </span>
                         )}
-                        {ev.is_free
-                          ? <span style={{fontSize:'11px',fontWeight:700,color:'var(--green)'}}>Free</span>
-                          : <span style={{fontSize:'11px',fontWeight:700,color:'var(--blue)'}}>₹{ev.price}</span>
-                        }
                       </div>
+
+                      {(() => {
+                        const hasDual = ev.price_member != null || ev.price_non_member != null;
+                        if (hasDual) {
+                          const pMember    = Number(ev.price_member || 0);
+                          const pNonMember = Number(ev.price_non_member || 0);
+                          if (pMember === 0 && pNonMember === 0) {
+                            return (
+                              <div className="ev-price-block">
+                                <span className="ev-price-free"><i className="fa-solid fa-circle-check"></i> Free for everyone</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="ev-price-block">
+                              <div className="ev-price-tiers">
+                                <div className="ev-price-tier">
+                                  <div className="ev-price-tier-label">FIP Members</div>
+                                  <div className="ev-price-tier-amt">₹{pMember.toLocaleString('en-IN')} <small>+18% GST</small></div>
+                                </div>
+                                <div className="ev-price-tier">
+                                  <div className="ev-price-tier-label">Non-Members</div>
+                                  <div className="ev-price-tier-amt">₹{pNonMember.toLocaleString('en-IN')} <small>+18% GST</small></div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="ev-price-block">
+                            {ev.is_free
+                              ? <span className="ev-price-free"><i className="fa-solid fa-circle-check"></i> Free to attend</span>
+                              : <span className="ev-price-single">₹{ev.price}</span>}
+                          </div>
+                        );
+                      })()}
+
                       {(() => {
                         const isFull = ev.capacity && (ev.registered_count||0) >= ev.capacity;
                         const isReg  = registeredEventIds.has(ev.id);
                         const evPrice = getEventPrice(ev, isFipMember);
                         return (
                           <button
-                            className="ev-rsvp-btn"
+                            className="ev-card-cta"
                             style={{
-                              background: isReg ? 'var(--green)' : isFull ? '#6B7280' : evPrice>0 ? 'var(--orange)' : undefined,
+                              background: isReg ? 'var(--green)' : isFull ? '#6B7280' : evPrice>0 ? 'var(--orange)' : 'var(--blue)',
+                              color:'#fff',
                               cursor: isReg || isFull ? 'default' : 'pointer',
                               opacity: isFull && !isReg ? 0.8 : 1,
                             }}
                             onClick={() => { if (!isReg && !isFull) openRsvp(ev); }}>
                             {isReg
-                              ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Seat Booked</>
+                              ? <><i className="fa-solid fa-circle-check"></i> Seat Booked</>
                               : isFull
-                              ? <><i className="fa-solid fa-ban" style={{marginRight:'5px'}}></i>Fully Booked</>
+                              ? <><i className="fa-solid fa-ban"></i> Fully Booked</>
                               : evPrice > 0
-                              ? <><i className="fa-solid fa-lock"></i> Book Seat — ₹{evPrice.toLocaleString('en-IN')}</>
-                              : <><i className="fa-solid fa-calendar-check"></i> Book Seat — Free</>
+                              ? <><i className="fa-solid fa-lock"></i> Register Now</>
+                              : <><i className="fa-solid fa-calendar-check"></i> Register Now</>
                             }
                           </button>
                         );

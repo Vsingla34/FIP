@@ -221,6 +221,7 @@ input,select,textarea{font-family:inherit;outline:none;}
 .ev-type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 10px;border-radius:4px;}
 .evt-physical{background:rgba(15,139,90,0.25);color:#6FDDB8;border:1px solid rgba(15,139,90,0.4);}
 .evt-virtual{background:rgba(242,101,34,0.2);color:#FFD09B;border:1px solid rgba(242,101,34,0.35);}
+.evt-hybrid{background:rgba(155,89,182,0.18);color:#B58AD9;border:1px solid rgba(155,89,182,0.35);}
 .evt-csr{background:rgba(155,89,182,0.2);color:#C89BE8;border:1px solid rgba(155,89,182,0.35);}
 .ev-seats{font-size:12px;color:rgba(255,255,255,0.3);}
 .ev-light{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;transition:var(--t);cursor:pointer;}
@@ -230,6 +231,48 @@ input,select,textarea{font-family:inherit;outline:none;}
 .ev-light .ev-desc{color:var(--text-muted);}
 .ev-rsvp-btn{padding:6px 14px;background:var(--blue);color:#fff;border-radius:6px;font-size:12px;font-weight:700;border:none;cursor:pointer;transition:var(--t);}
 .ev-rsvp-btn:hover{background:var(--orange);}
+
+/* ─── EVENT CARD v2 — date-stamp signature, dedicated pricing block ── */
+.ev-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;transition:box-shadow .25s ease,transform .25s ease,border-color .25s ease;display:flex;flex-direction:column;}
+.ev-card:hover{border-color:var(--border-dark);box-shadow:0 12px 32px rgba(26,60,110,0.12);transform:translateY(-4px);}
+.ev-card-banner{height:158px;overflow:hidden;position:relative;background:var(--blue-pale);}
+.ev-card-banner img{width:100%;height:100%;object-fit:cover;display:block;}
+.ev-card-accent{height:4px;width:100%;background:linear-gradient(90deg,var(--blue) 0%,var(--orange) 100%);}
+.ev-card-body{padding:22px 22px 20px;display:flex;flex-direction:column;flex:1;}
+
+.ev-datestamp{display:flex;align-items:center;gap:10px;}
+.ev-datestamp-box{width:52px;height:52px;flex-shrink:0;border-radius:10px;background:var(--blue);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+.ev-datestamp-box::after{content:'';position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--orange);}
+.ev-datestamp-day{font-size:19px;font-weight:800;color:#fff;line-height:1;}
+.ev-datestamp-month{font-size:9px;font-weight:700;color:#FFD09B;text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+.ev-datestamp-text{font-size:12.5px;color:var(--text-muted);font-weight:600;line-height:1.4;}
+.ev-datestamp-text strong{color:var(--blue);font-weight:700;}
+
+.ev-card-title{font-size:17px;font-weight:800;color:var(--blue);line-height:1.35;margin:16px 0 8px;}
+.ev-card-desc{font-size:13px;color:var(--text-muted);line-height:1.65;margin-bottom:14px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+
+.ev-tag-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+.ev-tag{font-size:10.5px;font-weight:600;color:var(--blue-mid);background:var(--blue-pale);border:1px solid #C0CDE8;padding:3px 10px;border-radius:20px;}
+
+.ev-meta-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px;}
+.ev-meta-chip{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:4px 10px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;}
+.ev-card .evt-physical{background:var(--green-pale);color:var(--green);border:1px solid rgba(15,139,90,0.3);}
+.ev-card .evt-virtual{background:var(--orange-pale);color:var(--orange-dark);border:1px solid rgba(242,101,34,0.3);}
+.ev-card .evt-hybrid{background:#F3ECFB;color:#7B4FA6;border:1px solid rgba(123,79,166,0.3);}
+.ev-card .evt-csr{background:#F3ECFB;color:#7B4FA6;border:1px solid rgba(123,79,166,0.3);}
+.ev-meta-note{font-size:11px;color:var(--text-light);font-weight:600;}
+
+.ev-price-block{background:var(--off-white);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px 14px;margin-top:auto;margin-bottom:14px;}
+.ev-price-free{font-size:15px;font-weight:800;color:var(--green);display:flex;align-items:center;gap:8px;}
+.ev-price-tiers{display:flex;gap:14px;}
+.ev-price-tier{flex:1;min-width:0;}
+.ev-price-tier + .ev-price-tier{padding-left:14px;border-left:1px solid var(--border);}
+.ev-price-tier-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-light);margin-bottom:2px;}
+.ev-price-tier-amt{font-size:15px;font-weight:800;color:var(--blue);}
+.ev-price-tier-amt small{font-size:10px;font-weight:600;color:var(--text-light);}
+.ev-price-single{font-size:15px;font-weight:800;color:var(--blue);}
+
+.ev-card-cta{width:100%;padding:12px;border-radius:var(--radius-sm);font-size:13px;font-weight:700;border:none;cursor:pointer;transition:var(--t);display:flex;align-items:center;justify-content:center;gap:8px;}
 
 /* ─── MEMBERSHIP ─────────── */
 .mem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;align-items:start;}
@@ -2141,4 +2184,7 @@ footer{background:#0D1F3C;padding:56px 0 24px;}
     width: 100%;
     justify-content: center;
   }
+  .ev-card-body { padding: 18px 18px 16px; }
+  .ev-price-tiers { flex-direction: column; gap: 10px; }
+  .ev-price-tier + .ev-price-tier { padding-left: 0; border-left: none; border-top: 1px solid var(--border); padding-top: 10px; }
 }

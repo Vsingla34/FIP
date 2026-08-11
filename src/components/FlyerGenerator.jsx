@@ -1,10 +1,15 @@
 // FlyerGenerator.jsx
-// Simple: Template image background + user photo circle. Nothing else.
-// Admin designs the full flyer as an image — we just add the user's face.
+// Template image background + user photo circle + name, positioned bottom-
+// center to match a standard "I'm Attending" poster layout. Canvas now
+// matches the template's own aspect ratio — a fixed 1200x630 (landscape)
+// canvas used to force every uploaded template into that shape, which badly
+// squashed portrait posters (2:3, Instagram-story style) instead of showing
+// them correctly.
 import { useEffect, useRef, useState } from 'react';
 
-const W = 1200, H = 630;
+const DEFAULT_W = 1200, DEFAULT_H = 630; // used only when there is no template image
 const GOLD = '#FFD09B';
+const NAVY = '#0D1F3C';
 
 /* ── Load image using fetch→blob to bypass CORS canvas restrictions ── */
 async function loadImage(src) {
@@ -31,7 +36,7 @@ async function loadImage(src) {
 }
 
 /* ── Default FIP gradient background (used when no template set) ── */
-function drawDefaultBg(ctx) {
+function drawDefaultBg(ctx, W, H) {
   const g = ctx.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, '#060F22');
   g.addColorStop(0.5, '#1A3C6E');
@@ -48,7 +53,7 @@ function drawDefaultBg(ctx) {
 
   // FIP text watermark
   ctx.save();
-  ctx.font = 'bold 200px Georgia, serif';
+  ctx.font = `bold ${Math.round(H * 0.32)}px Georgia, serif`;
   ctx.fillStyle = 'rgba(255,255,255,0.025)';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -56,13 +61,50 @@ function drawDefaultBg(ctx) {
   ctx.restore();
 
   // Bottom orange bar
+  const barH = Math.round(H * 0.067);
   ctx.fillStyle = '#F26522';
-  ctx.fillRect(0, H - 42, W, 42);
-  ctx.font = 'bold 14px Inter, Arial, sans-serif';
+  ctx.fillRect(0, H - barH, W, barH);
+  ctx.font = `bold ${Math.round(barH * 0.34)}px Inter, Arial, sans-serif`;
   ctx.fillStyle = '#fff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('Federation of Indian Professionals  ·  www.fipin.org', W / 2, H - 21);
+  ctx.fillText('Federation of Indian Professionals  ·  www.fipin.org', W / 2, H - barH / 2);
+}
+
+/* ── Draw the name centered below the photo circle ── */
+function drawNameLabel(ctx, name, cx, cy, r) {
+  const label = String(name || '').trim();
+  if (!label) return;
+
+  const fontSize = Math.max(16, Math.round(r * 0.34));
+  ctx.save();
+  ctx.font = `bold ${fontSize}px 'Segoe UI', Arial, sans-serif`;
+  const textW = ctx.measureText(label).width;
+  const padX = fontSize * 0.9, padY = fontSize * 0.55;
+  const plateW = textW + padX * 2, plateH = fontSize + padY * 2;
+  const plateY = cy + r + fontSize * 0.6;
+
+  // White plate with a thin gold border, so the name stays legible
+  // regardless of what's behind it on the template.
+  ctx.fillStyle = 'rgba(255,255,255,0.94)';
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = 2;
+  const rx = cx - plateW / 2, ry = plateY - plateH / 2, rr = plateH / 2;
+  ctx.beginPath();
+  ctx.moveTo(rx + rr, ry);
+  ctx.arcTo(rx + plateW, ry, rx + plateW, ry + plateH, rr);
+  ctx.arcTo(rx + plateW, ry + plateH, rx, ry + plateH, rr);
+  ctx.arcTo(rx, ry + plateH, rx, ry, rr);
+  ctx.arcTo(rx, ry, rx + plateW, ry, rr);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = NAVY;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, cx, plateY + 1);
+  ctx.restore();
 }
 
 /* ── Draw photo circle at given position ── */
@@ -108,29 +150,38 @@ function drawInitials(ctx, name, x, y, r) {
   ctx.restore();
 }
 
-/* ── Main draw: just background + photo ── */
-async function drawFlyer(canvas, { flyerTemplateUrl, userPhoto, name, photoX, photoY, photoR }) {
+/* ── Main draw: background + photo + name ── */
+async function drawFlyer(canvas, { flyerTemplateUrl, userPhoto, name, photoXPct, photoYPct, photoRPct }) {
   const ctx = canvas.getContext('2d');
-  canvas.width = W; canvas.height = H;
 
-  /* 1. Background: template image OR default gradient */
+  let W = DEFAULT_W, H = DEFAULT_H, tpl = null;
+
+  /* 1. Background: template image (sized to ITS OWN aspect ratio) OR default gradient */
   if (flyerTemplateUrl) {
     try {
-      const tpl = await loadImage(flyerTemplateUrl);
-      ctx.drawImage(tpl, 0, 0, W, H);
+      tpl = await loadImage(flyerTemplateUrl);
+      W = tpl.naturalWidth  || tpl.width;
+      H = tpl.naturalHeight || tpl.height;
     } catch (e) {
       console.warn('Template load failed:', e.message);
-      drawDefaultBg(ctx);
+      tpl = null;
     }
-  } else {
-    drawDefaultBg(ctx);
   }
 
-  /* 2. Photo circle at specified position (default: right side center) */
-  const cx = photoX || W * 0.78;
-  const cy = photoY || (H - 42) / 2;
-  const r  = photoR || 120;
+  canvas.width = W; canvas.height = H;
+
+  if (tpl) ctx.drawImage(tpl, 0, 0, W, H);
+  else     drawDefaultBg(ctx, W, H);
+
+  /* 2. Photo circle + name — default position is bottom-center, matching the
+     standard "I'm Attending" poster layout (placeholder circle sits above the
+     tagline, below the Register Now button). Percent-based so it scales
+     correctly regardless of the template's actual pixel dimensions. */
+  const cx = W * (photoXPct ?? 0.5);
+  const cy = H * (photoYPct ?? 0.695);
+  const r  = H * (photoRPct ?? 0.065);
   await drawPhotoCircle(ctx, userPhoto, name, cx, cy, r);
+  drawNameLabel(ctx, name, cx, cy, r);
 }
 
 /* ── React Component ── */
