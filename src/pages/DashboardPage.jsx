@@ -145,10 +145,14 @@ function CertificatesTab({ userEmail, profile }) {
     if (!userEmail || !profile?.id) return;
     supabase
       .from('certificates')
-      .select('id, certificate_url, created_at, email_sent, template_url, courses(title, event_date)')
+      .select('id, certificate_url, issued_at, email_sent, template_url, courses(title, event_date)')
       .contains('recipient_email', [userEmail])
-      .order('created_at', { ascending: false })
-      .then(({ data }) => { setCerts(data || []); setLoading(false); });
+      .order('issued_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) console.error('Failed to load certificates:', error.message);
+        setCerts(data || []);
+        setLoading(false);
+      });
   }, [userEmail, profile?.id]);
 
   // User has no FIP account profile — shouldn't happen on dashboard but guard anyway
@@ -194,7 +198,7 @@ function CertificatesTab({ userEmail, profile }) {
             const eventDate   = c.courses?.event_date
               ? new Date(c.courses.event_date).toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' })
               : null;
-            const issuedDate  = new Date(c.created_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+            const issuedDate  = new Date(c.issued_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
             const style       = c.template_url;
             const styleColors = {
               classic:      { bg:'#F8F6F0', accent:'#C9A84C', text:'#1A3C6E' },
