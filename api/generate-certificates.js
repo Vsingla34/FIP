@@ -368,16 +368,43 @@ export default async function handler(req, res) {
           certUrl = urlData?.publicUrl;
         }
 
+        // Look up the recipient's account, if they have one — lets the
+        // dashboard match by user_id (reliable) in addition to the email
+        // array (works even for someone without an account yet).
+        let recipientUserId = null;
+        try {
+          const { data: prof } = await supabaseAdmin.from('profiles')
+            .select('id').ilike('email', email).maybeSingle();
+          recipientUserId = prof?.id || null;
+        } catch (e) { /* non-fatal — email-array match still works without this */ }
+
         // Save to DB
-        const { data: certRow } = await supabaseAdmin.from('certificates').insert({
-          course_id:       courseId,
-          recipient_name:  name,
-          recipient_email: email,
-          certificate_url: certUrl,
+        // recipient_email is a text[] column (dashboard queries it with
+        // .contains('recipient_email', [userEmail])) — it MUST be sent as an
+        // array, not a bare string. Sending a plain string here used to fail
+        // the insert silently (error was never checked), so the certificate
+        // email went out fine but no row ever existed for the dashboard to
+        // find. Also log any failure now instead of swallowing it.
+        const { data: certRow, error: certInsertErr } = await supabaseAdmin.from('certificates').insert({
+          course_id:           courseId,
+          user_id:             recipientUserId,
+          certificate_number:  certNo,
+          recipient_name:      name,
+          recipient_email:     [email],
+          certificate_url:     certUrl,
           template_url:    templateStyle === 'custom' ? templateUrl
                             : templateStyle === 'custom-layout' ? (background?.kind === 'image' ? background.url : 'custom-layout') : templateStyle,
           email_sent:      false,
         }).select().single();
+
+        if (certInsertErr) {
+          // Don't let this be another silent failure — a certificate that
+          // emailed fine but never got a DB row is exactly the bug this
+          // whole fix exists to prevent. Still send the email (the person
+          // shouldn't lose their certificate over a bookkeeping issue), but
+          // the response now honestly reports it as a partial failure.
+          console.error(`[cert] DB insert failed for ${email}:`, certInsertErr.message);
+        }
 
         // Send email
         if (sendEmails && transporter && email) {
@@ -404,7 +431,8 @@ export default async function handler(req, res) {
           }
         }
 
-        results.push({ name, email, success: true, certUrl });
+        results.push({ name, email, success: !certInsertErr, certUrl,
+          warning: certInsertErr ? 'Emailed, but not saved to their dashboard — DB insert failed: ' + certInsertErr.message : undefined });
       } catch (err) {
         console.error(`[cert] Failed for ${name}:`, err.message);
         results.push({ name, email, success: false, error: err.message });
