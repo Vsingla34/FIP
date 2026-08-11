@@ -143,7 +143,6 @@ export default function EventsPage() {
       gst_number:         form.wants_gst ? form.gst_number.trim() || null : null,
       gst_company_name:   form.wants_gst ? form.gst_company_name.trim() || null : null,
       gst_address:        form.wants_gst ? form.gst_address.trim() || null : null,
-      custom_field_responses: form.customFieldResponses || {},
     });
     return error;
   };
@@ -219,7 +218,6 @@ export default function EventsPage() {
           gst_number:         capturedForm.wants_gst ? capturedForm.gst_number : null,
           gst_company_name:   capturedForm.wants_gst ? capturedForm.gst_company_name : null,
           gst_address:        capturedForm.wants_gst ? capturedForm.gst_address : null,
-          custom_field_responses: capturedForm.customFieldResponses || {},
           status:             'confirmed',
         },
         onSuccess: async () => {
@@ -233,7 +231,6 @@ export default function EventsPage() {
             phone:              capturedForm.phone?.trim() || null,
             designation:        capturedForm.designation?.trim() || null,
             organisation:       capturedForm.organisation?.trim() || null,
-            custom_field_responses: capturedForm.customFieldResponses || {},
             status:             'confirmed',
           });
           if (error && error.code !== '23505') {

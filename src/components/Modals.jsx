@@ -27,6 +27,8 @@ export default function Modals() {
   const [courseCouponCode,    setCourseCouponCode]    = useState('');
   const [courseWantsGst,      setCourseWantsGst]      = useState(false);
   const [courseGstNo,         setCourseGstNo]         = useState('');
+  const [courseCustomValues,  setCourseCustomValues]  = useState({});
+  const [rsvpCustomValues,    setRsvpCustomValues]    = useState({});
   const [courseGstName,       setCourseGstName]       = useState('');
   const [courseGstAddress,    setCourseGstAddress]    = useState('');
   const [courseCouponResult,  setCourseCouponResult]  = useState(null);

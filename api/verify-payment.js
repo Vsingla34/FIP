@@ -769,7 +769,6 @@ export default async function handler(req, res) {
               status:     'registered',
               zoom_link:  course.zoom_link || null,
               payment_id: payment.id,   // lets a later refund revoke exactly this row
-              custom_field_responses: rsvpMeta.custom_field_responses || {},
             });
           regError = error;
           didInsert = !error;
@@ -854,7 +853,6 @@ export default async function handler(req, res) {
             gst_address:        rsvp.gst_address      || null,
             status:             'confirmed',
             payment_id:         payment.id,
-            custom_field_responses: rsvp.custom_field_responses || {},
           });
           evError     = error;
           evDidInsert = !error;

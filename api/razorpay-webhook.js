@@ -320,7 +320,6 @@ export default async function handler(req, res) {
             gst_address:      meta.gst?.gst_address      || null,
             status:     'registered',
             payment_id: payment.id,   // lets a later refund revoke exactly this row
-            custom_field_responses: rsvp.custom_field_responses || {},
           });
           if (crErr) console.error('Webhook: course enrollment failed:', crErr.message);
           else console.log('Webhook: enrolled in course', course.id, rsvp.email || userId);
@@ -383,7 +382,6 @@ export default async function handler(req, res) {
             gst_address:        rsvp.gst_address      || null,
             status:             'confirmed',
             payment_id:         payment.id,
-            custom_field_responses: rsvp.custom_field_responses || {},
           });
           if (rsvpErr) console.error('Webhook: event enroll failed:', rsvpErr.message);
           else console.log('Webhook: enrolled in event', rsvp.event_id, rsvp.email);
