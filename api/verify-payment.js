@@ -380,15 +380,10 @@ async function handleRefund(req, res) {
       }),
     });
 
-    // The refund object alone doesn't carry the PAYMENT's cumulative
-    // amount_refunded/refund_status — that lives on the payment entity, so
-    // fetch it fresh right now instead of guessing. This is the same shape
-    // of data the webhook eventually gets in payload.payment.entity, just
-    // read synchronously instead of waiting for that async callback — which
-    // is what let the admin panel keep showing "Paid" until a manual Check
-    // sync ran. Applying it here means the DB is already correct by the time
-    // this request returns, and the eventual real webhook event for this
-    // same refund becomes a no-op via the shared idempotency check.
+    // Fetch the payment entity fresh right now — same shape of data the
+    // webhook eventually gets in payload.payment.entity, just read
+    // synchronously instead of waiting for that async callback. Applying it
+    // here means the DB is already correct by the time this request returns.
     let parentPayment = null;
     try { parentPayment = await rzp(`/payments/${pay.razorpay_payment_id}`); }
     catch (e) { console.warn('Could not re-fetch payment after refund — DB will catch up via the webhook or Check sync:', e.message); }
@@ -705,7 +700,7 @@ export default async function handler(req, res) {
       // to the item_name captured at order time.
       const ref    = payment.item_ref_id || '';
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
-      const cols   = 'id, title, event_date, event_time, zoom_link, zoom_password, whatsapp_group_link';
+      const cols   = 'id, title, event_date, event_time, zoom_link, zoom_password, whatsapp_group_link, email_subject, email_body';
 
       let course = null;
       if (ref) {
@@ -774,6 +769,7 @@ export default async function handler(req, res) {
               status:     'registered',
               zoom_link:  course.zoom_link || null,
               payment_id: payment.id,   // lets a later refund revoke exactly this row
+              custom_field_responses: rsvpMeta.custom_field_responses || {},
             });
           regError = error;
           didInsert = !error;
@@ -802,9 +798,104 @@ export default async function handler(req, res) {
               zoomLink:           course.zoom_link,
               zoomPassword:       course.zoom_password,
               whatsappGroupLink:  course.whatsapp_group_link,
+              customSubject:      course.email_subject || null,
+              customBody:         course.email_body    || null,
             }),
           });
         } catch (e) { console.warn('Course confirmation email failed:', e.message); }
+      }
+    } else if (payment.purchase_type === 'event') {
+      // Paid EVENTS previously had no fallback at all — the webhook was the
+      // only path that ever enrolled a paid event registrant. If the webhook
+      // failed for any reason (a bad signature secret, a cold start, a
+      // transient network error — anything), the person paid and nothing
+      // ever wrote to event_rsvps, with zero recovery until someone noticed.
+      // This mirrors the course block above so paid events now have the
+      // exact same redundancy paid courses already had.
+      const rsvp = payment.metadata?.rsvp || {};
+      const eventId = rsvp.event_id || payment.item_ref_id || null;
+
+      const { data: payer } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name, email, phone')
+        .eq('id', userId).maybeSingle();
+
+      const regEmail = rsvp.email     || payer?.email     || null;
+      const regName  = rsvp.full_name || payer?.full_name || null;
+
+      let evError = null;
+      let evDidInsert = false;
+
+      if (eventId && regEmail) {
+        let existingRsvp = null;
+        const { data: byEmail } = await supabaseAdmin
+          .from('event_rsvps')
+          .select('id').eq('event_id', eventId).ilike('email', regEmail).limit(1);
+        existingRsvp = byEmail?.[0] || null;
+        if (!existingRsvp && userId) {
+          const { data: byUser } = await supabaseAdmin
+            .from('event_rsvps')
+            .select('id').eq('event_id', eventId).eq('user_id', userId).limit(1);
+          existingRsvp = byUser?.[0] || null;
+        }
+
+        if (!existingRsvp) {
+          const { error } = await supabaseAdmin.from('event_rsvps').insert({
+            event_id:           eventId,
+            event_name:         rsvp.event_name || payment.item_name,
+            user_id:            userId || null,
+            full_name:          regName || regEmail,
+            email:              regEmail,
+            phone:              rsvp.phone       || payer?.phone || null,
+            designation:        rsvp.designation || null,
+            organisation:       rsvp.organisation || null,
+            gst_number:         rsvp.gst_number       || null,
+            gst_company_name:   rsvp.gst_company_name || null,
+            gst_address:        rsvp.gst_address      || null,
+            status:             'confirmed',
+            payment_id:         payment.id,
+            custom_field_responses: rsvp.custom_field_responses || {},
+          });
+          evError     = error;
+          evDidInsert = !error;
+          if (!error) console.log('verify-payment: enrolled', regEmail, 'in event', eventId);
+          else console.error('verify-payment: event_rsvps insert error:', error.message);
+        }
+      } else {
+        console.error('verify-payment: cannot enroll — missing eventId or email for order', razorpay_order_id);
+      }
+
+      // Same rule as courses: only send the email here if THIS call is the
+      // one that actually created the row, so a webhook that succeeded first
+      // doesn't also trigger a duplicate email from this fallback path.
+      if (regEmail && eventId && (!alreadyProcessed || evDidInsert)) {
+        try {
+          const { data: ev } = await supabaseAdmin.from('events')
+            .select('title, event_date, event_time, location, event_type, zoom_link, whatsapp_group_link')
+            .eq('id', eventId).maybeSingle();
+
+          await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-event-confirmation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name:              regName || regEmail,
+              email:             regEmail,
+              eventTitle:        ev?.title || payment.item_name,
+              eventDate:         ev?.event_date,
+              eventTime:         ev?.event_time,
+              eventLocation:     ev?.location,
+              eventType:         ev?.event_type,
+              isPaid:            true,
+              amount:            payment.total_amount,
+              transactionId:     razorpay_payment_id,
+              zoomLink:          ev?.zoom_link,
+              whatsappGroupLink: ev?.whatsapp_group_link,
+              gstNumber:         rsvp.gst_number       || null,
+              gstCompanyName:    rsvp.gst_company_name || null,
+              gstAddress:        rsvp.gst_address      || null,
+            }),
+          });
+        } catch (e) { console.warn('Event confirmation email failed:', e.message); }
       }
     }
 

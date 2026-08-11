@@ -256,7 +256,7 @@ export default async function handler(req, res) {
       const ref = payment.item_ref_id || '';
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
 
-      const courseCols = 'id,title,event_date,event_time,zoom_link,zoom_password,whatsapp_group_link';
+      const courseCols = 'id,title,event_date,event_time,zoom_link,zoom_password,whatsapp_group_link,email_subject,email_body';
       let course = null;
 
       if (ref) {
@@ -320,6 +320,7 @@ export default async function handler(req, res) {
             gst_address:      meta.gst?.gst_address      || null,
             status:     'registered',
             payment_id: payment.id,   // lets a later refund revoke exactly this row
+            custom_field_responses: rsvp.custom_field_responses || {},
           });
           if (crErr) console.error('Webhook: course enrollment failed:', crErr.message);
           else console.log('Webhook: enrolled in course', course.id, rsvp.email || userId);
@@ -342,6 +343,8 @@ export default async function handler(req, res) {
           gstNumber:         meta.gst?.gst_number      || null,
           gstCompanyName:    meta.gst?.gst_company_name || null,
           gstAddress:        meta.gst?.gst_address      || null,
+          customSubject:     course.email_subject || null,
+          customBody:        course.email_body    || null,
         });
         } // end: regEmail present
       }
@@ -380,6 +383,7 @@ export default async function handler(req, res) {
             gst_address:        rsvp.gst_address      || null,
             status:             'confirmed',
             payment_id:         payment.id,
+            custom_field_responses: rsvp.custom_field_responses || {},
           });
           if (rsvpErr) console.error('Webhook: event enroll failed:', rsvpErr.message);
           else console.log('Webhook: enrolled in event', rsvp.event_id, rsvp.email);
@@ -389,7 +393,7 @@ export default async function handler(req, res) {
 
         // Send event confirmation email
         const { data: ev } = await supabaseAdmin.from('events')
-          .select('title,event_date,event_time,location,event_type,zoom_link,whatsapp_group_link')
+          .select('title,event_date,event_time,location,event_type,zoom_link,whatsapp_group_link,email_subject,email_body')
           .eq('id', rsvp.event_id).single();
 
         await sendEmail('send-event-confirmation', {
@@ -408,6 +412,8 @@ export default async function handler(req, res) {
           gstNumber:         rsvp.gst_number      || null,
           gstCompanyName:    rsvp.gst_company_name || null,
           gstAddress:        rsvp.gst_address      || null,
+          customSubject:     ev?.email_subject || null,
+          customBody:        ev?.email_body    || null,
         });
       } catch (e) { console.error('Webhook: event error:', e.message); }
     }
