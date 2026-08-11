@@ -593,7 +593,14 @@ export default function AdminPage() {
     setRsvpEventView(ev); setRsvpLoading(true);
     setSelectedRsvpIds(new Set()); setShowRsvpEmail(false);
     const { data } = await supabase.rpc('admin_get_event_rsvps', { p_event_id: ev.id });
-    setEventRsvps(data || []); setRsvpLoading(false);
+    // The RPC returns every row regardless of status — a cancelled/refunded
+    // registration (revoked access via a refund, or manually cancelled) was
+    // still showing up here as if it were an active registrant, selectable
+    // for bulk email/certificates and counted in the total. Filtered at this
+    // single entry point so every view derived from eventRsvps is correct.
+    const active = (data || []).filter(r => r.status !== 'cancelled');
+    setEventRsvps(active);
+    setRsvpLoading(false);
   };
 
   /* ── popups state ── */
