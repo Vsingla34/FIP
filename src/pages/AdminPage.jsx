@@ -289,7 +289,7 @@ export default function AdminPage() {
   const [courseForm, setCourseForm] = useState({
     title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate',
     price:0, free_for:'none', instructor:'', duration_hours:'',
-    event_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'',
+    event_date:'', event_end_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'',
     banner_url:'', what_you_learn:'', speakers:'',
   });
 
@@ -417,6 +417,7 @@ export default function AdminPage() {
       duration_hours: courseForm.duration_hours ? Number(courseForm.duration_hours) : null,
       is_free_for_members: courseForm.free_for === 'members' || courseForm.free_for === 'all',
       event_date:    courseForm.event_date    || null,
+      event_end_date: courseForm.event_end_date || null,
       event_time:    (courseForm.event_time    || '').trim() || null,
       zoom_link:     (courseForm.zoom_link     || '').trim() || null,
       whatsapp_group_link: (courseForm.whatsapp_group_link || '').trim() || null,
@@ -465,9 +466,9 @@ export default function AdminPage() {
   /* open course modal */
   const openCourseModal = (course) => {
     if (course === 'new') {
-      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'', banner_url:'', what_you_learn:'', speakers:'' });
+      setCourseForm({ title:'', slug:'', subtitle:'', description:'', category:'', level:'Intermediate', price:0, free_for:'none', instructor:'', duration_hours:'', event_date:'', event_end_date:'', event_time:'', zoom_link:'', zoom_password:'', whatsapp_group_link:'', banner_url:'', what_you_learn:'', speakers:'' });
     } else {
-      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', flyer_template_url:course.flyer_template_url||'', is_private:course.is_private||false, enable_flyer:course.enable_flyer!==false, banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
+      setCourseForm({ title:course.title, slug:course.slug, subtitle:course.subtitle||'', description:course.description||'', category:course.category||'', level:course.level||'Intermediate', price:course.price||0, free_for:course.free_for||'none', instructor:course.instructor||'', duration_hours:course.duration_hours||'', event_date:course.event_date||'', event_end_date:course.event_end_date||'', event_time:course.event_time||'', zoom_link:course.zoom_link||'', zoom_password:course.zoom_password||'', whatsapp_group_link:course.whatsapp_group_link||'', flyer_template_url:course.flyer_template_url||'', is_private:course.is_private||false, enable_flyer:course.enable_flyer!==false, banner_url:course.banner_url||'', what_you_learn:(course.what_you_learn||[]).join('\n'), speakers:course.speakers ? JSON.stringify(course.speakers, null, 2) : '' });
     }
     setShowCourseModal(course);
   };
@@ -668,7 +669,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (tab !== 'certificates') return;
-    supabase.from('courses').select('id,title,event_date').eq('status','published')
+    supabase.from('courses').select('id,title,event_date,event_end_date').eq('status','published')
       .order('created_at',{ascending:false})
       .then(({ data }) => setCertCourses(data || []));
     supabase.rpc('admin_get_certificates').then(({ data }) => setCertList(data || []));
@@ -3483,7 +3484,10 @@ export default function AdminPage() {
                   <option value="">— Select a course —</option>
                   {certCourses.map(c => (
                     <option key={c.id} value={c.id}>
-                      {c.title}{c.event_date ? ' (' + new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) + ')' : ''}
+                      {c.title}{c.event_date ? ' (' + new Date(c.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})
+                        + (c.event_end_date && c.event_end_date !== c.event_date
+                            ? ' – ' + new Date(c.event_end_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})
+                            : '') + ')' : ''}
                     </option>
                   ))}
                 </select>
@@ -4566,6 +4570,14 @@ export default function AdminPage() {
               <div className="form-group">
                 <label className="form-label">Event Date</label>
                 <input className="form-input" type="date" value={courseForm.event_date} onChange={e=>setCourseForm(f=>({...f,event_date:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Event End Date
+                  <span style={{fontSize:'11px',color:'var(--text-light)',marginLeft:'5px'}}>— leave blank for a single-day course</span>
+                </label>
+                <input className="form-input" type="date" min={courseForm.event_date || undefined}
+                  value={courseForm.event_end_date} onChange={e=>setCourseForm(f=>({...f,event_end_date:e.target.value}))}/>
               </div>
               <div className="form-group">
                 <label className="form-label">Event Time</label>

@@ -366,7 +366,12 @@ export default function CourseDetailPage() {
                       {course.event_date && (
                         <div style={{display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'var(--text-muted)'}}>
                           <i className="fa-regular fa-calendar" style={{color:'var(--orange)',width:'14px',textAlign:'center'}}></i>
-                          <span>{formatDate(course.event_date)}</span>
+                          <span>
+                            {formatDate(course.event_date)}
+                            {course.event_end_date && course.event_end_date !== course.event_date && (
+                              <> – {formatDate(course.event_end_date)}</>
+                            )}
+                          </span>
                         </div>
                       )}
                       {course.event_time && (
@@ -472,7 +477,15 @@ export default function CourseDetailPage() {
                 <div style={{background:'var(--blue-pale)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'14px 16px',marginBottom:'20px'}}>
                   <div style={{fontSize:'14px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>{course.title}</div>
                   <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'12px',flexWrap:'wrap'}}>
-                    {course.event_date && <span><i className="fa-regular fa-calendar" style={{marginRight:'4px'}}></i>{formatDate(course.event_date)}</span>}
+                    {course.event_date && (
+                      <span>
+                        <i className="fa-regular fa-calendar" style={{marginRight:'4px'}}></i>
+                        {formatDate(course.event_date)}
+                        {course.event_end_date && course.event_end_date !== course.event_date && (
+                          <> – {formatDate(course.event_end_date)}</>
+                        )}
+                      </span>
+                    )}
                     {course.event_time && <span><i className="fa-regular fa-clock" style={{marginRight:'4px'}}></i>{course.event_time}</span>}
                     <span style={{color:'#2D8CFF',fontWeight:600}}><i className="fa-brands fa-zoom" style={{marginRight:'4px'}}></i>Zoom</span>
                   </div>
