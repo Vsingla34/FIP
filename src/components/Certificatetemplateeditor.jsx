@@ -286,4 +286,4 @@ export default function CertificateTemplateEditor({ background, onBackgroundChan
       )}
     </div>
   );
-}
+}  
