@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     // Verify user exists
     const { data: profile, error: pErr } = await supabaseAdmin
       .from('profiles')
-      .select('id, full_name, email')
+      .select('id, full_name, email, membership_status')
       .eq('id', userId)
       .single();
     if (pErr || !profile) return res.status(401).json({ error: 'User not found.' });
@@ -73,10 +73,42 @@ export default async function handler(req, res) {
 
     } else if (purchaseType === 'event') {
       const { data: event, error: eErr } = await supabaseAdmin
-        .from('events').select('id, title, price, is_free').eq('id', itemRefId).single();
+        .from('events').select('id, title, price, is_free, price_member, price_non_member, capacity').eq('id', itemRefId).single();
       if (eErr || !event) return res.status(400).json({ error: 'Event not found' });
-      if (event.is_free || !event.price || event.price === 0) return res.status(400).json({ error: 'This event is free' });
-      amount   = event.price;
+
+      // Capacity is checked BEFORE creating the Razorpay order — without this,
+      // someone could pay for an event that's already full and only discover
+      // it after being charged, since the DB trigger only fires at the actual
+      // enrollment insert (which for a paid event happens later, via the
+      // webhook, after payment). This narrows but can't fully close the
+      // window — the event could still fill in the gap between this check and
+      // the payment completing. The DB trigger (see check_event_capacity())
+      // is the real, race-safe backstop that guarantees the seat count is
+      // never actually exceeded; this check just avoids charging someone
+      // needlessly in the common case.
+      if (event.capacity != null) {
+        const { count: takenSeats } = await supabaseAdmin
+          .from('event_rsvps')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', event.id)
+          .not('status', 'eq', 'cancelled');
+        if ((takenSeats || 0) >= event.capacity) {
+          return res.status(400).json({ error: 'This event has reached its maximum capacity.' });
+        }
+      }
+
+      // Dual pricing (member vs non-member) takes priority when the admin has
+      // set it; events created before this feature falls back to the single
+      // price/is_free they already had. Membership status is read from OUR
+      // OWN profiles lookup above — never trust anything the client sent.
+      const hasDualPricing = event.price_member != null || event.price_non_member != null;
+      const isMember = profile.membership_status === 'Active';
+      const eventAmount = hasDualPricing
+        ? Number(isMember ? (event.price_member || 0) : (event.price_non_member || 0))
+        : (event.is_free ? 0 : Number(event.price || 0));
+
+      if (!eventAmount || eventAmount === 0) return res.status(400).json({ error: 'This event is free for you' });
+      amount   = eventAmount;
       itemName = event.title;
 
     } else {

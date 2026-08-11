@@ -10,13 +10,37 @@ function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
 }
 
-function daysLeft(dateStr) {
-  if (!dateStr) return null;
-  const diff = Math.ceil((new Date(dateStr) - new Date()) / 86400000);
-  if (diff < 0)  return null;
+function formatDateRange(start, end) {
+  if (!start) return 'Every Sunday';
+  if (!end || end === start) return formatDate(start);
+  const s = new Date(start), e = new Date(end);
+  const sameMonth = s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear();
+  const startFmt = s.toLocaleDateString('en-IN', sameMonth ? { day:'numeric' } : { day:'numeric', month:'long' });
+  const endFmt   = e.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
+  return `${startFmt} – ${endFmt}`;
+}
+
+function daysLeft(startStr, endStr) {
+  if (!startStr) return null;
+  const now   = new Date();
+  const start = new Date(startStr);
+  const end   = endStr ? new Date(endStr) : start;
+  if (now > end) return null;
+  if (now >= start) return 'Ongoing';
+  const diff = Math.ceil((start - now) / 86400000);
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Tomorrow';
   return `${diff} days left`;
+}
+
+// Resolves what THIS user should be charged for an event. Dual pricing
+// (price_member/price_non_member) takes priority when set; older events that
+// predate this feature fall back to the single price/is_free they already had.
+function getEventPrice(event, isMember) {
+  if (!event) return 0;
+  const hasDual = event.price_member != null || event.price_non_member != null;
+  if (hasDual) return Number(isMember ? (event.price_member || 0) : (event.price_non_member || 0));
+  return event.is_free ? 0 : Number(event.price || 0);
 }
 
 const TYPE_STYLE = {
@@ -29,19 +53,21 @@ export default function EventsPage() {
   const { user, profile } = useAuth();
   const { showToast, openModal } = useApp();
   const { pay } = useRazorpay();
+  const isFipMember = profile?.membership_status === 'Active';
 
   const [events,  setEvents]  = useState([]);
   const [loading, setLoading] = useState(true);
   const [rsvpOpen, setRsvpOpen] = useState(null);
+  const effectiveEventPrice = getEventPrice(rsvpOpen, isFipMember);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
   const [registeredEventIds, setRegisteredEventIds] = useState(new Set());
   const [flyerEvent, setFlyerEvent]   = useState(null); // event to show flyer for after registration
   const [form, setForm] = useState({
-    full_name:'', email:'', phone:'', profession:'',
-    designation:'', organisation:'', icai_membership_no:'', city:'',
-    is_volunteer: false,
+    full_name:'', email:'', phone:'',
+    designation:'', organisation:'',
     wants_gst: false, gst_number:'', gst_company_name:'', gst_address:'',
+    customFieldResponses: {},
   });
 
   useEffect(() => {
@@ -53,7 +79,7 @@ export default function EventsPage() {
     const todayStr = new Date().toISOString().split('T')[0];
     supabase.from('events').select('*')
       .in('status', ['upcoming','ongoing'])
-      .or(`event_date.gte.${todayStr},event_date.is.null`)
+      .or(`event_date.gte.${todayStr},event_end_date.gte.${todayStr},event_date.is.null`)
       .order('event_date', { ascending: true, nullsFirst: false })
       .then(async ({ data }) => {
         if (!data?.length) { setLoading(false); return; }
@@ -88,12 +114,10 @@ export default function EventsPage() {
       full_name:          profile?.full_name || user?.user_metadata?.full_name || '',
       email:              user?.email || '',
       phone:              profile?.phone || '',
-      profession:         profile?.profession || '',
       designation:        profile?.designation || '',
       organisation:       profile?.organisation || '',
-      icai_membership_no: profile?.icai_membership_no || '',
-      city:               profile?.city || '',
-      is_volunteer:       false,
+      wants_gst: false, gst_number:'', gst_company_name:'', gst_address:'',
+      customFieldResponses: {},
     });
     setSubmitted(false);
     setRsvpOpen(event);
@@ -112,17 +136,14 @@ export default function EventsPage() {
       full_name:          form.full_name.trim(),
       email:              form.email.trim(),
       phone:              form.phone.trim() || null,
-      profession:         form.profession || null,
       designation:        form.designation.trim() || null,
       organisation:       form.organisation.trim() || null,
-      icai_membership_no: form.icai_membership_no.trim() || null,
-      city:               form.city.trim() || null,
-      is_volunteer:       form.is_volunteer,
       event_name:         rsvpOpen.title,
       status:             'confirmed',
       gst_number:         form.wants_gst ? form.gst_number.trim() || null : null,
       gst_company_name:   form.wants_gst ? form.gst_company_name.trim() || null : null,
       gst_address:        form.wants_gst ? form.gst_address.trim() || null : null,
+      custom_field_responses: form.customFieldResponses || {},
     });
     return error;
   };
@@ -132,29 +153,25 @@ export default function EventsPage() {
     if (!form.full_name.trim() || !form.email.trim()) return;
     setSubmitting(true);
 
-    // ── Strict validation: ALL fields required ─────────────────────────────
+    // ── Validation: only Name, Email, Mobile are required now — Organisation
+    // and Designation are optional. Profession/ICAI/City are no longer part
+    // of the base form (see note below); admins needing them for a specific
+    // event can add them back via Custom Registration Fields.
     const missing = [];
     if (!form.full_name.trim())          missing.push('Full Name');
     if (!form.email.trim())              missing.push('Email');
     if (!form.phone.trim())              missing.push('Mobile Number');
-    if (!form.profession)                missing.push('Profession');
-    if (!form.designation.trim())        missing.push('Designation');
-    if (!form.organisation.trim())       missing.push('Organisation / Firm');
-    if (!form.icai_membership_no.trim()) missing.push('ICAI / ICSI / ICMAI Membership No.');
-    if (!form.city.trim())               missing.push('City');
     if (missing.length > 0) {
       setSubmitting(false);
       showToast(`Please fill in: ${missing.join(', ')}`, true);
       return;
     }
 
-    // ── Profession eligibility check ─────────────────────────────────────
-    const allowed = rsvpOpen?.allowed_professions;
-    if (allowed?.length && !allowed.includes(form.profession)) {
-      setSubmitting(false);
-      showToast(`This event is open to: ${allowed.join(', ')} only.`, true);
-      return;
-    }
+    // NOTE: the profession-eligibility gate (allowed_professions) has been
+    // retired along with the Profession field it depended on — it would
+    // otherwise block every registration, since form.profession no longer
+    // exists. If per-event profession restriction is needed again, it should
+    // be rebuilt against a Custom Registration Field instead of this fixed one.
 
     // ── Capacity check ───────────────────────────────────────────────────
     if (rsvpOpen?.capacity) {
@@ -167,7 +184,7 @@ export default function EventsPage() {
       }
     }
 
-    const isPaid = rsvpOpen?.price > 0 && !rsvpOpen?.is_free;
+    const isPaid = effectiveEventPrice > 0;
 
     if (isPaid) {
       if (!user) {
@@ -197,15 +214,12 @@ export default function EventsPage() {
           full_name:          capturedForm.full_name.trim(),
           email:              capturedForm.email.trim(),
           phone:              capturedForm.phone?.trim() || null,
-          profession:         capturedForm.profession || null,
           designation:        capturedForm.designation?.trim() || null,
           organisation:       capturedForm.organisation?.trim() || null,
-          icai_membership_no: capturedForm.icai_membership_no?.trim() || null,
-          city:               capturedForm.city?.trim() || null,
-          is_volunteer:       capturedForm.is_volunteer,
           gst_number:         capturedForm.wants_gst ? capturedForm.gst_number : null,
           gst_company_name:   capturedForm.wants_gst ? capturedForm.gst_company_name : null,
           gst_address:        capturedForm.wants_gst ? capturedForm.gst_address : null,
+          custom_field_responses: capturedForm.customFieldResponses || {},
           status:             'confirmed',
         },
         onSuccess: async () => {
@@ -217,12 +231,9 @@ export default function EventsPage() {
             full_name:          capturedForm.full_name.trim(),
             email:              capturedForm.email.trim(),
             phone:              capturedForm.phone?.trim() || null,
-            profession:         capturedForm.profession || null,
             designation:        capturedForm.designation?.trim() || null,
             organisation:       capturedForm.organisation?.trim() || null,
-            icai_membership_no: capturedForm.icai_membership_no?.trim() || null,
-            city:               capturedForm.city?.trim() || null,
-            is_volunteer:       capturedForm.is_volunteer,
+            custom_field_responses: capturedForm.customFieldResponses || {},
             status:             'confirmed',
           });
           if (error && error.code !== '23505') {
@@ -249,6 +260,8 @@ export default function EventsPage() {
                 gstNumber:          capturedForm.wants_gst ? capturedForm.gst_number : null,
                 gstCompanyName:     capturedForm.wants_gst ? capturedForm.gst_company_name : null,
                 gstAddress:         capturedForm.wants_gst ? capturedForm.gst_address : null,
+                customSubject:      capturedEvent.email_subject || null,
+                customBody:         capturedEvent.email_body    || null,
               }),
             }).catch(() => {});
             // Show flyer if enabled
@@ -300,6 +313,8 @@ export default function EventsPage() {
         isPaid:             false,
         zoomLink:           rsvpOpen.zoom_link,
         whatsappGroupLink:  rsvpOpen.whatsapp_group_link,
+        customSubject:      rsvpOpen.email_subject || null,
+        customBody:         rsvpOpen.email_body    || null,
       }),
     }).catch(() => {});
 
@@ -380,7 +395,7 @@ export default function EventsPage() {
             <div className="event-grid">
               {events.filter(ev => !ev.is_private || profile?.role==='admin' || profile?.is_admin || profile?.membership_status==='Active' || profile?.account_type==='fip_member').map(ev => {
                 const ts = TYPE_STYLE[ev.event_type] || TYPE_STYLE.Physical;
-                const dl = daysLeft(ev.event_date);
+                const dl = daysLeft(ev.event_date, ev.event_end_date);
                 return (
                   <div className="ev-light" key={ev.id}>
                     {/* Event banner image if provided */}
@@ -393,7 +408,7 @@ export default function EventsPage() {
                     )}
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
                       <div className="ev-date">
-                        <i className="fa-regular fa-calendar"></i> {formatDate(ev.event_date)}
+                        <i className="fa-regular fa-calendar"></i> {formatDateRange(ev.event_date, ev.event_end_date)}
                         {ev.event_time && <span style={{marginLeft:'6px',opacity:.7}}>· {ev.event_time}</span>}
                       </div>
                       {dl && <span style={{fontSize:'11px',fontWeight:700,color:'var(--orange)',background:'var(--orange-pale)',border:'1px solid #F5C4A8',padding:'2px 8px',borderRadius:'10px'}}>{dl}</span>}
@@ -434,11 +449,12 @@ export default function EventsPage() {
                       {(() => {
                         const isFull = ev.capacity && (ev.registered_count||0) >= ev.capacity;
                         const isReg  = registeredEventIds.has(ev.id);
+                        const evPrice = getEventPrice(ev, isFipMember);
                         return (
                           <button
                             className="ev-rsvp-btn"
                             style={{
-                              background: isReg ? 'var(--green)' : isFull ? '#6B7280' : ev.price>0&&!ev.is_free ? 'var(--orange)' : undefined,
+                              background: isReg ? 'var(--green)' : isFull ? '#6B7280' : evPrice>0 ? 'var(--orange)' : undefined,
                               cursor: isReg || isFull ? 'default' : 'pointer',
                               opacity: isFull && !isReg ? 0.8 : 1,
                             }}
@@ -447,8 +463,8 @@ export default function EventsPage() {
                               ? <><i className="fa-solid fa-circle-check" style={{marginRight:'5px'}}></i>Seat Booked</>
                               : isFull
                               ? <><i className="fa-solid fa-ban" style={{marginRight:'5px'}}></i>Fully Booked</>
-                              : ev.price > 0 && !ev.is_free
-                              ? <><i className="fa-solid fa-lock"></i> Book Seat — ₹{Number(ev.price).toLocaleString('en-IN')}</>
+                              : evPrice > 0
+                              ? <><i className="fa-solid fa-lock"></i> Book Seat — ₹{evPrice.toLocaleString('en-IN')}</>
                               : <><i className="fa-solid fa-calendar-check"></i> Book Seat — Free</>
                             }
                           </button>
@@ -482,14 +498,8 @@ export default function EventsPage() {
                 <div className="modal-title">Registration Confirmed!</div>
                 <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,marginBottom:'8px'}}>
                   You're registered for <strong>{rsvpOpen.title}</strong>.
-                  {rsvpOpen.event_date && <> We'll see you on <strong>{formatDate(rsvpOpen.event_date)}</strong>.</>}
+                  {rsvpOpen.event_date && <> We'll see you on <strong>{formatDateRange(rsvpOpen.event_date, rsvpOpen.event_end_date)}</strong>.</>}
                 </p>
-                {form.is_volunteer && (
-                  <div style={{background:'var(--orange-pale)',border:'1px solid #F5C4A8',borderRadius:'8px',padding:'10px 14px',fontSize:'13px',color:'var(--orange)',marginBottom:'16px'}}>
-                    <i className="fa-solid fa-hand-holding-heart" style={{marginRight:'6px'}}></i>
-                    Thank you for volunteering! Our team will contact you soon.
-                  </div>
-                )}
                 <button className="btn btn-outline-blue btn-sm" onClick={() => setRsvpOpen(null)}>Close</button>
               </div>
             ) : (
@@ -498,7 +508,7 @@ export default function EventsPage() {
                 <div style={{background:'var(--blue-pale)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'14px 16px',marginBottom:'20px'}}>
                   <div style={{fontSize:'15px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>{rsvpOpen.title}</div>
                   <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'12px',flexWrap:'wrap'}}>
-                    <span><i className="fa-regular fa-calendar" style={{marginRight:'4px'}}></i>{formatDate(rsvpOpen.event_date)}</span>
+                    <span><i className="fa-regular fa-calendar" style={{marginRight:'4px'}}></i>{formatDateRange(rsvpOpen.event_date, rsvpOpen.event_end_date)}</span>
                     {rsvpOpen.event_time && <span><i className="fa-regular fa-clock" style={{marginRight:'4px'}}></i>{rsvpOpen.event_time}</span>}
                     {rsvpOpen.venue && <span><i className="fa-solid fa-location-dot" style={{marginRight:'4px'}}></i>{rsvpOpen.venue}</span>}
                   </div>
@@ -506,21 +516,15 @@ export default function EventsPage() {
 
                 <div className="modal-title" style={{marginBottom:'4px'}}>Register for this Event</div>
                 <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'10px'}}>
-                  All fields marked * are required.
+                  Fields marked * are required.
                 </p>
-                {rsvpOpen?.allowed_professions?.length > 0 && (
-                  <div style={{background:'rgba(242,101,34,0.08)',border:'1px solid rgba(242,101,34,0.3)',borderRadius:'8px',padding:'10px 14px',marginBottom:'12px',fontSize:'12px',color:'#C05621',fontWeight:600}}>
-                    <i className="fa-solid fa-circle-info" style={{marginRight:'6px'}}></i>
-                    Open to: <strong>{rsvpOpen.allowed_professions.join(', ')}</strong>
-                  </div>
-                )}
 
                 {/* Paid event pricing banner */}
-                {rsvpOpen.price > 0 && !rsvpOpen.is_free && (
+                {effectiveEventPrice > 0 && (
                   <div style={{background:'linear-gradient(135deg,#FFF5E6,#FFE8CC)',border:'2px solid var(--orange)',borderRadius:'10px',padding:'14px 16px',marginBottom:'18px'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}}>
-                      <span style={{fontSize:'13px',fontWeight:600,color:'#92400E'}}>Event Registration Fee</span>
-                      <span style={{fontSize:'20px',fontWeight:900,color:'var(--orange)'}}>₹{Number(rsvpOpen.price).toLocaleString('en-IN')}</span>
+                      <span style={{fontSize:'13px',fontWeight:600,color:'#92400E'}}>Event Registration Fee{isFipMember ? ' (Member price)' : ''}</span>
+                      <span style={{fontSize:'20px',fontWeight:900,color:'var(--orange)'}}>₹{Number(effectiveEventPrice).toLocaleString('en-IN')}</span>
                     </div>
                     <div style={{fontSize:'11px',color:'#92400E',display:'flex',alignItems:'center',gap:'5px'}}>
                       <i className="fa-solid fa-lock" style={{color:'var(--orange)'}}></i>
@@ -534,7 +538,7 @@ export default function EventsPage() {
                     <div className="form-group">
                       <label className="form-label">Full Name *</label>
                       <input className="form-input" name="full_name" type="text"
-                        placeholder="CA / CS / Adv. Full Name"
+                        placeholder="Your full name"
                         value={form.full_name} onChange={handleChange} required />
                     </div>
                     <div className="form-group">
@@ -547,54 +551,25 @@ export default function EventsPage() {
 
                   <div className="form-row">
                     <div className="form-group">
-                      <label className="form-label">Phone *</label>
+                      <label className="form-label">Mobile No. *</label>
                       <input className="form-input" name="phone" type="tel"
                         placeholder="+91 XXXXX XXXXX" required
                         value={form.phone} onChange={handleChange} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Profession *</label>
-                      <select className="form-select" name="profession" value={form.profession} onChange={handleChange} required>
-                        <option value="">Select profession *</option>
-                        <option>Chartered Accountant</option>
-                        <option>Company Secretary</option>
-                        <option>Cost Accountant</option>
-                        <option>Advocate</option>
-                        <option>Student</option>
-                        <option>Other</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Designation *</label>
-                      <input className="form-input" name="designation" type="text"
-                        placeholder="e.g. Partner, Senior Manager" required
-                        value={form.designation} onChange={handleChange} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Organisation / Firm *</label>
+                      <label className="form-label">Organisation / Firm <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
                       <input className="form-input" name="organisation" type="text"
-                        placeholder="Firm or Company name" required
+                        placeholder="Firm or Company name"
                         value={form.organisation} onChange={handleChange} />
                     </div>
                   </div>
 
                   <div className="form-row">
                     <div className="form-group">
-                      <label className="form-label">
-                        ICAI / ICSI / ICMAI Membership No. *
-                      </label>
-                      <input className="form-input" name="icai_membership_no" type="text"
-                        placeholder="e.g. 123456 / A12345 / M12345" required
-                        value={form.icai_membership_no} onChange={handleChange} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">City *</label>
-                      <input className="form-input" name="city" type="text"
-                        placeholder="Your city" required
-                        value={form.city} onChange={handleChange} />
+                      <label className="form-label">Designation <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
+                      <input className="form-input" name="designation" type="text"
+                        placeholder="e.g. Partner, Senior Manager"
+                        value={form.designation} onChange={handleChange} />
                     </div>
                   </div>
 
@@ -635,23 +610,6 @@ export default function EventsPage() {
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* Volunteer checkbox */}
-                  <div className="form-group">
-                    <label style={{display:'flex',alignItems:'flex-start',gap:'10px',cursor:'pointer',padding:'12px 14px',background:'var(--orange-pale)',border:'1px solid #F5C4A8',borderRadius:'var(--radius-md)'}}>
-                      <input type="checkbox" name="is_volunteer" checked={form.is_volunteer} onChange={handleChange}
-                        style={{width:'16px',height:'16px',marginTop:'2px',accentColor:'var(--orange)',flexShrink:0}} />
-                      <div>
-                        <div style={{fontSize:'13px',fontWeight:700,color:'var(--orange)'}}>
-                          <i className="fa-solid fa-hand-holding-heart" style={{marginRight:'6px'}}></i>
-                          I want to volunteer for this event
-                        </div>
-                        <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}}>
-                          Our team will reach out with volunteer roles and responsibilities.
-                        </div>
-                      </div>
-                    </label>
                   </div>
 
                   <button type="submit" className="btn btn-primary" style={{width:'100%',justifyContent:'center',marginTop:'4px'}} disabled={submitting}>

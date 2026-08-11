@@ -538,7 +538,7 @@ export default function AdminPage() {
   const [enrollEmailSending, setEnrollEmailSending] = useState(false);
   const [eventForm, setEventForm] = useState({
     title:'', description:'', event_type:'Physical', location:'', venue:'',
-    city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0,
+    city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0,
     status:'upcoming', tags:'', image_url:'', zoom_link:'',
   });
 
@@ -551,16 +551,27 @@ export default function AdminPage() {
 
   const openEventModal = (ev) => {
     if (ev === 'new') {
-      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_time:'', capacity:'', is_free:true, price:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true });
+      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true });
     } else {
-      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false, whatsapp_group_link:ev.whatsapp_group_link||'', flyer_template_url:ev.flyer_template_url||'', enable_flyer:ev.enable_flyer!==false });
+      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', event_end_date:ev.event_end_date||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, price_member:ev.price_member||0, price_non_member:ev.price_non_member||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false, whatsapp_group_link:ev.whatsapp_group_link||'', flyer_template_url:ev.flyer_template_url||'', enable_flyer:ev.enable_flyer!==false });
     }
     setShowEventModal(ev);
   };
 
   const saveEvent = async () => {
     if (!eventForm.title.trim()) return;
-    const payload = { ...eventForm, tags: eventForm.tags.split(',').map(t=>t.trim()).filter(Boolean), capacity: eventForm.capacity ? Number(eventForm.capacity) : null, price: Number(eventForm.price)||0, event_date: eventForm.event_date || null, created_by: profile?.id };
+    const pMember    = Number(eventForm.price_member)    || 0;
+    const pNonMember = Number(eventForm.price_non_member) || 0;
+    const payload = { ...eventForm, tags: eventForm.tags.split(',').map(t=>t.trim()).filter(Boolean), capacity: eventForm.capacity ? Number(eventForm.capacity) : null,
+      price_member:     pMember,
+      price_non_member: pNonMember,
+      // Legacy single price/is_free — derived so any code still reading the
+      // old flat fields (rather than the dual-price ones) keeps working.
+      // Non-member price is used as the "headline" price for that fallback.
+      price:   pNonMember,
+      is_free: pMember === 0 && pNonMember === 0,
+      event_date: eventForm.event_date || null,
+      created_by: profile?.id };
     if (showEventModal === 'new') {
       const { data, error } = await supabase.from('events').insert(payload).select().single();
       if (!error && data) { setAdminEvents(prev => [data, ...prev]); setShowEventModal(null); showToast('Event created!'); }
@@ -1093,8 +1104,13 @@ export default function AdminPage() {
     Promise.all([
       // Revenue via server-side aggregate (immune to row limits)
       supabase.rpc('admin_get_revenue_stats', { p_year_start: yearStart }),
-      // Active events count
-      supabase.from('events').select('id', { count:'exact', head:true }).in('status',['upcoming','ongoing']),
+      // Active events count — status alone is stale-prone (nothing auto-flips
+      // an event to 'completed' once it's over), so cross-check the date too.
+      // event_end_date is included so a multi-day event still counts as
+      // active on its 2nd/3rd day even though event_date (day 1) is past.
+      supabase.from('events').select('id', { count:'exact', head:true })
+        .in('status',['upcoming','ongoing'])
+        .or(`event_date.gte.${new Date().toISOString().split('T')[0]},event_end_date.gte.${new Date().toISOString().split('T')[0]},event_date.is.null`),
       // Course registrations count (all time)
       supabase.from('course_registrations').select('id', { count:'exact', head:true }),
       // FIP Members only (paid members)
@@ -1835,10 +1851,21 @@ export default function AdminPage() {
                       <span className={`status-pill ${ev.status==='upcoming'?'sp-active':ev.status==='ongoing'?'sp-pending':'sp-rejected'}`}>{ev.status}</span>
                     </div>
                     <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
-                      {ev.event_date && <span><i className="fa-regular fa-calendar" style={{marginRight:'3px'}}></i>{new Date(ev.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span>}
+                      {ev.event_date && (
+                        <span><i className="fa-regular fa-calendar" style={{marginRight:'3px'}}></i>
+                          {new Date(ev.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}
+                          {ev.event_end_date && ev.event_end_date !== ev.event_date && (
+                            <> – {new Date(ev.event_end_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</>
+                          )}
+                        </span>
+                      )}
                       {ev.venue && <span><i className="fa-solid fa-location-dot" style={{marginRight:'3px'}}></i>{ev.venue}</span>}
                       {ev.capacity && <span><i className="fa-solid fa-users" style={{marginRight:'3px'}}></i>{ev.capacity} seats</span>}
-                      <span style={{color:ev.is_free?'var(--green)':'var(--blue)',fontWeight:600}}>{ev.is_free ? 'Free' : `₹${ev.price}`}</span>
+                      <span style={{color:ev.is_free?'var(--green)':'var(--blue)',fontWeight:600}}>
+                        {(ev.price_member || ev.price_non_member)
+                          ? `M: ₹${ev.price_member||0} · Non-M: ₹${ev.price_non_member||0}`
+                          : ev.is_free ? 'Free' : `₹${ev.price}`}
+                      </span>
                     </div>
                   </div>
                   <div style={{display:'flex',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
@@ -4155,6 +4182,14 @@ export default function AdminPage() {
                 <input className="form-input" type="date" value={eventForm.event_date} onChange={e=>setEventForm(f=>({...f,event_date:e.target.value}))}/>
               </div>
               <div className="form-group">
+                <label className="form-label">
+                  End Date
+                  <span style={{fontSize:'11px',color:'var(--text-light)',marginLeft:'5px'}}>— leave blank for a single-day event</span>
+                </label>
+                <input className="form-input" type="date" min={eventForm.event_date || undefined}
+                  value={eventForm.event_end_date} onChange={e=>setEventForm(f=>({...f,event_end_date:e.target.value}))}/>
+              </div>
+              <div className="form-group">
                 <label className="form-label">Time</label>
                 <input className="form-input" type="text" placeholder="e.g. 09:00 AM" value={eventForm.event_time} onChange={e=>setEventForm(f=>({...f,event_time:e.target.value}))}/>
               </div>
@@ -4174,9 +4209,20 @@ export default function AdminPage() {
                 </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Price (₹)</label>
-                <input className="form-input" type="number" placeholder="0 = free" value={eventForm.price} onChange={e=>setEventForm(f=>({...f,price:e.target.value,is_free:Number(e.target.value)===0}))}/>
+                <label className="form-label">FIP Member Price (₹)</label>
+                <input className="form-input" type="number" placeholder="0 = free for members"
+                  value={eventForm.price_member}
+                  onChange={e=>setEventForm(f=>({...f,price_member:e.target.value}))}/>
               </div>
+              <div className="form-group">
+                <label className="form-label">Non-Member Price (₹)</label>
+                <input className="form-input" type="number" placeholder="0 = free for everyone"
+                  value={eventForm.price_non_member}
+                  onChange={e=>setEventForm(f=>({...f,price_non_member:e.target.value}))}/>
+              </div>
+            </div>
+            <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'-8px',marginBottom:'16px'}}>
+              Set both to 0 for a fully free event. Active FIP members are always charged the Member price, everyone else the Non-Member price.
             </div>
               <div className="form-group">
                 <label className="form-label">
@@ -4206,6 +4252,7 @@ export default function AdminPage() {
               <label className="form-label">Tags <span style={{fontWeight:400,color:'var(--text-light)'}}>— comma separated</span></label>
               <input className="form-input" type="text" placeholder="e.g. GST, Networking, Summit" value={eventForm.tags} onChange={e=>setEventForm(f=>({...f,tags:e.target.value}))}/>
             </div>
+
             <div className="form-group">
               <label className="form-label">
                 <i className="fa-solid fa-image" style={{color:'var(--orange)',marginRight:'6px'}}></i>
