@@ -350,23 +350,6 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {/* ── RECENT HIGHLIGHTS ── */}
-      <section className="section section-alt">
-        <div className="container">
-          <div className="shflex" style={{marginBottom:'32px'}}>
-            <div>
-              <span className="eyebrow">Recent Highlights</span>
-              <h2 className="section-heading">Past <span>Events</span></h2>
-              <p className="section-sub">Explore highlights from our recent events that brought together distinguished speakers, industry leaders, and professionals from across the country. These moments reflect FIP's commitment to knowledge sharing, networking, and creating lasting professional impact.</p>
-            </div>
-          </div>
-          <div style={{textAlign:'center',padding:'40px 0',color:'var(--text-muted)'}}>
-            <i className="fa-solid fa-images" style={{fontSize:'36px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-            <p style={{fontSize:'14px'}}>Event highlights and photo galleries coming soon.</p>
-          </div>
-        </div>
-      </section>
-
       {/* ── UPCOMING EVENTS ── */}
       <section className="section">
         <div className="container">
@@ -517,6 +500,24 @@ export default function EventsPage() {
           )}
         </div>
       </section>
+
+      {/* ── RECENT HIGHLIGHTS ── */}
+      <section className="section section-alt">
+        <div className="container">
+          <div className="shflex" style={{marginBottom:'32px'}}>
+            <div>
+              <span className="eyebrow">Recent Highlights</span>
+              <h2 className="section-heading">Past <span>Events</span></h2>
+              <p className="section-sub">Explore highlights from our recent events that brought together distinguished speakers, industry leaders, and professionals from across the country. These moments reflect FIP's commitment to knowledge sharing, networking, and creating lasting professional impact.</p>
+            </div>
+          </div>
+          <div style={{textAlign:'center',padding:'40px 0',color:'var(--text-muted)'}}>
+            <i className="fa-solid fa-images" style={{fontSize:'36px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+            <p style={{fontSize:'14px'}}>Event highlights and photo galleries coming soon.</p>
+          </div>
+        </div>
+      </section>
+
 
       {/* ══════════════════════════════════
           REGISTRATION MODAL

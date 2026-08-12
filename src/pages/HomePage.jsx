@@ -76,6 +76,65 @@ export default function HomePage() {
   const { openModal } = useApp();
   const navigate = useNavigate();
   const [testimonials, setTestimonials] = useState(FALLBACK);
+
+  // Testimonials slide as GROUPS of 3, not one at a time. Same drag pattern
+  // as the hero slider above (refs to dodge stale closures in timers, a
+  // px-threshold to decide snap-forward vs snap-back) — kept fully
+  // independent state, just the same proven technique.
+  const testiPages = [];
+  for (let i = 0; i < testimonials.length; i += 3) testiPages.push(testimonials.slice(i, i + 3));
+
+  const [testiPageIdx, setTestiPageIdx] = useState(0);
+  const [testiDragX,   setTestiDragX]   = useState(0);
+  const testiPageIdxRef  = useRef(0);
+  const testiPagesLenRef = useRef(1);
+  const testiTouchStartX = useRef(0);
+  const testiIsDragging  = useRef(false);
+  const testiDragOffset  = useRef(0);
+  const testiTimer       = useRef(null);
+
+  testiPageIdxRef.current  = testiPageIdx;
+  testiPagesLenRef.current = testiPages.length;
+
+  const testiGoTo = (idx) => setTestiPageIdx(((idx % testiPagesLenRef.current) + testiPagesLenRef.current) % testiPagesLenRef.current);
+  const testiNext = () => { if (testiPagesLenRef.current > 1) testiGoTo(testiPageIdxRef.current + 1); };
+  const testiPrev = () => { if (testiPagesLenRef.current > 1) testiGoTo(testiPageIdxRef.current - 1); };
+
+  useEffect(() => {
+    if (testiPages.length <= 1) return;
+    testiTimer.current = setTimeout(testiNext, 6000);
+    return () => clearTimeout(testiTimer.current);
+  }, [testiPageIdx, testimonials.length]);
+
+  const testiDragStart = (clientX) => {
+    clearTimeout(testiTimer.current);
+    testiTouchStartX.current = clientX;
+    testiIsDragging.current  = true;
+    testiDragOffset.current  = 0;
+  };
+  const testiDragMove = (clientX) => {
+    if (!testiIsDragging.current) return;
+    const dx = clientX - testiTouchStartX.current;
+    testiDragOffset.current = dx;
+    setTestiDragX(dx);
+  };
+  const testiDragEnd = () => {
+    if (!testiIsDragging.current) return;
+    testiIsDragging.current = false;
+    const threshold = 60;
+    if (testiDragOffset.current < -threshold)      testiNext();
+    else if (testiDragOffset.current > threshold)  testiPrev();
+    setTestiDragX(0);
+    testiDragOffset.current = 0;
+    if (testiPages.length > 1) testiTimer.current = setTimeout(testiNext, 6000);
+  };
+  const testiHandleTouchStart = (e) => testiDragStart(e.touches[0].clientX);
+  const testiHandleTouchMove  = (e) => testiDragMove(e.touches[0].clientX);
+  const testiHandleTouchEnd   = ()  => testiDragEnd();
+  const testiHandleMouseDown  = (e) => { e.preventDefault(); testiDragStart(e.clientX); };
+  const testiHandleMouseMove  = (e) => { if (testiIsDragging.current) testiDragMove(e.clientX); };
+  const testiHandleMouseUp    = ()  => testiDragEnd();
+  const testiHandleMouseLeave = ()  => { if (testiIsDragging.current) testiDragEnd(); };
   const [homeCourses,  setHomeCourses]  = useState([]);
 
   useEffect(() => {
@@ -522,18 +581,31 @@ export default function HomePage() {
             <Link to="/events" className="btn btn-outline-white">All Events <i className="fa-solid fa-arrow-right"></i></Link>
           </div>
           <div className="event-grid">
-            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Aug 9, 2026</div><div className="ev-title">Rashtrapati Bhawan Visit</div><div className="ev-desc">
-              
-             An exclusive experience awaits! FIP is set to organize a special visit to Rashtrapati Bhavan on 9th August 2026 (8:30 AM – 11:00 AM). A unique opportunity to witness the grandeur of India’s highest constitutional institution. Stay tuned—registrations opening soon!
-              
-              </div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div></div>
-            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}><div className="ev-date"><i className="fa-regular fa-calendar"></i> Every Sunday</div><div className="ev-title">Chartered Walk &amp; Talk</div><div className="ev-desc">Morning walks at India Gate, War Memorial &amp; Firoz Shah Road. Networking meets wellness — free for all members.</div><div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">Open to all</span></div></div>
-            <div className="ev-dark"><div className="ev-date"><i className="fa-regular fa-calendar"></i> Coming Soon</div><div className="ev-title">GCC Workshop 2026 </div><div className="ev-desc">
-             Lets talk , Global Practice, Global Clients, Global Opportunities.
+            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}>
+              <div className="ev-date"><i className="fa-regular fa-calendar"></i> Aug 9, 2026</div>
+              <div className="ev-title">Rashtrapati Bhawan Visit</div>
+              <div className="ev-desc">An exclusive experience awaits! FIP is set to organize a special visit to Rashtrapati Bhavan on 9th August 2026 (8:30 AM – 11:00 AM). A unique opportunity to witness the grandeur of India's highest constitutional institution.</div>
+              <div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">120 seats</span></div>
+            </div>
 
-We are coming soon  for FIP GCC workshop   2026—a two-day exclusive conclave for Chartered Accountants to discover the immense potential of Global Capability Centres (GCCs) and the future of the global profession.
-              
-              </div><div className="ev-footer"><span className="ev-type evt-virtual">Notify Me</span><span className="ev-seats">500+ capacity</span></div></div>
+            <div className="ev-dark" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}>
+              <div className="ev-date"><i className="fa-regular fa-calendar"></i> Every Sunday</div>
+              <div className="ev-title">Chartered Walk &amp; Talk</div>
+              <div className="ev-desc">Morning walks at India Gate, War Memorial &amp; Firoz Shah Road. Networking meets wellness — free for all members.</div>
+              <div className="ev-footer"><span className="ev-type evt-physical">Physical · Delhi</span><span className="ev-seats">Open to all</span></div>
+            </div>
+
+            {/* Featured — real dates/pricing, not a placeholder */}
+            <div className="ev-dark ev-featured" onClick={()=>navigate('/events')} style={{cursor:'pointer'}}>
+              <span className="ev-featured-badge"><i className="fa-solid fa-star"></i> Featured</span>
+              <div className="ev-date"><i className="fa-regular fa-calendar"></i> 5 – 6 Sept 2026</div>
+              <div className="ev-title">GCC Workshop 2026</div>
+              <div className="ev-desc">Global Practice, Global Clients, Global Opportunities — a two-day exclusive conclave for Chartered Accountants to discover the potential of Global Capability Centres (GCCs) and the future of the global profession.</div>
+              <div className="ev-footer">
+                <span className="ev-type evt-physical">Physical · Delhi</span>
+                <span className="ev-register-cta">Register Now <i className="fa-solid fa-arrow-right"></i></span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -548,29 +620,61 @@ We are coming soon  for FIP GCC workshop   2026—a two-day exclusive conclave f
             <p className="section-sub">Real experiences from FIP professionals across India.</p>
           </div>
 
-          <div className="testi-grid">
-            {testimonials.map((t, i) => {
-              const initials = (t.name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase()||'?';
-              const stars    = '★'.repeat(t.rating||5) + '☆'.repeat(5-(t.rating||5));
-              return (
-                <div className="testi-card" key={t.id||i}>
-                  <div className="testi-stars">{stars}</div>
-                  <span className="testi-qmark">"</span>
-                  <p className="testi-text">{t.content}</p>
-                  <div className="testi-author">
-                    <div className="testi-av">{initials}</div>
-                    <div>
-                      <div className="testi-name">{t.name}</div>
-                      <div className="testi-role">
-                        {t.designation}
-                        {t.profession && <span style={{color:'var(--orange)',marginLeft:'6px',fontSize:'11px',fontWeight:600}}>· {t.profession}</span>}
-                      </div>
-                    </div>
+          <div className="testi-slider">
+            <button className="testi-arrow testi-arrow-left" onClick={testiPrev} aria-label="Previous testimonials">
+              <i className="fa-solid fa-chevron-left"></i>
+            </button>
+
+            <div className="testi-track-wrap"
+              onTouchStart={testiHandleTouchStart} onTouchMove={testiHandleTouchMove} onTouchEnd={testiHandleTouchEnd}
+              onMouseDown={testiHandleMouseDown} onMouseMove={testiHandleMouseMove} onMouseUp={testiHandleMouseUp} onMouseLeave={testiHandleMouseLeave}
+              style={{ cursor: testiIsDragging.current ? 'grabbing' : 'grab' }}>
+              <div className="testi-track"
+                style={{
+                  transform: `translateX(calc(-${testiPageIdx * 100}% + ${testiDragX}px))`,
+                  transition: testiIsDragging.current ? 'none' : 'transform .4s ease',
+                }}>
+                {testiPages.map((page, pi) => (
+                  <div className="testi-page" key={pi}>
+                    {page.map((t, i) => {
+                      const initials = (t.name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase()||'?';
+                      const stars    = '★'.repeat(t.rating||5) + '☆'.repeat(5-(t.rating||5));
+                      return (
+                        <div className="testi-card" key={t.id||i}>
+                          <span className="testi-qmark">"</span>
+                          <div className="testi-stars">{stars}</div>
+                          <p className="testi-text">{t.content}</p>
+                          <div className="testi-author">
+                            <div className="testi-av">{initials}</div>
+                            <div>
+                              <div className="testi-name">{t.name}</div>
+                              <div className="testi-role">
+                                {t.designation}
+                                {t.profession && <span style={{color:'var(--orange)',marginLeft:'6px',fontSize:'11px',fontWeight:600}}>· {t.profession}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            </div>
+
+            <button className="testi-arrow testi-arrow-right" onClick={testiNext} aria-label="Next testimonials">
+              <i className="fa-solid fa-chevron-right"></i>
+            </button>
           </div>
+
+          {testiPages.length > 1 && (
+            <div className="testi-dots">
+              {testiPages.map((_, i) => (
+                <button key={i} className={`testi-dot${i===testiPageIdx?' active':''}`}
+                  onClick={() => testiGoTo(i)} aria-label={`Go to testimonials group ${i+1}`}/>
+              ))}
+            </div>
+          )}
 
           <div style={{textAlign:'center',marginTop:'28px'}}>
             <button className="btn btn-outline-blue" onClick={() => openModal('testimonial')}>
