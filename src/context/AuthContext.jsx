@@ -36,10 +36,14 @@ export function AuthProvider({ children }) {
       const { data, error } = await supabase
         .from('profiles').select('*').eq('id', userId).single();
       if (!error && data) {
-        setProfile(data);
-        // Cache for instant availability on next load — avoids the
-        // "Loading" flash that happens when profile arrives after the
-        // session is already known but the DB round-trip hasn't finished.
+        setProfile(prev => {
+          // Skip the state update if nothing meaningful changed — avoids the
+          // re-render cascade that was unmounting PromoPopup and breaking the
+          // page for signed-in users on first load.
+          if (prev && prev.id === data.id && prev.membership_status === data.membership_status
+              && prev.role === data.role && prev.account_type === data.account_type) return prev;
+          return data;
+        });
         try { localStorage.setItem('fip_profile', JSON.stringify(data)); } catch {}
         return data;
       }
@@ -55,7 +59,7 @@ export function AuthProvider({ children }) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
       if (session?.user) {
-        setUser(session.user);
+        setUser(prev => prev?.id === session.user.id ? prev : session.user);
         await fetchProfile(session.user.id);
       }
       setLoading(false);
@@ -81,7 +85,7 @@ export function AuthProvider({ children }) {
         }
 
         if (session?.user) {
-          setUser(session.user);
+          setUser(prev => prev?.id === session.user.id ? prev : session.user);
           await fetchProfile(session.user.id);
         }
         setLoading(false);

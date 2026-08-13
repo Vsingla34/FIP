@@ -1,61 +1,63 @@
-// src/components/PromoPopup.jsx
-// Shows a promotional popup on first visit (once per session)
-// Admin can configure: image, title, link, which pages to show on
-
+// PromoPopup.jsx — fetches popups from DB, shows one at a time.
+// Next popup appears only AFTER user closes the current one (X button).
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase.js';
 
-// ── CONFIGURE YOUR POPUP HERE ─────────────────────────────────
-// To update the popup: edit the PROMO object below and redeploy
-// To disable: set enabled: false
-const PROMO = {
-  enabled:   true,
-  title:     'ITR FILING MASTERY',
-  subtitle:  'Live Webinar — Free Registration',
-  // Use an image URL — upload your poster to Supabase storage or any CDN
-  // and paste the URL here. Leave empty to show text-only popup.
-  imageUrl:  '', // e.g. 'https://vygsubtfelavhmaaphul.supabase.co/storage/v1/object/public/assets/itr-webinar.jpg'
-  ctaLabel:  'Register Free Now',
-  ctaLink:   '/events',        // internal link
-  ctaExternal: false,          // set true + ctaHref for external URL
-  ctaHref:   '',               // e.g. 'https://forms.google.com/...'
-  // Show after this many ms on page load
-  delay:     1500,
-  // Session storage key — change this string to force popup to show again
-  sessionKey: 'fip_promo_itr_2026',
-};
-// ────────────────────────────────────────────────────────────────
+// Track which popups have been dismissed this tab session. Using a module-level
+// Set (not sessionStorage) means: (a) it persists across component remounts
+// caused by auth state changes, so the popup doesn't re-appear mid-session,
+// but (b) it resets on a new tab/window open, so new visitors always see it.
+const dismissedPopups = new Set();
 
 export default function PromoPopup() {
-  const [open, setOpen] = useState(false);
+  const [queue,   setQueue]   = useState([]);  // unseen popups
+  const [current, setCurrent] = useState(null);
+  const [visible, setVisible] = useState(false);
 
+  /* Fetch active popups once on mount */
   useEffect(() => {
-    if (!PROMO.enabled) return;
-    // Only show once per session
-    if (sessionStorage.getItem(PROMO.sessionKey)) return;
-
-    const t = setTimeout(() => setOpen(true), PROMO.delay);
-    return () => clearTimeout(t);
+    supabase
+      .from('popups')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => {
+        if (!data?.length) return;
+        // Only show popups the user hasn't dismissed this session
+        const unseen = data.filter(p => !dismissedPopups.has(p.id));
+        if (!unseen.length) return;
+        setQueue(unseen.slice(1));     // remaining after first
+        setCurrent(unseen[0]);
+        setTimeout(() => setVisible(true), 1500);  // delay before first popup
+      });
   }, []);
 
+  /* Close current popup — show next one after brief pause */
   const handleClose = () => {
-    sessionStorage.setItem(PROMO.sessionKey, '1');
-    setOpen(false);
+    if (current) dismissedPopups.add(current.id);
+    setVisible(false);
+    if (queue.length > 0) {
+      const [next, ...rest] = queue;
+      setTimeout(() => {
+        setCurrent(next);
+        setQueue(rest);
+        setVisible(true);
+      }, 800);  // 800ms gap between popups
+    }
   };
 
-  if (!open) return null;
+  if (!visible || !current) return null;
 
-  const ctaProps = PROMO.ctaExternal
-    ? { as:'a', href: PROMO.ctaHref, target:'_blank', rel:'noopener noreferrer' }
-    : { as: Link, to: PROMO.ctaLink };
+  const isExternal = current.cta_link?.startsWith('http');
 
   return (
     <div
       style={{
-        position:'fixed',inset:0,
+        position:'fixed', inset:0,
         background:'rgba(0,0,0,0.65)',
         zIndex:9999,
-        display:'flex',alignItems:'center',justifyContent:'center',
+        display:'flex', alignItems:'center', justifyContent:'center',
         padding:'16px',
         backdropFilter:'blur(3px)',
         animation:'fadeIn 0.3s ease',
@@ -67,7 +69,7 @@ export default function PromoPopup() {
           background:'#fff',
           borderRadius:'16px',
           overflow:'hidden',
-          maxWidth:'560px',
+          maxWidth:'520px',
           width:'100%',
           boxShadow:'0 24px 80px rgba(0,0,0,0.4)',
           animation:'slideUp 0.35s ease',
@@ -75,86 +77,103 @@ export default function PromoPopup() {
         }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Close button */}
+        {/* Close (X) button */}
         <button
           onClick={handleClose}
           style={{
-            position:'absolute',top:'10px',right:'10px',zIndex:10,
-            width:'30px',height:'30px',borderRadius:'50%',
-            background:'rgba(0,0,0,0.45)',border:'none',
-            color:'#fff',fontSize:'14px',cursor:'pointer',
-            display:'flex',alignItems:'center',justifyContent:'center',
-            transition:'background 0.2s',
+            position:'absolute', top:'10px', right:'10px', zIndex:10,
+            width:'32px', height:'32px', borderRadius:'50%',
+            background:'rgba(0,0,0,0.5)', border:'none',
+            color:'#fff', fontSize:'15px', cursor:'pointer',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            lineHeight:1,
           }}
-          onMouseEnter={e=>e.target.style.background='rgba(0,0,0,0.7)'}
-          onMouseLeave={e=>e.target.style.background='rgba(0,0,0,0.45)'}
-        >
-          ✕
-        </button>
+        >✕</button>
 
-        {/* Poster image */}
-        {PROMO.imageUrl ? (
+        {/* Queue indicator */}
+        {(queue.length > 0) && (
+          <div style={{
+            position:'absolute', top:'10px', left:'12px', zIndex:10,
+            background:'rgba(0,0,0,0.4)', borderRadius:'20px',
+            padding:'2px 8px', fontSize:'11px', color:'rgba(255,255,255,0.8)',
+          }}>
+            {/* e.g. "1 more after this" */}
+            +{queue.length} more
+          </div>
+        )}
+
+        {/* Banner image */}
+        {current.image_url ? (
           <div style={{position:'relative'}}>
             <img
-              src={PROMO.imageUrl}
-              alt={PROMO.title}
-              style={{width:'100%',display:'block',maxHeight:'420px',objectFit:'cover'}}
+              src={current.image_url}
+              alt={current.title || 'FIP Popup'}
+              style={{width:'100%', display:'block', maxHeight:'400px', objectFit:'cover'}}
             />
-            {/* CTA over image */}
-            <div style={{
-              position:'absolute',bottom:0,left:0,right:0,
-              background:'linear-gradient(transparent,rgba(0,0,0,0.8))',
-              padding:'32px 24px 20px',
-            }}>
-              {PROMO.ctaExternal
-                ? <a href={PROMO.ctaHref} target="_blank" rel="noopener noreferrer"
+            {/* CTA overlay */}
+            {current.cta_label && (
+              <div style={{
+                position:'absolute', bottom:0, left:0, right:0,
+                background:'linear-gradient(transparent,rgba(0,0,0,0.8))',
+                padding:'28px 24px 20px',
+              }}>
+                {isExternal ? (
+                  <a href={current.cta_link} target="_blank" rel="noopener noreferrer"
                     onClick={handleClose}
-                    style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'15px',padding:'12px 32px',borderRadius:'8px',textDecoration:'none',boxShadow:'0 4px 16px rgba(242,101,34,0.45)'}}>
-                    {PROMO.ctaLabel} →
+                    style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'15px',padding:'11px 28px',borderRadius:'8px',textDecoration:'none'}}>
+                    {current.cta_label} →
                   </a>
-                : <Link to={PROMO.ctaLink} onClick={handleClose}
-                    style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'15px',padding:'12px 32px',borderRadius:'8px',textDecoration:'none',boxShadow:'0 4px 16px rgba(242,101,34,0.45)'}}>
-                    {PROMO.ctaLabel} →
+                ) : (
+                  <Link to={current.cta_link || '/events'} onClick={handleClose}
+                    style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'15px',padding:'11px 28px',borderRadius:'8px',textDecoration:'none'}}>
+                    {current.cta_label} →
                   </Link>
-              }
-            </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
-          /* Text-only fallback if no image */
+          /* Text-only fallback */
           <div style={{
             background:'linear-gradient(135deg,#1A3C6E 0%,#1B4A9E 100%)',
-            padding:'40px 32px',textAlign:'center',
+            padding:'40px 32px', textAlign:'center',
           }}>
-            <div style={{fontSize:'11px',fontWeight:700,color:'rgba(255,208,155,0.7)',textTransform:'uppercase',letterSpacing:'2px',marginBottom:'10px'}}>
+            <div style={{fontSize:'10px',fontWeight:700,color:'rgba(255,208,155,0.7)',textTransform:'uppercase',letterSpacing:'2px',marginBottom:'10px'}}>
               FIP Presents
             </div>
-            <h2 style={{fontSize:'26px',fontWeight:900,color:'#fff',marginBottom:'6px',fontFamily:"'Playfair Display',serif",lineHeight:1.2}}>
-              {PROMO.title}
+            <h2 style={{fontSize:'24px',fontWeight:900,color:'#fff',marginBottom:'6px',lineHeight:1.2}}>
+              {current.title}
             </h2>
-            <p style={{fontSize:'14px',color:'rgba(255,255,255,0.65)',marginBottom:'24px'}}>
-              {PROMO.subtitle}
-            </p>
-            {PROMO.ctaExternal
-              ? <a href={PROMO.ctaHref} target="_blank" rel="noopener noreferrer"
+            {current.subtitle && (
+              <p style={{fontSize:'13px',color:'rgba(255,255,255,0.65)',marginBottom:'22px'}}>
+                {current.subtitle}
+              </p>
+            )}
+            {current.cta_label && (
+              isExternal ? (
+                <a href={current.cta_link} target="_blank" rel="noopener noreferrer"
                   onClick={handleClose}
-                  style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'14px',padding:'13px 32px',borderRadius:'9px',textDecoration:'none',boxShadow:'0 4px 20px rgba(242,101,34,0.4)'}}>
-                  {PROMO.ctaLabel} →
+                  style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'14px',padding:'12px 30px',borderRadius:'8px',textDecoration:'none'}}>
+                  {current.cta_label} →
                 </a>
-              : <Link to={PROMO.ctaLink} onClick={handleClose}
-                  style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'14px',padding:'13px 32px',borderRadius:'9px',textDecoration:'none',boxShadow:'0 4px 20px rgba(242,101,34,0.4)'}}>
-                  {PROMO.ctaLabel} →
+              ) : (
+                <Link to={current.cta_link || '/events'} onClick={handleClose}
+                  style={{display:'inline-block',background:'var(--orange)',color:'#fff',fontWeight:700,fontSize:'14px',padding:'12px 30px',borderRadius:'8px',textDecoration:'none'}}>
+                  {current.cta_label} →
                 </Link>
-            }
-            <div style={{marginTop:'14px',fontSize:'12px',color:'rgba(255,255,255,0.35)',cursor:'pointer'}} onClick={handleClose}>
-              No thanks, close
+              )
+            )}
+            <div style={{marginTop:'14px',fontSize:'12px',color:'rgba(255,255,255,0.35)',cursor:'pointer'}}
+              onClick={handleClose}>
+              No thanks
             </div>
           </div>
         )}
       </div>
 
       <style>{`
-        @keyframes fadeIn  { from { opacity:0 } to { opacity:1 } }
-        @keyframes slideUp { from { opacity:0; transform:translateY(24px) scale(0.97) } to { opacity:1; transform:translateY(0) scale(1) } }
+        @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
+        @keyframes slideUp { from{opacity:0;transform:translateY(20px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
       `}</style>
     </div>
   );
