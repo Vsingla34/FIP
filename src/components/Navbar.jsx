@@ -90,7 +90,8 @@ export default function Navbar() {
                     {isAdmin ? '⚡ Admin'
                       : profile?.is_committee_member ? `👑 ${profile.committee_role || 'Committee Member'}`
                       : profile?.membership_status === 'Active' ? `✦ ${profile.membership_plan} Member`
-                      : profile ? '…' : 'Loading'}
+                      : profile ? '· Standard Member'
+                      : <span style={{display:'inline-block',width:'80px',height:'10px',borderRadius:'4px',background:'rgba(255,255,255,0.15)',animation:'shimmer 1.4s infinite'}}/>}
                   </span>
                 </div>
               </Link>

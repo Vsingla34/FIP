@@ -761,6 +761,7 @@ footer{background:#0D1F3C;padding:56px 0 24px;}
 .nav-avatar{width:30px;height:30px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;color:#FFD09B;font-size:11px;font-weight:700;flex-shrink:0;}
 .nav-user-info{display:flex;flex-direction:column;}
 .nav-user-name{font-size:12px;font-weight:700;color:var(--blue);line-height:1.2;}
+@keyframes shimmer{0%,100%{opacity:.4;}50%{opacity:.8;}}
 .nav-user-plan{font-size:10px;color:var(--orange);font-weight:600;}
 
 /* ─── DASH BADGE INACTIVE ── */

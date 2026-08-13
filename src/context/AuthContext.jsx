@@ -4,9 +4,30 @@ import { supabase } from '../lib/supabase.js';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user,    setUser]    = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Supabase stores the session in localStorage. Reading it synchronously
+  // lets us populate `user` before the first render, so the navbar never
+  // flashes "Loading" for a returning visitor — their session is already
+  // there, we just weren't reading it until after a network round-trip.
+  const cachedSession = (() => {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.includes('-auth-token')) {
+          const val = JSON.parse(localStorage.getItem(key) || 'null');
+          if (val?.user) return val;
+        }
+      }
+    } catch {}
+    return null;
+  })();
+
+  const cachedProfile = (() => {
+    try { return JSON.parse(localStorage.getItem('fip_profile') || 'null'); } catch { return null; }
+  })();
+
+  const [user,    setUser]    = useState(cachedSession?.user    || null);
+  const [profile, setProfile] = useState(cachedProfile || null);
+  const [loading, setLoading] = useState(!cachedSession);  // skip loading state for cached sessions
 
   /* ── fetch profile ── */
   const fetchProfile = useCallback(async (userId) => {
@@ -14,7 +35,14 @@ export function AuthProvider({ children }) {
     try {
       const { data, error } = await supabase
         .from('profiles').select('*').eq('id', userId).single();
-      if (!error && data) { setProfile(data); return data; }
+      if (!error && data) {
+        setProfile(data);
+        // Cache for instant availability on next load — avoids the
+        // "Loading" flash that happens when profile arrives after the
+        // session is already known but the DB round-trip hasn't finished.
+        try { localStorage.setItem('fip_profile', JSON.stringify(data)); } catch {}
+        return data;
+      }
     } catch (err) { console.error('fetchProfile:', err); }
     return null;
   }, []);
@@ -22,19 +50,40 @@ export function AuthProvider({ children }) {
   /* ── restore session on mount ── */
   useEffect(() => {
     let mounted = true;
+
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
-      if (session?.user) { setUser(session.user); await fetchProfile(session.user.id); }
+      if (session?.user) {
+        setUser(session.user);
+        await fetchProfile(session.user.id);
+      }
       setLoading(false);
     };
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
         if (!mounted) return;
-        if (session?.user) { setUser(session.user); await fetchProfile(session.user.id); }
-        else { setUser(null); setProfile(null); }
+
+        // CRITICAL: only clear state on an explicit sign-out. Supabase fires
+        // onAuthStateChange with a null session during token refresh
+        // (TOKEN_REFRESHED, INITIAL_SESSION while JWT is being validated) —
+        // hitting the else branch on those events clears the profile we
+        // already loaded from cache, producing a blank navbar until refresh.
+        // Tying the clear to SIGNED_OUT specifically avoids that race.
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setProfile(null);
+          try { localStorage.removeItem('fip_profile'); } catch {}
+          setLoading(false);
+          return;
+        }
+
+        if (session?.user) {
+          setUser(session.user);
+          await fetchProfile(session.user.id);
+        }
         setLoading(false);
       }
     );
@@ -214,6 +263,7 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    try { localStorage.removeItem('fip_profile'); } catch {}
   };
 
   /* ── UPDATE PROFILE ── */
