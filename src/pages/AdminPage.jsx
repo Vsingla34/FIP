@@ -302,13 +302,17 @@ export default function AdminPage() {
   }, [tab]);
 
   const downloadEnrollmentsExcel = function(courseName, enrollments) {
-    var headers = ['Full Name', 'Email', 'Phone', 'Status', 'Registered On'];
+    var headers = ['Full Name', 'Email', 'Phone', 'Profession', 'Status', 'Payment Mode', 'Amount Paid', 'Payment Reference', 'Registered On'];
     var rows = enrollments.map(function(e) {
       return [
         e.full_name || '',
         e.email || '',
         e.phone || '',
+        e.profession || '',
         e.status || 'registered',
+        e.payment_mode ? e.payment_mode.replace('_',' ') : 'Online (Razorpay)',
+        e.amount_paid != null ? e.amount_paid : '',
+        e.payment_reference || '',
         e.created_at ? new Date(e.created_at).toLocaleDateString('en-IN') : '',
       ];
     });
@@ -366,12 +370,15 @@ export default function AdminPage() {
   };
 
   const downloadPaymentsExcel = function(paymentsList) {
-    var headers = ['Member Name', 'Email', 'Phone', 'Item / Plan', 'Type', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Refunded (₹)', 'Net (₹)', 'Transaction ID', 'Order ID', 'Refund ID', 'Refund Reason', 'Refunded On', 'Status', 'Date'];
+    var headers = ['Member Name (Paid By)', 'Email', 'Phone', 'Enrolled For', 'Enrolled Email', 'Is Guest Booking', 'Item / Plan', 'Type', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Refunded (₹)', 'Net (₹)', 'Transaction ID', 'Order ID', 'Refund ID', 'Refund Reason', 'Refunded On', 'Status', 'Date'];
     var rows = paymentsList.map(function(p) {
       return [
         p.profiles?.full_name || '',
         p.profiles?.email     || '',
         p.profiles?.phone     || '',
+        p.metadata?.rsvp?.full_name || '',
+        p.metadata?.rsvp?.email     || '',
+        p.metadata?.rsvp?.is_guest_booking === true ? 'Yes' : 'No',
         p.item_name           || '',
         p.purchase_type       || '',
         p.amount              || 0,
@@ -403,8 +410,23 @@ export default function AdminPage() {
 
   const loadCourseEnrollments = async (course) => {
     setCourseEnrollmentsLoading(true);
+    // Same limitation as loadRsvps' RPC: admin_get_course_registrations has a
+    // fixed return signature and won't include columns added later
+    // (payment_mode, amount_paid, added_by_admin, etc). Fall back to a direct
+    // query when those are missing so manually-added registrations show
+    // their offline payment details correctly.
     const { data } = await supabase.rpc('admin_get_course_registrations', { p_course_id: course.id });
-    if (data) setCourseEnrollments(data);
+    let rows = data || [];
+    if (rows.length && !('payment_mode' in rows[0])) {
+      const { data: direct } = await supabase.from('course_registrations')
+        .select('*').eq('course_id', course.id).order('created_at', { ascending: false });
+      if (direct?.length) rows = direct;
+    } else if (!rows.length) {
+      const { data: direct } = await supabase.from('course_registrations')
+        .select('*').eq('course_id', course.id).order('created_at', { ascending: false });
+      rows = direct || [];
+    }
+    setCourseEnrollments(rows.filter(r => r.status !== 'cancelled'));
     setCourseEnrollmentsLoading(false);
   };
 
@@ -589,16 +611,141 @@ export default function AdminPage() {
     if (!error) { setAdminEvents(prev => prev.filter(e => e.id !== id)); showToast('Event deleted.'); }
   };
 
+  /* ── Manually add a registration (paid offline: cash / UPI / bank / cheque) ── */
+  const [manualRsvpOpen, setManualRsvpOpen] = useState(false);
+  const [manualRsvpSaving, setManualRsvpSaving] = useState(false);
+  const [manualRsvp, setManualRsvp] = useState({
+    full_name:'', email:'', phone:'', designation:'', organisation:'', profession:'',
+    payment_mode:'cash', amount_paid:'', payment_reference:'',
+  });
+  // The person being enrolled usually ALREADY has an account (they registered
+  // as a student). Linking to that account is what makes the event appear on
+  // their dashboard — an unlinked row is invisible to them.
+  const [manualUserSearch,  setManualUserSearch]  = useState('');
+  const [manualUserResults, setManualUserResults] = useState([]);
+  const [manualUserPicked,  setManualUserPicked]  = useState(null); // profile row
+  const [manualUserSearching, setManualUserSearching] = useState(false);
+
+  const resetManualRsvp = () => {
+    setManualRsvp({
+      full_name:'', email:'', phone:'', designation:'', organisation:'', profession:'',
+      payment_mode:'cash', amount_paid:'', payment_reference:'',
+    });
+    setManualUserSearch(''); setManualUserResults([]); setManualUserPicked(null);
+  };
+
+  const searchManualUsers = async (q) => {
+    setManualUserSearch(q);
+    setManualUserPicked(null);
+    if (q.trim().length < 2) { setManualUserResults([]); return; }
+    setManualUserSearching(true);
+    const term = `%${q.trim()}%`;
+    const { data } = await supabase.from('profiles')
+      .select('id, full_name, email, phone, designation, organisation, membership_status')
+      .or(`full_name.ilike.${term},email.ilike.${term},phone.ilike.${term}`)
+      .limit(8);
+    setManualUserResults(data || []);
+    setManualUserSearching(false);
+  };
+
+  const pickManualUser = (u) => {
+    setManualUserPicked(u);
+    setManualUserResults([]);
+    setManualUserSearch(u.full_name || u.email || '');
+    setManualRsvp(f => ({
+      ...f,
+      full_name:    u.full_name    || '',
+      email:        u.email        || '',
+      phone:        u.phone        || '',
+      designation:  u.designation  || '',
+      organisation: u.organisation || '',
+    }));
+  };
+
+  // `manualEnrollTarget` = { type: 'event'|'course', id, title } — set when
+  // opening the modal from either the event registrations panel or the
+  // course enrollments panel, so one modal/handler serves both.
+  const [manualEnrollTarget, setManualEnrollTarget] = useState(null);
+
+  const saveManualEnrollment = async () => {
+    const target = manualEnrollTarget;
+    if (!target) return;
+
+    const name  = manualRsvp.full_name.trim();
+    const email = manualRsvp.email.trim().toLowerCase();
+    const phone = manualRsvp.phone.trim();
+
+    if (!name || !email) { showToast('Name and email are required.', true); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Please enter a valid email address.', true); return; }
+
+    setManualRsvpSaving(true);
+
+    // This now goes through the backend — creating an account (or reusing an
+    // existing one) requires the service-role key, which can never be used
+    // from the browser. The backend does its own duplicate checks too;
+    // manualUserPicked here is only used for the convenience autofill above,
+    // not for deciding anything security-relevant.
+    const { data: { session } } = await supabase.auth.getSession();
+    let out;
+    try {
+      const res = await fetch('/api/verify-payment?action=admin-manual-enroll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          purchaseType: target.type,
+          itemId: target.id,
+          full_name: name, email, phone,
+          designation:  manualRsvp.designation,
+          organisation: manualRsvp.organisation,
+          profession:   manualRsvp.profession,
+          payment_mode: manualRsvp.payment_mode,
+          amount_paid:  manualRsvp.amount_paid,
+          payment_reference: manualRsvp.payment_reference,
+        }),
+      });
+      out = await res.json();
+      if (!res.ok) throw new Error(out.error || 'Could not add registration');
+    } catch (e) {
+      setManualRsvpSaving(false);
+      showToast(e.message, true);
+      return;
+    }
+
+    setManualRsvpSaving(false);
+    showToast(out.isNewAccount
+      ? `${name} added and an account created — they'll receive an email to set their password.`
+      : `${name} added to ${target.title}.`);
+    setManualRsvpOpen(false);
+    resetManualRsvp();
+    if (target.type === 'event')  loadRsvps(rsvpEventView);
+    else                          loadCourseEnrollments(adminCourseView);
+  };
+
   const loadRsvps = async (ev) => {
     setRsvpEventView(ev); setRsvpLoading(true);
     setSelectedRsvpIds(new Set()); setShowRsvpEmail(false);
+    // The RPC has a FIXED return signature defined when it was written, so it
+    // will not include columns added later (payment_mode, amount_paid, etc).
+    // Fall back to a direct query when those are missing, so manually-added
+    // registrations still show their offline payment details.
     const { data } = await supabase.rpc('admin_get_event_rsvps', { p_event_id: ev.id });
+    let rows = data || [];
+    if (rows.length && !('payment_mode' in rows[0])) {
+      const { data: direct } = await supabase.from('event_rsvps')
+        .select('*').eq('event_id', ev.id).order('created_at', { ascending: false });
+      if (direct?.length) rows = direct;
+    } else if (!rows.length) {
+      // RPC returned nothing — could be a permissions quirk; try directly.
+      const { data: direct } = await supabase.from('event_rsvps')
+        .select('*').eq('event_id', ev.id).order('created_at', { ascending: false });
+      rows = direct || [];
+    }
     // The RPC returns every row regardless of status — a cancelled/refunded
     // registration (revoked access via a refund, or manually cancelled) was
     // still showing up here as if it were an active registrant, selectable
     // for bulk email/certificates and counted in the total. Filtered at this
     // single entry point so every view derived from eventRsvps is correct.
-    const active = (data || []).filter(r => r.status !== 'cancelled');
+    const active = rows.filter(r => r.status !== 'cancelled');
     setEventRsvps(active);
     setRsvpLoading(false);
   };
@@ -1160,7 +1307,7 @@ export default function AdminPage() {
     while (keepGoing) {
       const { data, error } = await supabase
         .from('payments')
-        .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+        .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,profiles(full_name,email,phone)')
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
       if (error || !data?.length) break;
@@ -1216,7 +1363,14 @@ export default function AdminPage() {
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || 'Reconcile failed');
       setReconcileResult(out);
-      if (!dryRun) { showToast(`Reconciled — ${out.statusChanges} payment(s) corrected.`); reloadPayments(); }
+      if (out.autoEnrollErrorDetails?.length) console.warn('Auto-enroll failures:', out.autoEnrollErrorDetails);
+      if (!dryRun) {
+        const parts = [`${out.statusChanges} payment(s) corrected`];
+        if (out.autoEnrolled > 0) parts.push(`${out.autoEnrolled} missing enrollment(s) created`);
+        if (out.autoEnrollErrors > 0) parts.push(`⚠️ ${out.autoEnrollErrors} could not be auto-created — see panel`);
+        showToast(`Reconciled — ${parts.join(', ')}.`);
+        reloadPayments();
+      }
       else if (out.errors > 0) showToast(`⚠️ ${out.errors}/${out.checked} order(s) failed to check — see the panel below.`, true);
       else showToast(out.statusChanges === 0 && out.enrollmentDrift === 0
         ? 'All in sync with Razorpay.'
@@ -1242,7 +1396,7 @@ export default function AdminPage() {
       while (keepGoing) {
         const { data, error } = await supabase
           .from('payments')
-          .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,profiles(full_name,email,phone)')
+          .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,profiles(full_name,email,phone)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
         if (error || !data?.length) { keepGoing = false; break; }
@@ -1886,21 +2040,194 @@ export default function AdminPage() {
           )}
 
           {/* ═══ EVENT REGISTRATIONS VIEW ═══ */}
+          {/* ── Manually add an offline-paid registration ── */}
+          {manualRsvpOpen && manualEnrollTarget && (
+            <div className="modal-overlay" onClick={() => !manualRsvpSaving && setManualRsvpOpen(false)}>
+              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'520px'}}>
+                {!manualRsvpSaving && (
+                  <button className="modal-close" onClick={() => setManualRsvpOpen(false)}>&#x2715;</button>
+                )}
+                <div className="modal-title" style={{marginBottom:'4px'}}>Add Registration</div>
+                <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'16px'}}>
+                  For someone who paid outside the website (cash, UPI, bank transfer or cheque).
+                  If they don't already have an FIP account, one is created for them automatically
+                  and they'll receive an email to set their own password.
+                </p>
+
+                <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'8px',padding:'10px 12px',marginBottom:'16px',fontSize:'12px',color:'var(--blue)'}}>
+                  <i className={`fa-solid ${manualEnrollTarget.type === 'event' ? 'fa-calendar-check' : 'fa-book'}`} style={{marginRight:'6px',color:'var(--orange)'}}></i>
+                  Adding to: <strong>{manualEnrollTarget.title}</strong>
+                </div>
+
+                {/* Find an existing account first — linking to it is what makes
+                    the event appear on that person's own dashboard. */}
+                <div className="form-group" style={{position:'relative'}}>
+                  <label className="form-label">
+                    Find existing member / student
+                    <span style={{fontWeight:400,color:'var(--text-light)'}}> — search by name, email or mobile</span>
+                  </label>
+                  <input className="form-input" type="text" placeholder="Start typing a name or email…"
+                    value={manualUserSearch} onChange={e => searchManualUsers(e.target.value)}/>
+                  {manualUserSearching && (
+                    <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'5px'}}>
+                      <i className="fa-solid fa-spinner fa-spin" style={{marginRight:'5px'}}></i>Searching…
+                    </div>
+                  )}
+                  {manualUserResults.length > 0 && (
+                    <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:20,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 8px 24px rgba(26,60,110,0.15)',maxHeight:'240px',overflowY:'auto',marginTop:'4px'}}>
+                      {manualUserResults.map(u => (
+                        <div key={u.id} onClick={() => pickManualUser(u)}
+                          style={{padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid var(--border)'}}
+                          onMouseEnter={e => e.currentTarget.style.background='var(--off-white)'}
+                          onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                          <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
+                            {u.full_name || '(no name)'}
+                            {u.membership_status === 'Active' && (
+                              <span style={{marginLeft:'7px',fontSize:'9px',fontWeight:700,background:'var(--orange-pale)',color:'var(--orange)',padding:'1px 7px',borderRadius:'10px',textTransform:'uppercase'}}>Member</span>
+                            )}
+                          </div>
+                          <div style={{fontSize:'11.5px',color:'var(--text-muted)'}}>{u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {manualUserPicked ? (
+                    <div style={{marginTop:'7px',fontSize:'11.5px',color:'var(--green)',fontWeight:600}}>
+                      <i className="fa-solid fa-link" style={{marginRight:'5px'}}></i>
+                      Linked to <strong>{manualUserPicked.email}</strong> — this event will appear on their dashboard.
+                      <button type="button" onClick={() => { setManualUserPicked(null); setManualUserSearch(''); }}
+                        style={{marginLeft:'8px',background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:'11px',textDecoration:'underline'}}>
+                        clear
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{marginTop:'7px',fontSize:'11.5px',color:'var(--text-muted)'}}>
+                      No account found? Fill in the details below — an account will be created for them automatically and they'll get an email to set their password.
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Full Name *</label>
+                    <input className="form-input" type="text" value={manualRsvp.full_name}
+                      onChange={e => setManualRsvp(f => ({...f, full_name: e.target.value}))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Email *</label>
+                    <input className="form-input" type="email" value={manualRsvp.email}
+                      onChange={e => setManualRsvp(f => ({...f, email: e.target.value}))}/>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Mobile No.</label>
+                    <input className="form-input" type="tel" value={manualRsvp.phone}
+                      onChange={e => setManualRsvp(f => ({...f, phone: e.target.value}))}/>
+                  </div>
+                  {manualEnrollTarget.type === 'event' ? (
+                    <div className="form-group">
+                      <label className="form-label">Organisation / Firm</label>
+                      <input className="form-input" type="text" value={manualRsvp.organisation}
+                        onChange={e => setManualRsvp(f => ({...f, organisation: e.target.value}))}/>
+                    </div>
+                  ) : (
+                    <div className="form-group">
+                      <label className="form-label">Profession</label>
+                      <select className="form-select" value={manualRsvp.profession}
+                        onChange={e => setManualRsvp(f => ({...f, profession: e.target.value}))}>
+                        <option value="">Select…</option>
+                        <option>Chartered Accountant</option>
+                        <option>Company Secretary</option>
+                        <option>Cost Accountant</option>
+                        <option>Advocate</option>
+                        <option>Student</option>
+                        <option>Other</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {manualEnrollTarget.type === 'event' && (
+                  <div className="form-group">
+                    <label className="form-label">Designation</label>
+                    <input className="form-input" type="text" value={manualRsvp.designation}
+                      onChange={e => setManualRsvp(f => ({...f, designation: e.target.value}))}/>
+                  </div>
+                )}
+
+                <div style={{borderTop:'1px solid var(--border)',paddingTop:'14px',marginTop:'6px'}}>
+                  <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',marginBottom:'10px'}}>
+                    Payment details <span style={{fontWeight:400,color:'var(--text-light)'}}>— for your records</span>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Paid via</label>
+                      <select className="form-select" value={manualRsvp.payment_mode}
+                        onChange={e => setManualRsvp(f => ({...f, payment_mode: e.target.value}))}>
+                        <option value="cash">Cash</option>
+                        <option value="upi">UPI</option>
+                        <option value="bank_transfer">Bank transfer</option>
+                        <option value="cheque">Cheque</option>
+                        <option value="complimentary">Complimentary (no charge)</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Amount received (₹)</label>
+                      <input className="form-input" type="number" min="0" placeholder="0"
+                        value={manualRsvp.amount_paid}
+                        onChange={e => setManualRsvp(f => ({...f, amount_paid: e.target.value}))}/>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">
+                      Reference <span style={{fontWeight:400,color:'var(--text-light)'}}>— UTR / cheque no. (optional)</span>
+                    </label>
+                    <input className="form-input" type="text" value={manualRsvp.payment_reference}
+                      onChange={e => setManualRsvp(f => ({...f, payment_reference: e.target.value}))}/>
+                  </div>
+                </div>
+
+                <div style={{display:'flex',gap:'10px',marginTop:'18px'}}>
+                  <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}}
+                    disabled={manualRsvpSaving} onClick={saveManualEnrollment}>
+                    {manualRsvpSaving
+                      ? <><i className="fa-solid fa-spinner fa-spin"></i> Adding…</>
+                      : <><i className="fa-solid fa-check"></i> Add Registration</>}
+                  </button>
+                  <button className="btn" style={{background:'transparent',border:'1px solid var(--border)'}}
+                    disabled={manualRsvpSaving} onClick={() => setManualRsvpOpen(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {tab === 'events' && rsvpEventView && (
             <div className="admin-form-card">
               <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
                 <button onClick={() => setRsvpEventView(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}><i className="fa-solid fa-arrow-left"></i></button>
                 <span style={{flex:1}}>Registrations: <strong>{rsvpEventView.title}</strong></span>
+                <button
+                  style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'8px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}
+                  onClick={() => { resetManualRsvp(); setManualEnrollTarget({ type:'event', id: rsvpEventView.id, title: rsvpEventView.title }); setManualRsvpOpen(true); }}>
+                  <i className="fa-solid fa-user-plus"></i> Add Registration
+                </button>
                 {eventRsvps.length > 0 && (
                   <button
                     style={{background:'#217346',color:'#fff',border:'none',borderRadius:'8px',padding:'8px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}
                     onClick={() => {
-                      const hdrs = ['Name','Email','Phone','Profession','Designation','Organisation','ICAI No.','City','Volunteer','Registered On'];
+                      const hdrs = ['Name','Email','Phone','Profession','Designation','Organisation','ICAI No.','City','Volunteer','Payment Mode','Amount Paid','Payment Reference','Registered On'];
                       const rows = eventRsvps.map(r => [
                         r.full_name||'', r.email||'', r.phone||'',
                         r.profession||'', r.designation||'', r.organisation||'',
                         r.icai_membership_no||'', r.city||'',
                         r.is_volunteer?'Yes':'No',
+                        r.payment_mode ? r.payment_mode.replace('_',' ') : 'Online (Razorpay)',
+                        r.amount_paid != null ? r.amount_paid : '',
+                        r.payment_reference||'',
                         r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '',
                       ]);
                       const csv = [hdrs,...rows].map(row=>row.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
@@ -2037,7 +2364,15 @@ export default function AdminPage() {
                                 onChange={e => setSelectedRsvpIds(prev => { const n=new Set(prev); e.target.checked?n.add(r.id):n.delete(r.id); return n; })}/>
                             </td>
                             <td>
-                              <div className="dboard-table-name">{r.full_name}</div>
+                              <div className="dboard-table-name">
+                                {r.full_name}
+                                {r.payment_mode && (
+                                  <span title={`Paid offline via ${r.payment_mode.replace('_',' ')}${r.payment_reference ? ' · ref ' + r.payment_reference : ''}${r.amount_paid != null ? ' · ₹' + r.amount_paid : ''}`}
+                                    style={{marginLeft:'7px',fontSize:'9px',fontWeight:700,background:'var(--blue-pale)',color:'var(--blue)',border:'1px solid #C0CDE8',padding:'1px 7px',borderRadius:'10px',textTransform:'uppercase',letterSpacing:'.3px',whiteSpace:'nowrap'}}>
+                                    {r.payment_mode === 'complimentary' ? 'Comp' : 'Offline'}
+                                  </span>
+                                )}
+                              </div>
                               {r.organisation && <div className="dboard-table-sub">{r.designation?`${r.designation}, `:''}{r.organisation}</div>}
                             </td>
                             <td>
@@ -2129,6 +2464,11 @@ export default function AdminPage() {
                   <i className="fa-solid fa-arrow-left"></i>
                 </button>
                 <span style={{flex:1}}>Registrations: <strong>{adminCourseView.title}</strong></span>
+                <button
+                  style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'8px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}
+                  onClick={() => { resetManualRsvp(); setManualEnrollTarget({ type:'course', id: adminCourseView.id, title: adminCourseView.title }); setManualRsvpOpen(true); }}>
+                  <i className="fa-solid fa-user-plus"></i> Add Registration
+                </button>
                 {selectedEnrollIds.size === 0 && (
                   <button className="btn btn-sm" style={{background:'#217346',color:'#fff',border:'none',fontWeight:700,display:'flex',alignItems:'center',gap:'6px'}}
                     onClick={() => downloadEnrollmentsExcel(adminCourseView.title, courseEnrollments)}
@@ -2229,7 +2569,15 @@ export default function AdminPage() {
                               onChange={ev => setSelectedEnrollIds(prev => { const n=new Set(prev); ev.target.checked?n.add(e.id):n.delete(e.id); return n; })}/>
                           </td>
                           <td>
-                            <div className="dboard-table-name">{e.full_name || '—'}</div>
+                            <div className="dboard-table-name">
+                              {e.full_name || '—'}
+                              {e.payment_mode && (
+                                <span title={`Paid offline via ${e.payment_mode.replace('_',' ')}${e.payment_reference ? ' · ref ' + e.payment_reference : ''}${e.amount_paid != null ? ' · ₹' + e.amount_paid : ''}`}
+                                  style={{marginLeft:'7px',fontSize:'9px',fontWeight:700,background:'var(--blue-pale)',color:'var(--blue)',border:'1px solid #C0CDE8',padding:'1px 7px',borderRadius:'10px',textTransform:'uppercase',letterSpacing:'.3px',whiteSpace:'nowrap'}}>
+                                  {e.payment_mode === 'complimentary' ? 'Comp' : 'Offline'}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{e.email || '—'}</td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{e.phone || '—'}</td>
@@ -2607,8 +2955,10 @@ export default function AdminPage() {
                              {reconcileResult.statusChanges} status mismatch(es), {reconcileResult.enrollmentDrift} enrollment drift(s).
                              {reconcileResult.statusChanges === 0 && <strong> Nothing to apply.</strong>}</>
                           : <>✅ Corrected {reconcileResult.statusChanges} payment(s) to match Razorpay.
-                             {reconcileResult.enrollmentDrift > 0 &&
-                               <strong> {reconcileResult.enrollmentDrift} enrollment drift(s) still need manual backfill — status alone doesn't create missing enrollment rows.</strong>}</>}
+                             {reconcileResult.autoEnrolled > 0 &&
+                               <strong style={{color:'#15803D'}}> {reconcileResult.autoEnrolled} missing enrollment(s) created automatically.</strong>}
+                             {reconcileResult.autoEnrollErrors > 0 &&
+                               <strong style={{color:'#B91C1C'}}> {reconcileResult.autoEnrollErrors} could not be auto-created (often a full event) — check autoEnrollErrorDetails in the browser console.</strong>}</>}
                     </div>
                     {reconcileResult.dryRun && reconcileResult.statusChanges > 0 && (
                       <button className="btn btn-sm btn-primary" disabled={reconcileBusy}
@@ -2658,7 +3008,7 @@ export default function AdminPage() {
                 <div style={{overflowX:'auto'}}>
                   <table className="dboard-table">
                     <thead>
-                      <tr><th>Member</th><th>Phone</th><th>Item / Plan</th><th>Type</th><th>Amount</th>
+                      <tr><th>Member (Paid By)</th><th>Enrolled For</th><th>Phone</th><th>Item / Plan</th><th>Type</th><th>Amount</th>
                           <th>Transaction ID</th><th>Date</th><th>Status</th><th>Action</th></tr>
                     </thead>
                     <tbody>
@@ -2687,6 +3037,30 @@ export default function AdminPage() {
                             <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
 
                             <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{p.profiles?.email || ''}</div>
+                          </td>
+                          {/* Who this payment actually enrolled. For a guest
+                              booking the payer and the attendee differ — this
+                              is what makes repeat payments by one account
+                              legible instead of looking like duplicates. */}
+                          <td>
+                            {(() => {
+                              const r = p.metadata?.rsvp;
+                              if (!r?.email) return <span style={{color:'var(--text-light)'}}>—</span>;
+                              const isGuest = r.is_guest_booking === true;
+                              return (
+                                <>
+                                  <div style={{fontSize:'12px',fontWeight:600,color: isGuest ? 'var(--orange)' : 'var(--text-main)'}}>
+                                    {r.full_name || r.email}
+                                    {isGuest && (
+                                      <span style={{marginLeft:'6px',fontSize:'9px',fontWeight:700,background:'var(--orange-pale)',color:'var(--orange)',padding:'1px 6px',borderRadius:'10px',textTransform:'uppercase',letterSpacing:'.3px'}}>
+                                        Guest
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{r.email}</div>
+                                </>
+                              );
+                            })()}
                           </td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{p.profiles?.phone || '—'}</td>
                           <td style={{fontSize:'12px',color:'var(--text-muted)',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}

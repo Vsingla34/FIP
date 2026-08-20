@@ -42,9 +42,16 @@ export const config = { api: { bodyParser: false } };
 
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (chunk) => { data += chunk; });
-    req.on('end', () => resolve(data));
+    const chunks = [];
+    // Collect as Buffers and concatenate as Buffers — NOT string
+    // concatenation. `data += chunk` would implicitly call .toString() on
+    // each Buffer chunk independently before concatenating, which corrupts
+    // any multi-byte UTF-8 character that happens to fall across a chunk
+    // boundary. The resulting string then no longer matches the exact bytes
+    // Razorpay signed, breaking signature verification for that request —
+    // real, and specific to larger/multi-chunk payloads, not a config issue.
+    req.on('data', (chunk) => { chunks.push(chunk); });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
 }
@@ -298,7 +305,9 @@ export default async function handler(req, res) {
           const { data: byEmail } = await supabaseAdmin.from('course_registrations')
             .select('id').eq('course_id', course.id).ilike('email', regEmail).limit(1);
           existing = byEmail?.[0] || null;
-          if (!existing && userId) {
+          // Skip the user_id fallback for guest bookings — it would match the
+          // BOOKER's own registration and silently skip enrolling the guest.
+          if (!existing && userId && rsvp.is_guest_booking !== true) {
             const { data: byUser } = await supabaseAdmin.from('course_registrations')
               .select('id').eq('course_id', course.id).eq('user_id', userId).limit(1);
             existing = byUser?.[0] || null;
@@ -306,8 +315,11 @@ export default async function handler(req, res) {
         }
 
         if (!existing) {
+          const isGuestCourseRow = rsvp.is_guest_booking === true;
           const { error: crErr } = await supabaseAdmin.from('course_registrations').insert({
-            user_id:    userId   || null,
+            // Guest has no account — record the payer via booked_by_user_id.
+            user_id:    isGuestCourseRow ? null : (userId || null),
+            booked_by_user_id: isGuestCourseRow ? (userId || null) : null,
             course_id:  course.id,
             course_title: course.title,
             full_name:  regName || regEmail,
@@ -364,10 +376,14 @@ export default async function handler(req, res) {
           .select('id').eq('event_id', rsvp.event_id).eq('email', rsvp.email).maybeSingle();
 
         if (!existing) {
+          const isGuestRow = rsvp.is_guest_booking === true;
           const { error: rsvpErr } = await supabaseAdmin.from('event_rsvps').insert({
             event_id:           rsvp.event_id,
             event_name:         rsvp.event_name,
-            user_id:            rsvp.user_id  || null,
+            // A guest has no account, so their row must carry user_id NULL.
+            // The payer is recorded via booked_by_user_id instead.
+            user_id:            isGuestRow ? null : (rsvp.user_id || null),
+            booked_by_user_id:  isGuestRow ? (payment.user_id || null) : null,
             full_name:          rsvp.full_name,
             email:              rsvp.email,
             phone:              rsvp.phone    || null,

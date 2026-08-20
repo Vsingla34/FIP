@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { applyRefundUpdate } from './_lib/refundSync.js';
+import { findOrCreateAccount, sendAccountSetupEmail } from './_lib/accountProvisioning.js';
 
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -341,6 +342,131 @@ async function logSync(row) {
   catch (e) { console.warn('sync log failed:', e.message); }
 }
 
+/* ── action=admin-manual-enroll ────────────────────────────────────────────
+   Admin registers someone paid offline (cash/UPI/bank/cheque). Creates their
+   account if they don't have one, emails them how to set a password via the
+   EXISTING Forgot Password flow, then enrolls them in the chosen course or
+   event with the payment details recorded for the admin's own records. No
+   Razorpay order is created — this never touches Razorpay at all. */
+async function handleAdminManualEnroll(req, res) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return res.status(403).json({ error: auth.error });
+
+  const {
+    purchaseType,   // 'event' | 'course'
+    itemId,         // event_id or course_id
+    full_name, email, phone, designation, organisation, profession,
+    payment_mode, amount_paid, payment_reference,
+  } = req.body || {};
+
+  const name = (full_name || '').trim();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanPhone = (phone || '').trim();
+
+  if (!purchaseType || !['event', 'course'].includes(purchaseType))
+    return res.status(400).json({ error: 'purchaseType must be "event" or "course"' });
+  if (!itemId) return res.status(400).json({ error: 'itemId is required' });
+  if (!name)   return res.status(400).json({ error: 'Full name is required' });
+  if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail))
+    return res.status(400).json({ error: 'A valid email is required' });
+
+  try {
+    if (purchaseType === 'event') {
+      const { data: event } = await supabaseAdmin
+        .from('events').select('id,title,capacity').eq('id', itemId).maybeSingle();
+      if (!event) return res.status(404).json({ error: 'Event not found' });
+
+      // Duplicate check before doing anything else — including before
+      // creating an account, so a repeat submission doesn't create an
+      // orphaned duplicate auth user for someone already registered.
+      const { data: dupe } = await supabaseAdmin.from('event_rsvps')
+        .select('id, email, phone').eq('event_id', event.id).neq('status', 'cancelled');
+      if ((dupe || []).some(r => (r.email || '').toLowerCase() === cleanEmail))
+        return res.status(400).json({ error: `${cleanEmail} is already registered for this event.` });
+      if (cleanPhone && (dupe || []).some(r => (r.phone || '').trim() === cleanPhone))
+        return res.status(400).json({ error: `Mobile ${cleanPhone} is already registered for this event.` });
+
+      const { userId, isNewAccount } = await findOrCreateAccount(supabaseAdmin, { email: cleanEmail, full_name: name, phone: cleanPhone });
+
+      const { error: insErr } = await supabaseAdmin.from('event_rsvps').insert({
+        event_id: event.id, event_name: event.title,
+        user_id: userId,
+        full_name: name, email: cleanEmail, phone: cleanPhone || null,
+        designation: (designation || '').trim() || null,
+        organisation: (organisation || '').trim() || null,
+        status: 'confirmed',
+        payment_mode: payment_mode || 'cash',
+        amount_paid: amount_paid !== '' && amount_paid != null ? Number(amount_paid) : null,
+        payment_reference: (payment_reference || '').trim() || null,
+        added_by_admin: auth.adminId,
+      });
+      if (insErr) {
+        // Capacity trigger raises EVENT_FULL — surface it plainly rather
+        // than a raw Postgres error, especially since by this point an
+        // account may have already been created for a seat that doesn't exist.
+        if ((insErr.message || '').includes('EVENT_FULL'))
+          return res.status(400).json({ error: 'This event is at full capacity.' });
+        return res.status(500).json({ error: 'Could not create the registration: ' + insErr.message });
+      }
+
+      try {
+        await sendAccountSetupEmail(getTransporter, {
+          email: cleanEmail, full_name: name, isNewAccount,
+          contextLine: `You've been registered for <strong>${event.title}</strong>.`,
+        });
+      } catch (e) { console.warn('Welcome email failed:', e.message); }
+
+      await logSync({ payment_id: null, source: 'admin_manual', event: 'event.manual_enroll',
+        old_status: null, new_status: 'confirmed',
+        detail: { event: event.title, email: cleanEmail, isNewAccount, by: auth.adminId } });
+
+      return res.status(200).json({ success: true, userId, isNewAccount });
+    }
+
+    // purchaseType === 'course'
+    const { data: course } = await supabaseAdmin
+      .from('courses').select('id,title').eq('id', itemId).maybeSingle();
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+
+    const { data: dupe } = await supabaseAdmin.from('course_registrations')
+      .select('id, email').eq('course_id', course.id).neq('status', 'cancelled');
+    if ((dupe || []).some(r => (r.email || '').toLowerCase() === cleanEmail))
+      return res.status(400).json({ error: `${cleanEmail} is already registered for this course.` });
+
+    const { userId, isNewAccount } = await findOrCreateAccount(supabaseAdmin, { email: cleanEmail, full_name: name, phone: cleanPhone });
+
+    const { error: insErr } = await supabaseAdmin.from('course_registrations').insert({
+      course_id: course.id, course_title: course.title,
+      user_id: userId,
+      full_name: name, email: cleanEmail, phone: cleanPhone || null,
+      profession: (profession || '').trim() || null,
+      status: 'registered',
+      payment_mode: payment_mode || 'cash',
+      amount_paid: amount_paid !== '' && amount_paid != null ? Number(amount_paid) : null,
+      payment_reference: (payment_reference || '').trim() || null,
+      added_by_admin: auth.adminId,
+    });
+    if (insErr) return res.status(500).json({ error: 'Could not create the registration: ' + insErr.message });
+
+    try {
+      await sendAccountSetupEmail(getTransporter, {
+        email: cleanEmail, full_name: name, isNewAccount,
+        contextLine: `You've been registered for <strong>${course.title}</strong>.`,
+      });
+    } catch (e) { console.warn('Welcome email failed:', e.message); }
+
+    await logSync({ payment_id: null, source: 'admin_manual', event: 'course.manual_enroll',
+      old_status: null, new_status: 'registered',
+      detail: { course: course.title, email: cleanEmail, isNewAccount, by: auth.adminId } });
+
+    return res.status(200).json({ success: true, userId, isNewAccount });
+
+  } catch (e) {
+    console.error('handleAdminManualEnroll:', e.message);
+    return res.status(500).json({ error: e.message || 'Something went wrong' });
+  }
+}
+
 /* ── action=refund ─────────────────────────────────────────────────────────
    Initiates the refund at Razorpay and stops. It deliberately does NOT revoke
    access here: Razorpay will fire refund.processed, and the webhook revokes.
@@ -531,12 +657,155 @@ async function handleReconcile(req, res) {
     drift = data || [];
   } catch (e) { console.warn('drift view unavailable — run razorpay_sync_schema.sql'); }
 
+  // Third pass: ACTUALLY CREATE missing enrollments, not just report them.
+  // Previously "Apply Corrections" only fixed payment *status* — a payment
+  // that was paid but never enrolled (webhook never ran, browser didn't
+  // survive the round-trip for verify-payment.js either) showed up in
+  // `drift` every single Check Sync but nothing here ever fixed it. This
+  // required a human to notice, ask for help, and get a one-off manual SQL
+  // fix each time. This does the same insert automatically, using the exact
+  // same metadata.rsvp data the webhook/fallback would have used.
+  const autoEnrolled = [];
+  const autoEnrollErrors = [];
+
+  if (!dryRun) {
+    // ── Events ──
+    const { data: paidEvents } = await supabaseAdmin
+      .from('payments')
+      .select('id,razorpay_payment_id,item_ref_id,item_name,user_id,total_amount,metadata,created_at')
+      .eq('purchase_type', 'event').eq('status', 'paid')
+      .gte('created_at', since).limit(200);
+
+    for (const pay of paidEvents || []) {
+      try {
+        const rsvp = pay.metadata?.rsvp;
+        const eventId = rsvp?.event_id || pay.item_ref_id;
+        if (!rsvp?.email || !eventId) continue; // nothing to enroll from
+
+        const { data: already } = await supabaseAdmin.from('event_rsvps')
+          .select('id').eq('event_id', eventId)
+          .or(`payment_id.eq.${pay.id},email.ilike.${rsvp.email}`)
+          .neq('status', 'cancelled').limit(1);
+        if (already?.length) continue; // already enrolled — nothing to do
+
+        const { data: ev } = await supabaseAdmin.from('events')
+          .select('id,title,event_date,event_time,location,event_type,zoom_link,whatsapp_group_link,capacity')
+          .eq('id', eventId).maybeSingle();
+        if (!ev) continue; // event doesn't resolve — can't enroll into nothing
+
+        const isGuestRow = rsvp.is_guest_booking === true;
+        const { error } = await supabaseAdmin.from('event_rsvps').insert({
+          event_id: ev.id, event_name: ev.title,
+          user_id: isGuestRow ? null : (pay.user_id || null),
+          booked_by_user_id: isGuestRow ? (pay.user_id || null) : null,
+          full_name: rsvp.full_name || rsvp.email,
+          email: rsvp.email,
+          phone: rsvp.phone || null,
+          status: 'confirmed',
+          payment_id: pay.id,
+        });
+
+        if (error) {
+          // EVENT_FULL from the capacity trigger is a legitimate, expected
+          // outcome (they paid for a seat someone else got first) — not a
+          // bug to retry. Anything else gets surfaced for review.
+          autoEnrollErrors.push({ payment_id: pay.id, email: rsvp.email, error: error.message });
+          continue;
+        }
+
+        autoEnrolled.push({ payment_id: pay.id, email: rsvp.email, event: ev.title, type: 'event' });
+        await logSync({
+          payment_id: pay.id, razorpay_payment_id: pay.razorpay_payment_id, source: 'reconcile',
+          event: 'enrollment.autohealed', old_status: 'paid', new_status: 'paid',
+          detail: { event_title: ev.title, email: rsvp.email, by: auth.adminId },
+        });
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-event-confirmation`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: rsvp.full_name || rsvp.email, email: rsvp.email,
+              eventTitle: ev.title, eventDate: ev.event_date, eventTime: ev.event_time,
+              eventLocation: ev.location, eventType: ev.event_type,
+              isPaid: true, amount: pay.total_amount, transactionId: pay.razorpay_payment_id,
+              zoomLink: ev.zoom_link, whatsappGroupLink: ev.whatsapp_group_link,
+            }),
+          });
+        } catch (e) { /* enrollment already succeeded — email failure is non-fatal */ }
+      } catch (e) {
+        autoEnrollErrors.push({ payment_id: pay.id, error: e.message });
+      }
+    }
+
+    // ── Courses ──
+    const { data: paidCourses } = await supabaseAdmin
+      .from('payments')
+      .select('id,razorpay_payment_id,item_ref_id,item_name,user_id,total_amount,metadata,created_at')
+      .eq('purchase_type', 'course').eq('status', 'paid')
+      .gte('created_at', since).limit(200);
+
+    for (const pay of paidCourses || []) {
+      try {
+        const rsvp = pay.metadata?.rsvp;
+        if (!rsvp?.email) continue;
+
+        const ref = pay.item_ref_id || '';
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+        const { data: course } = isUuid
+          ? await supabaseAdmin.from('courses').select('id,title').eq('id', ref).maybeSingle()
+          : await supabaseAdmin.from('courses').select('id,title').eq('slug', ref).maybeSingle();
+        if (!course) continue;
+
+        const { data: already } = await supabaseAdmin.from('course_registrations')
+          .select('id').eq('course_id', course.id)
+          .or(`payment_id.eq.${pay.id},email.ilike.${rsvp.email}`)
+          .neq('status', 'cancelled').limit(1);
+        if (already?.length) continue;
+
+        const isGuestRow = rsvp.is_guest_booking === true;
+        const { error } = await supabaseAdmin.from('course_registrations').insert({
+          course_id: course.id, course_title: course.title,
+          user_id: isGuestRow ? null : (pay.user_id || null),
+          booked_by_user_id: isGuestRow ? (pay.user_id || null) : null,
+          full_name: rsvp.full_name || rsvp.email,
+          email: rsvp.email,
+          phone: rsvp.phone || null,
+          status: 'registered',
+          payment_id: pay.id,
+        });
+
+        if (error) { autoEnrollErrors.push({ payment_id: pay.id, email: rsvp.email, error: error.message }); continue; }
+
+        autoEnrolled.push({ payment_id: pay.id, email: rsvp.email, course: course.title, type: 'course' });
+        await logSync({
+          payment_id: pay.id, razorpay_payment_id: pay.razorpay_payment_id, source: 'reconcile',
+          event: 'enrollment.autohealed', old_status: 'paid', new_status: 'paid',
+          detail: { course_title: course.title, email: rsvp.email, by: auth.adminId },
+        });
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-course-confirmation`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: rsvp.full_name || rsvp.email, email: rsvp.email,
+              courseTitle: course.title, transactionId: pay.razorpay_payment_id,
+            }),
+          });
+        } catch (e) { /* non-fatal */ }
+      } catch (e) {
+        autoEnrollErrors.push({ payment_id: pay.id, error: e.message });
+      }
+    }
+  }
+
   return res.status(200).json({
     dryRun, days, checked, errors, firstError,
     statusChanges: changes.length,
     changes,
     enrollmentDrift: drift.length,
     drift,
+    autoEnrolled: autoEnrolled.length,
+    autoEnrolledDetails: autoEnrolled,
+    autoEnrollErrors: autoEnrollErrors.length,
+    autoEnrollErrorDetails: autoEnrollErrors,
     // If every check errored, "0 mismatches" is not the same claim as "in sync" —
     // say so explicitly rather than let a silent Razorpay-API failure read as
     // a clean bill of health.
@@ -546,7 +815,9 @@ async function handleReconcile(req, res) {
         ? `${errors} of ${checked} order(s) could not be checked (Razorpay API error) — treat this run as partial. First error: ${firstError}`
         : dryRun
           ? 'Nothing was written. Re-send with dryRun:false to apply.'
-          : 'Payment statuses corrected. Enrollment drift is listed for review.',
+          : autoEnrolled.length > 0
+            ? `Payment statuses corrected. ${autoEnrolled.length} missing enrollment(s) created automatically.`
+            : 'Payment statuses corrected. No missing enrollments found to auto-create.',
   });
 }
 
@@ -556,8 +827,9 @@ export default async function handler(req, res) {
 
   // Admin sub-routes (see note above on the 12-function cap)
   const action = req.query?.action;
-  if (action === 'refund')    return handleRefund(req, res);
-  if (action === 'reconcile') return handleReconcile(req, res);
+  if (action === 'refund')            return handleRefund(req, res);
+  if (action === 'reconcile')         return handleReconcile(req, res);
+  if (action === 'admin-manual-enroll') return handleAdminManualEnroll(req, res);
 
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId } = req.body;
@@ -745,7 +1017,11 @@ export default async function handler(req, res) {
           .from('course_registrations')
           .select('id').eq('course_id', course.id).ilike('email', regEmail).limit(1);
         existingReg = byEmail?.[0] || null;
-        if (!existingReg) {
+        // The user_id fallback must NOT run for a guest booking: it would
+        // match the BOOKER's own existing registration and silently skip
+        // creating the guest's row — they'd have paid and nobody would be
+        // enrolled. Email is the only correct identity for a guest.
+        if (!existingReg && rsvpMeta.is_guest_booking !== true) {
           const { data: byUser } = await supabaseAdmin
             .from('course_registrations')
             .select('id').eq('course_id', course.id).eq('user_id', userId).limit(1);
@@ -756,7 +1032,9 @@ export default async function handler(req, res) {
           const { error } = await supabaseAdmin
             .from('course_registrations')
             .insert({
-              user_id:    userId,
+              // Guest has no account — record the payer via booked_by_user_id.
+              user_id:    rsvpMeta.is_guest_booking === true ? null : userId,
+              booked_by_user_id: rsvpMeta.is_guest_booking === true ? userId : null,
               course_id:  course.id,
               course_title: course.title || payment.item_name,
               full_name:  regName || regEmail,
@@ -831,7 +1109,9 @@ export default async function handler(req, res) {
           .from('event_rsvps')
           .select('id').eq('event_id', eventId).ilike('email', regEmail).limit(1);
         existingRsvp = byEmail?.[0] || null;
-        if (!existingRsvp && userId) {
+        // Skip for guest bookings — this would match the BOOKER's own RSVP
+        // and silently skip enrolling the guest they just paid for.
+        if (!existingRsvp && userId && rsvp.is_guest_booking !== true) {
           const { data: byUser } = await supabaseAdmin
             .from('event_rsvps')
             .select('id').eq('event_id', eventId).eq('user_id', userId).limit(1);
@@ -839,10 +1119,13 @@ export default async function handler(req, res) {
         }
 
         if (!existingRsvp) {
+          const isGuestRow = rsvp.is_guest_booking === true;
           const { error } = await supabaseAdmin.from('event_rsvps').insert({
             event_id:           eventId,
             event_name:         rsvp.event_name || payment.item_name,
-            user_id:            userId || null,
+            // Guest rows carry no account; the payer is booked_by_user_id.
+            user_id:            isGuestRow ? null : (userId || null),
+            booked_by_user_id:  isGuestRow ? (userId || null) : null,
             full_name:          regName || regEmail,
             email:              regEmail,
             phone:              rsvp.phone       || payer?.phone || null,
@@ -859,6 +1142,7 @@ export default async function handler(req, res) {
           if (!error) console.log('verify-payment: enrolled', regEmail, 'in event', eventId);
           else console.error('verify-payment: event_rsvps insert error:', error.message);
         }
+
       } else {
         console.error('verify-payment: cannot enroll — missing eventId or email for order', razorpay_order_id);
       }
