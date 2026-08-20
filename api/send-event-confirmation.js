@@ -29,6 +29,18 @@ export default async function handler(req, res) {
   const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress, customSubject, customBody } = req.body || {};
   if (!email || !eventTitle) return res.status(400).json({ error: 'email and eventTitle are required' });
 
+  // Generated ONCE here and reused for both the inline HTML invoice and the
+  // PDF attachment below. Previously each call site generated its own number
+  // independently via Date.now() — since that returns the current millisecond
+  // at the exact moment each line runs, and these two lines don't run at the
+  // same millisecond, the PDF and the inline invoice ended up with two
+  // different numbers for what is the same transaction. Anchoring on the
+  // Razorpay transaction ID (when available) also makes this number stable
+  // across a retry/resend rather than changing every time.
+  const invoiceNo = 'FIP-INV-' + new Date().getFullYear() + '-' +
+    (transactionId ? transactionId.replace(/[^0-9]/g, '').slice(-5) || Date.now().toString().slice(-5)
+                    : Date.now().toString().slice(-5));
+
   const dateStr   = formatDate(eventDate);
   const isOnline  = eventType === 'Online' || eventType === 'Webinar';
 
@@ -79,7 +91,7 @@ export default async function handler(req, res) {
 
   <!-- Status bar -->
   <div style="background:${isPaid ? '#B45309' : '#16A34A'};padding:12px 28px;display:flex;align-items:center;gap:10px">
-    <span style="font-size:18px">${isPaid ? '' : '✅'}</span>
+    <span style="font-size:18px">${isPaid ? '⏳' : '✅'}</span>
     <span style="color:#fff;font-weight:700;font-size:14px">
       ${isPaid ? 'Registration Received — Under Review' : 'Registration Confirmed — Seat Reserved!'}
     </span>
@@ -125,7 +137,7 @@ export default async function handler(req, res) {
 
     <!-- Tax Invoice -->
     ${isPaid && amount ? generateInvoice({
-      invoiceNo:      'FIP-INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5),
+      invoiceNo,
       invoiceDate:    new Date(),
       buyerName:      name,
       buyerEmail:     email,
@@ -178,7 +190,7 @@ export default async function handler(req, res) {
       try {
         const { generateInvoicePDF } = await import('./generate-invoice.js');
         const pdfBuf = await generateInvoicePDF({
-          invoiceNo:      `FIP-INV-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`,
+          invoiceNo,
           invoiceDate:    new Date(),
           buyerName:      name,
           buyerEmail:     email,

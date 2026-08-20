@@ -56,8 +56,16 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { name, email, courseTitle, eventDate, eventTime, zoomLink, zoomPassword, whatsappGroupLink } = req.body;
+  const { name, email, courseTitle, eventDate, eventTime, zoomLink, zoomPassword, whatsappGroupLink, customSubject, customBody, transactionId } = req.body;
   if (!email || !courseTitle) return res.status(400).json({ error: 'Missing fields' });
+
+  // Generated ONCE and reused for both the inline HTML invoice and the PDF
+  // attachment below — same fix as send-event-confirmation.js. Each used to
+  // call Date.now() independently at a different line, producing two
+  // different numbers for the same transaction.
+  const invoiceNo = 'FIP-INV-' + new Date().getFullYear() + '-' +
+    (transactionId ? transactionId.replace(/[^0-9]/g, '').slice(-5) || Date.now().toString().slice(-5)
+                    : Date.now().toString().slice(-5));
 
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
     return res.status(200).json({ sent: false, reason: 'Email not configured' });
@@ -70,6 +78,24 @@ export default async function handler(req, res) {
 
   const firstName = name?.split(' ')[0] || 'there';
   const formattedDate = formatDate(eventDate);
+
+  // Per-course custom message, if the admin set one — {{name}}/{{title}}/
+  // {{date}}/{{time}} substituted. Falls back to the standard line below.
+  const fillVars = (s) => (s || '')
+    .replaceAll('{{name}}',  firstName)
+    .replaceAll('{{title}}', courseTitle || '')
+    .replaceAll('{{date}}',  formattedDate || '')
+    .replaceAll('{{time}}',  eventTime || '');
+  const introHtml = customBody
+    ? fillVars(customBody).split('\n').filter(Boolean).map(line =>
+        `<p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 12px;">${line}</p>`).join('')
+    : `<p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 24px;">
+      Thank you for registering! We're excited to have you join us for this live session.
+      Here are all the details you need:
+    </p>`;
+  const emailSubject = customSubject
+    ? fillVars(customSubject)
+    : `Registered: ${courseTitle} — Your Zoom Link Inside`;
 
   const html = `
 <!DOCTYPE html>
@@ -97,10 +123,7 @@ export default async function handler(req, res) {
   <!-- Body -->
   <div style="background:#fff;padding:36px 40px;">
     <p style="font-size:15px;color:#1A3C6E;font-weight:700;margin:0 0 8px;">Dear ${name},</p>
-    <p style="font-size:14px;color:#4B5563;line-height:1.8;margin:0 0 24px;">
-      Thank you for registering! We're excited to have you join us for this live session. 
-      Here are all the details you need:
-    </p>
+    ${introHtml}
 
     <!-- Event details card -->
     <div style="background:#F8FAFF;border:2px solid #BFDBFE;border-radius:14px;padding:24px;margin:0 0 24px;">
@@ -162,7 +185,7 @@ export default async function handler(req, res) {
 
     <!-- Tax Invoice (shown when payment made) -->
     ${baseAmount ? generateInvoice({
-      invoiceNo:      'FIP-INV-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5),
+      invoiceNo,
       invoiceDate:    new Date(),
       buyerName:      name,
       buyerEmail:     email,
@@ -213,7 +236,7 @@ export default async function handler(req, res) {
       try {
         const { generateInvoicePDF } = await import('./generate-invoice.js');
         const pdfBuf = await generateInvoicePDF({
-          invoiceNo:      `FIP-INV-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`,
+          invoiceNo,
           invoiceDate:    new Date(),
           buyerName:      name,
           buyerEmail:     email,
@@ -235,7 +258,7 @@ export default async function handler(req, res) {
     await transporter.sendMail({
       from:    `"FIP — Federation of Indian Professionals" <${process.env.GMAIL_USER}>`,
       to:      email,
-      subject: ` Registered: ${courseTitle} — Your Zoom Link Inside`,
+      subject: emailSubject,
       html,
       ...(pdfAttachment ? { attachments: [pdfAttachment] } : {}),
     });
