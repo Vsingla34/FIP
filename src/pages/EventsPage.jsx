@@ -68,18 +68,8 @@ export default function EventsPage() {
     wants_gst: false, gst_number:'', gst_company_name:'', gst_address:'',
     customFieldResponses: {},
   });
-  // Guest booking: an already-enrolled user registering ONE other person.
-  // No account is created for that person — it's purely an enrollment row.
-  const [guestMode, setGuestMode] = useState(false);
 
-  // A guest is ALWAYS charged the non-member rate, even when a member is the
-  // one paying. Using the booker's own (possibly discounted) rate here would
-  // undercharge every guest booking made by a member.
-  // NOTE: must be declared AFTER guestMode — referencing a `const` before its
-  // declaration throws a ReferenceError at render time, not a build error.
-  const selfEventPrice      = getEventPrice(rsvpOpen, isFipMember);
-  const guestEventPrice     = getEventPrice(rsvpOpen, false);
-  const effectiveEventPrice = guestMode ? guestEventPrice : selfEventPrice;
+  const effectiveEventPrice = getEventPrice(rsvpOpen, isFipMember);
 
   useEffect(() => {
     // status alone isn't enough — nothing auto-flips an event to 'completed'
@@ -120,14 +110,8 @@ export default function EventsPage() {
   }, [user]);
 
   // Pre-fill form from profile when opening RSVP
-  const openRsvp = (event, asGuest = false) => {
-    // Guest mode starts BLANK — prefilling the booker's own details would make
-    // it far too easy to accidentally submit yourself a second time.
-    setForm(asGuest ? {
-      full_name:'', email:'', phone:'', designation:'', organisation:'',
-      wants_gst: false, gst_number:'', gst_company_name:'', gst_address:'',
-      customFieldResponses: {},
-    } : {
+  const openRsvp = (event) => {
+    setForm({
       full_name:          profile?.full_name || user?.user_metadata?.full_name || '',
       email:              user?.email || '',
       phone:              profile?.phone || '',
@@ -136,7 +120,6 @@ export default function EventsPage() {
       wants_gst: false, gst_number:'', gst_company_name:'', gst_address:'',
       customFieldResponses: {},
     });
-    setGuestMode(asGuest);
     setSubmitted(false);
     setRsvpOpen(event);
   };
@@ -150,8 +133,7 @@ export default function EventsPage() {
   const saveRsvp = async () => {
     const { error } = await supabase.from('event_rsvps').insert({
       event_id:           rsvpOpen.id,
-      user_id:            guestMode ? null : (user?.id || null),
-      booked_by_user_id:  guestMode ? (user?.id || null) : null,
+      user_id:            user?.id || null,
       full_name:          form.full_name.trim(),
       email:              form.email.trim(),
       phone:              form.phone.trim() || null,
@@ -197,41 +179,6 @@ export default function EventsPage() {
       return;
     }
 
-    // ── Guest booking checks ─────────────────────────────────────────────
-    // The form is the same either way — in guest mode it just holds someone
-    // else's details. These checks run BEFORE any payment is started so a
-    // duplicate never results in a charge for a seat that can't be created.
-    if (guestMode && rsvpOpen?.id) {
-      const gEmail = form.email.trim().toLowerCase();
-      const gPhone = form.phone.trim();
-
-      if (user?.email && gEmail === user.email.toLowerCase()) {
-        setSubmitting(false);
-        showToast("That's your own email — use a different one for the person you're registering.", true);
-        return;
-      }
-
-      const { data: existing, error: exErr } = await supabase.from('event_rsvps')
-        .select('email, phone').eq('event_id', rsvpOpen.id).neq('status', 'cancelled');
-      if (exErr) {
-        setSubmitting(false);
-        showToast('Could not verify existing registrations. Please try again.', true);
-        return;
-      }
-      const takenEmails = new Set((existing || []).map(e => (e.email || '').toLowerCase()));
-      const takenPhones = new Set((existing || []).map(e => (e.phone || '').trim()).filter(Boolean));
-      if (takenEmails.has(gEmail)) {
-        setSubmitting(false);
-        showToast(`${form.email.trim()} is already registered for this event.`, true);
-        return;
-      }
-      if (gPhone && takenPhones.has(gPhone)) {
-        setSubmitting(false);
-        showToast(`Mobile ${gPhone} is already registered for this event.`, true);
-        return;
-      }
-    }
-
     // ── Capacity check ───────────────────────────────────────────────────
     if (rsvpOpen?.capacity) {
       const { count } = await supabase.from('event_rsvps')
@@ -242,18 +189,6 @@ export default function EventsPage() {
         showToast('Sorry, this event is now fully booked!', true);
         return;
       }
-    }
-
-    // A guest booking always requires a signed-in payer/booker, even for a
-    // FREE event — booked_by_user_id has to point at a real account, and the
-    // "only enrolled users may book for others" rule needs an identity.
-    if (guestMode && !user) {
-      setSubmitting(false);
-      setRsvpOpen(null);
-      setGuestMode(false);
-      openModal('login');
-      showToast('Please sign in to register someone else.', true);
-      return;
     }
 
     const isPaid = effectiveEventPrice > 0;
@@ -270,7 +205,6 @@ export default function EventsPage() {
       // Capture event + form data NOW before closing modal (avoids stale closure)
       const capturedEvent = { ...rsvpOpen };
       const capturedForm  = { ...form };
-      const capturedGuest = guestMode;
 
       setRsvpOpen(null);    // close modal
       setSubmitting(false);
@@ -279,17 +213,11 @@ export default function EventsPage() {
         purchaseType: 'event',
         itemName:     capturedEvent.title,
         itemRefId:    capturedEvent.id,
-        isGuestBooking: capturedGuest,
         // Save form data with order so webhook can enroll if browser closes
         rsvpData: {
           event_id:           capturedEvent.id,
           event_name:         capturedEvent.title,
-          // In guest mode the ENROLLED person has no account, so user_id must
-          // be null on their row. The payer is tracked separately via
-          // payment.user_id / booked_by_user_id.
-          user_id:            capturedGuest ? null : (user?.id || null),
-          is_guest_booking:   capturedGuest,
-          booked_by_user_id:  capturedGuest ? (user?.id || null) : null,
+          user_id:            user?.id || null,
           full_name:          capturedForm.full_name.trim(),
           email:              capturedForm.email.trim(),
           phone:              capturedForm.phone?.trim() || null,
@@ -305,8 +233,7 @@ export default function EventsPage() {
           const { error } = await supabase.from('event_rsvps').insert({
             event_id:           capturedEvent.id,
             event_name:         capturedEvent.title,
-            user_id:            capturedGuest ? null : (user?.id || null),
-            booked_by_user_id:  capturedGuest ? (user?.id || null) : null,
+            user_id:            user?.id || null,
             full_name:          capturedForm.full_name.trim(),
             email:              capturedForm.email.trim(),
             phone:              capturedForm.phone?.trim() || null,
@@ -319,12 +246,8 @@ export default function EventsPage() {
           if (error && error.code !== '23505') {
             showToast('Payment done but RSVP save failed. Please contact support.', true);
           } else {
-            // Only mark MY OWN registration — a guest booking must not flip
-            // my button to "enrolled", since I still may not be attending.
-            if (!capturedGuest) setRegisteredEventIds(prev => new Set([...prev, capturedEvent.id]));
-            showToast(capturedGuest
-              ? `${capturedForm.full_name.trim()} is registered for ${capturedEvent.title}! 🎉`
-              : `You're registered for ${capturedEvent.title}! 🎉`);
+            setRegisteredEventIds(prev => new Set([...prev, capturedEvent.id]));
+            showToast(`You're registered for ${capturedEvent.title}! 🎉`);
             // NOTE: no client-side email send here. For a paid event the
             // confirmation email is already sent server-side — by the
             // webhook, or by verify-payment.js's fallback if the webhook
@@ -350,10 +273,8 @@ export default function EventsPage() {
     if (error) {
       setSubmitting(false);
       if (error.code === '23505' || error.message?.includes('unique')) {
-        showToast(guestMode
-          ? 'That person is already registered for this event.'
-          : 'You have already registered for this event!', true);
-        if (!guestMode) setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
+        showToast('You have already registered for this event!', true);
+        setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
         setRsvpOpen(null);
       } else if (error.message?.includes('EVENT_FULL')) {
         showToast('Sorry, this event is now fully booked!', true);
@@ -394,9 +315,7 @@ export default function EventsPage() {
       ? { ...ev, registered_count: (ev.registered_count || 0) + 1 }
       : ev
     ));
-    // A guest booking must not flip MY button to enrolled — I may still not
-    // be attending myself.
-    if (!guestMode) setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
+    setRegisteredEventIds(prev => new Set([...prev, rsvpOpen.id]));
     // Show flyer if event has it enabled
     if (rsvpOpen.enable_flyer !== false) {
       const captured = { ...rsvpOpen };
@@ -547,28 +466,20 @@ export default function EventsPage() {
                         const isFull = ev.capacity && (ev.registered_count||0) >= ev.capacity;
                         const isReg  = registeredEventIds.has(ev.id);
                         const evPrice = getEventPrice(ev, isFipMember);
-                        // Once you're enrolled, the CTA becomes a way to
-                        // register someone else — not a dead "Seat Booked"
-                        // label. A full event still blocks everyone, including
-                        // guest bookings, since there's no seat to give.
-                        const canGuestBook = isReg && !isFull;
                         return (
                           <button
                             className="ev-card-cta"
                             style={{
-                              background: isFull ? '#6B7280' : canGuestBook ? 'var(--blue)' : evPrice>0 ? 'var(--orange)' : 'var(--blue)',
+                              background: isReg ? 'var(--green)' : isFull ? '#6B7280' : evPrice>0 ? 'var(--orange)' : 'var(--blue)',
                               color:'#fff',
-                              cursor: isFull ? 'default' : 'pointer',
-                              opacity: isFull ? 0.8 : 1,
+                              cursor: isReg || isFull ? 'default' : 'pointer',
+                              opacity: isFull && !isReg ? 0.8 : 1,
                             }}
-                            onClick={() => {
-                              if (isFull) return;
-                              openRsvp(ev, isReg);   // isReg → open in guest mode
-                            }}>
-                            {isFull
+                            onClick={() => { if (!isReg && !isFull) openRsvp(ev); }}>
+                            {isReg
+                              ? <><i className="fa-solid fa-circle-check"></i> Already Registered</>
+                              : isFull
                               ? <><i className="fa-solid fa-ban"></i> Fully Booked</>
-                              : canGuestBook
-                              ? <><i className="fa-solid fa-user-plus"></i> Enroll Another Person</>
                               : evPrice > 0
                               ? <><i className="fa-solid fa-lock"></i> Register Now</>
                               : <><i className="fa-solid fa-calendar-check"></i> Register Now</>
@@ -610,7 +521,7 @@ export default function EventsPage() {
         <div className="modal-overlay">
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'560px'}}>
             {!submitting && (
-              <button className="modal-close" onClick={() => { setRsvpOpen(null); setGuestMode(false); }}>&#x2715;</button>
+              <button className="modal-close" onClick={() => setRsvpOpen(null)}>&#x2715;</button>
             )}
 
             {submitted ? (
@@ -621,12 +532,10 @@ export default function EventsPage() {
                 </div>
                 <div className="modal-title">Registration Confirmed!</div>
                 <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,marginBottom:'8px'}}>
-                  {guestMode
-                    ? <><strong>{form.full_name || 'Your guest'}</strong> is registered for <strong>{rsvpOpen.title}</strong>.</>
-                    : <>You're registered for <strong>{rsvpOpen.title}</strong>.</>}
-                  {rsvpOpen.event_date && <> {guestMode ? 'The event is on' : "We'll see you on"} <strong>{formatDateRange(rsvpOpen.event_date, rsvpOpen.event_end_date)}</strong>.</>}
+                  You're registered for <strong>{rsvpOpen.title}</strong>.
+                  {rsvpOpen.event_date && <> We'll see you on <strong>{formatDateRange(rsvpOpen.event_date, rsvpOpen.event_end_date)}</strong>.</>}
                 </p>
-                <button className="btn btn-outline-blue btn-sm" onClick={() => { setRsvpOpen(null); setGuestMode(false); }}>Close</button>
+                <button className="btn btn-outline-blue btn-sm" onClick={() => setRsvpOpen(null)}>Close</button>
               </div>
             ) : (
               <>
@@ -640,36 +549,17 @@ export default function EventsPage() {
                   </div>
                 </div>
 
-                <div className="modal-title" style={{marginBottom:'4px'}}>
-                  {guestMode ? 'Enroll Another Person' : 'Register for this Event'}
-                </div>
+                <div className="modal-title" style={{marginBottom:'4px'}}>Register for this Event</div>
                 <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'10px'}}>
                   Fields marked * are required.
                 </p>
-
-                {guestMode && (
-                  <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'10px',padding:'12px 14px',marginBottom:'16px'}}>
-                    <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'3px'}}>
-                      <i className="fa-solid fa-user-plus" style={{marginRight:'6px',color:'var(--orange)'}}></i>
-                      You're registering someone else
-                    </div>
-                    <div style={{fontSize:'11.5px',color:'var(--text-muted)',lineHeight:1.6}}>
-                      Enter <strong>their</strong> details below — not your own. No account is created for them; this simply reserves their seat. You'll be the one paying.
-                    </div>
-                  </div>
-                )}
 
                 {/* Paid event pricing banner */}
                 {effectiveEventPrice > 0 && (
                   <div style={{background:'linear-gradient(135deg,#FFF5E6,#FFE8CC)',border:'2px solid var(--orange)',borderRadius:'10px',padding:'14px 16px',marginBottom:'18px'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}}>
                       <span style={{fontSize:'13px',fontWeight:600,color:'#92400E'}}>
-                        Event Registration Fee
-                        {guestMode
-                          ? <span style={{display:'block',fontSize:'11px',fontWeight:400,marginTop:'2px',color:'#B45309'}}>
-                              Guests are charged the non-member rate
-                            </span>
-                          : (isFipMember ? ' (Member price)' : '')}
+                        Event Registration Fee{isFipMember ? ' (Member price)' : ''}
                       </span>
                       <span style={{fontSize:'20px',fontWeight:900,color:'var(--orange)'}}>
                         ₹{Number(effectiveEventPrice).toLocaleString('en-IN')}

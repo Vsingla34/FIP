@@ -693,11 +693,9 @@ async function handleReconcile(req, res) {
           .eq('id', eventId).maybeSingle();
         if (!ev) continue; // event doesn't resolve — can't enroll into nothing
 
-        const isGuestRow = rsvp.is_guest_booking === true;
         const { error } = await supabaseAdmin.from('event_rsvps').insert({
           event_id: ev.id, event_name: ev.title,
-          user_id: isGuestRow ? null : (pay.user_id || null),
-          booked_by_user_id: isGuestRow ? (pay.user_id || null) : null,
+          user_id: pay.user_id || null,
           full_name: rsvp.full_name || rsvp.email,
           email: rsvp.email,
           phone: rsvp.phone || null,
@@ -761,11 +759,9 @@ async function handleReconcile(req, res) {
           .neq('status', 'cancelled').limit(1);
         if (already?.length) continue;
 
-        const isGuestRow = rsvp.is_guest_booking === true;
         const { error } = await supabaseAdmin.from('course_registrations').insert({
           course_id: course.id, course_title: course.title,
-          user_id: isGuestRow ? null : (pay.user_id || null),
-          booked_by_user_id: isGuestRow ? (pay.user_id || null) : null,
+          user_id: pay.user_id || null,
           full_name: rsvp.full_name || rsvp.email,
           email: rsvp.email,
           phone: rsvp.phone || null,
@@ -1017,11 +1013,7 @@ export default async function handler(req, res) {
           .from('course_registrations')
           .select('id').eq('course_id', course.id).ilike('email', regEmail).limit(1);
         existingReg = byEmail?.[0] || null;
-        // The user_id fallback must NOT run for a guest booking: it would
-        // match the BOOKER's own existing registration and silently skip
-        // creating the guest's row — they'd have paid and nobody would be
-        // enrolled. Email is the only correct identity for a guest.
-        if (!existingReg && rsvpMeta.is_guest_booking !== true) {
+        if (!existingReg) {
           const { data: byUser } = await supabaseAdmin
             .from('course_registrations')
             .select('id').eq('course_id', course.id).eq('user_id', userId).limit(1);
@@ -1032,9 +1024,7 @@ export default async function handler(req, res) {
           const { error } = await supabaseAdmin
             .from('course_registrations')
             .insert({
-              // Guest has no account — record the payer via booked_by_user_id.
-              user_id:    rsvpMeta.is_guest_booking === true ? null : userId,
-              booked_by_user_id: rsvpMeta.is_guest_booking === true ? userId : null,
+              user_id:    userId,
               course_id:  course.id,
               course_title: course.title || payment.item_name,
               full_name:  regName || regEmail,
@@ -1109,9 +1099,7 @@ export default async function handler(req, res) {
           .from('event_rsvps')
           .select('id').eq('event_id', eventId).ilike('email', regEmail).limit(1);
         existingRsvp = byEmail?.[0] || null;
-        // Skip for guest bookings — this would match the BOOKER's own RSVP
-        // and silently skip enrolling the guest they just paid for.
-        if (!existingRsvp && userId && rsvp.is_guest_booking !== true) {
+        if (!existingRsvp && userId) {
           const { data: byUser } = await supabaseAdmin
             .from('event_rsvps')
             .select('id').eq('event_id', eventId).eq('user_id', userId).limit(1);
@@ -1119,13 +1107,10 @@ export default async function handler(req, res) {
         }
 
         if (!existingRsvp) {
-          const isGuestRow = rsvp.is_guest_booking === true;
           const { error } = await supabaseAdmin.from('event_rsvps').insert({
             event_id:           eventId,
             event_name:         rsvp.event_name || payment.item_name,
-            // Guest rows carry no account; the payer is booked_by_user_id.
-            user_id:            isGuestRow ? null : (userId || null),
-            booked_by_user_id:  isGuestRow ? (userId || null) : null,
+            user_id:            userId || null,
             full_name:          regName || regEmail,
             email:              regEmail,
             phone:              rsvp.phone       || payer?.phone || null,

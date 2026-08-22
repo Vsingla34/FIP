@@ -305,9 +305,7 @@ export default async function handler(req, res) {
           const { data: byEmail } = await supabaseAdmin.from('course_registrations')
             .select('id').eq('course_id', course.id).ilike('email', regEmail).limit(1);
           existing = byEmail?.[0] || null;
-          // Skip the user_id fallback for guest bookings — it would match the
-          // BOOKER's own registration and silently skip enrolling the guest.
-          if (!existing && userId && rsvp.is_guest_booking !== true) {
+          if (!existing && userId) {
             const { data: byUser } = await supabaseAdmin.from('course_registrations')
               .select('id').eq('course_id', course.id).eq('user_id', userId).limit(1);
             existing = byUser?.[0] || null;
@@ -315,11 +313,8 @@ export default async function handler(req, res) {
         }
 
         if (!existing) {
-          const isGuestCourseRow = rsvp.is_guest_booking === true;
           const { error: crErr } = await supabaseAdmin.from('course_registrations').insert({
-            // Guest has no account — record the payer via booked_by_user_id.
-            user_id:    isGuestCourseRow ? null : (userId || null),
-            booked_by_user_id: isGuestCourseRow ? (userId || null) : null,
+            user_id:    userId || null,
             course_id:  course.id,
             course_title: course.title,
             full_name:  regName || regEmail,
@@ -376,14 +371,10 @@ export default async function handler(req, res) {
           .select('id').eq('event_id', rsvp.event_id).eq('email', rsvp.email).maybeSingle();
 
         if (!existing) {
-          const isGuestRow = rsvp.is_guest_booking === true;
           const { error: rsvpErr } = await supabaseAdmin.from('event_rsvps').insert({
             event_id:           rsvp.event_id,
             event_name:         rsvp.event_name,
-            // A guest has no account, so their row must carry user_id NULL.
-            // The payer is recorded via booked_by_user_id instead.
-            user_id:            isGuestRow ? null : (rsvp.user_id || null),
-            booked_by_user_id:  isGuestRow ? (payment.user_id || null) : null,
+            user_id:            rsvp.user_id || null,
             full_name:          rsvp.full_name,
             email:              rsvp.email,
             phone:              rsvp.phone    || null,
