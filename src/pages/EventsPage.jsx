@@ -446,7 +446,7 @@ export default function EventsPage() {
                                   <div className="ev-price-tier-amt">₹{pMember.toLocaleString('en-IN')} <small>+18% GST</small></div>
                                 </div>
                                 <div className="ev-price-tier">
-                                  <div className="ev-price-tier-label">Non-Members</div>
+                                  <div className="ev-price-tier-label">Non-FIP Members</div>
                                   <div className="ev-price-tier-amt">₹{pNonMember.toLocaleString('en-IN')} <small>+18% GST</small></div>
                                 </div>
                               </div>
