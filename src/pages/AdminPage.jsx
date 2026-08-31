@@ -69,7 +69,27 @@ export default function AdminPage() {
   /* member form */
   const [mForm, setMForm] = useState({ name:'', role:'Member' });
 
-  const { profile, signOut, isAdmin } = useAuth();
+  const { profile, signOut, isAdmin, fetchProfile, user } = useAuth();
+
+  const [adminNameDraft,  setAdminNameDraft]  = useState(profile?.full_name || '');
+  const [adminNameSaving, setAdminNameSaving] = useState(false);
+  // Keep the draft in sync once the real profile loads/refreshes — this
+  // matters because the fast-load-from-cache fix means `profile` can arrive
+  // slightly after this component's first render.
+  useEffect(() => { setAdminNameDraft(profile?.full_name || ''); }, [profile?.full_name]);
+
+  const saveAdminName = async () => {
+    const newName = adminNameDraft.trim();
+    if (!newName || !user?.id) return;
+    setAdminNameSaving(true);
+    const { error } = await supabase.from('profiles').update({ full_name: newName }).eq('id', user.id);
+    setAdminNameSaving(false);
+    if (error) { showToast('Could not update name: ' + error.message, true); return; }
+    // Refresh the cached profile so the new name shows immediately in the
+    // navbar and everywhere else, not just after a manual page reload.
+    await fetchProfile(user.id);
+    showToast('Name updated!');
+  };
   const { showToast, openModal }      = useApp();
   const navigate = useNavigate();
 
@@ -4416,7 +4436,16 @@ export default function AdminPage() {
                   Committee changes are saved locally and reflected immediately on the public Committees page.
                 </div>
               </div>
-              <div className="form-group"><label className="form-label">Your Name</label><input className="form-input" type="text" value={profile?.full_name||''} disabled style={{opacity:.7}}/></div>
+              <div className="form-group">
+                <label className="form-label">Your Name</label>
+                <input className="form-input" type="text"
+                  value={adminNameDraft} onChange={e => setAdminNameDraft(e.target.value)}/>
+              </div>
+              <button className="btn btn-primary" style={{marginBottom:'20px'}}
+                disabled={adminNameSaving || !adminNameDraft.trim() || adminNameDraft.trim() === (profile?.full_name || '')}
+                onClick={saveAdminName}>
+                {adminNameSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-check"></i> Save Name</>}
+              </button>
               <div className="form-group"><label className="form-label">Your Email</label><input className="form-input" type="email" value={profile?.email||''} disabled style={{opacity:.7}}/></div>
               <div className="form-group"><label className="form-label">Role</label><input className="form-input" type="text" value="Admin" disabled style={{opacity:.7,color:'var(--orange)',fontWeight:700}}/></div>
             </div>

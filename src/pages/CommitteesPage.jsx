@@ -42,6 +42,7 @@ export default function CommitteesPage() {
   const [filter,    setFilter]    = useState('All');
   const [dbSlugs,   setDbSlugs]   = useState({});
   const [liveExtra, setLiveExtra] = useState([]);
+  const [avatarMap, setAvatarMap] = useState({});
 
   // Auto-scroll to the focused committee when arriving from Team page
   useEffect(() => {
@@ -62,10 +63,13 @@ export default function CommitteesPage() {
   useEffect(() => {
     supabase.rpc('get_committee_members').then(({ data }) => {
       const slugMap = {};
+      const avatars = {};
       (data || []).forEach(m => {
         if (m.profile_slug) slugMap[m.profile_slug] = m;
+        if (m.full_name && m.avatar_url) avatars[m.full_name.toLowerCase().trim()] = m.avatar_url;
       });
       setDbSlugs(slugMap);
+      setAvatarMap(avatars);
 
       // Extra members not in hardcoded list
       const hardcodedNames = new Set(
@@ -137,7 +141,11 @@ export default function CommitteesPage() {
                         onMouseEnter={e => e.currentTarget.style.background='var(--blue-pale)'}
                         onMouseLeave={e => e.currentTarget.style.background = m.isLive ? 'rgba(255,215,0,0.05)' : 'transparent'}
                       >
-                        <div className={`cm-av ${avCls}`}>{getInitials(m.name)}</div>
+                        <div className={`cm-av ${avCls}`} style={avatarMap[m.name.toLowerCase().trim()] ? {overflow:'hidden', padding:0} : undefined}>
+                          {avatarMap[m.name.toLowerCase().trim()]
+                            ? <img src={avatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                            : getInitials(m.name)}
+                        </div>
                         <div style={{flex:1,minWidth:0}}>
                           <div className="cm-name">{m.name}</div>
                           <div className={`cm-role ${roleCls}`}>{m.role.toUpperCase()}</div>

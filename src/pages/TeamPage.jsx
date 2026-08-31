@@ -26,14 +26,22 @@ function toSlug(name) {
 
 export default function TeamPage() {
   const [profileSlugs, setProfileSlugs] = React.useState({});
+  const [profilePhotos, setProfilePhotos] = React.useState({});
   React.useEffect(() => {
     supabase.rpc('get_committee_members').then(({ data }) => {
-      const map = {};
-      (data||[]).forEach(m => { if(m.full_name && m.profile_slug) map[m.full_name.toLowerCase()] = m.profile_slug; });
-      setProfileSlugs(map);
+      const slugs = {}, photos = {};
+      (data||[]).forEach(m => {
+        if (!m.full_name) return;
+        const key = m.full_name.toLowerCase();
+        if (m.profile_slug) slugs[key] = m.profile_slug;
+        if (m.avatar_url)   photos[key] = m.avatar_url;
+      });
+      setProfileSlugs(slugs);
+      setProfilePhotos(photos);
     });
   }, []);
-  const getSlug = (name) => profileSlugs[name.toLowerCase()] || null;
+  const getSlug  = (name) => profileSlugs[name.toLowerCase()]  || null;
+  const getPhoto = (name) => profilePhotos[name.toLowerCase()] || null;
   const { showToast } = useApp();
   const [committees, setCommittees] = useState(loadCommittees);
 
@@ -89,7 +97,11 @@ export default function TeamPage() {
           <div className="team-grid">
             {founders.map((t, i) => (
               <div className="team-card" key={i}>
-                <div className={`team-av ${t.cls}`}>{t.initials}</div>
+                <div className={`team-av ${t.cls}`} style={{overflow:'hidden', padding:0}}>
+                  {getPhoto(t.name)
+                    ? <img src={getPhoto(t.name)} alt={t.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                    : t.initials}
+                </div>
                 {getSlug(t.name) ? (
                   <Link to={`/member/${getSlug(t.name)}`} className="team-name" style={{textDecoration:'none',color:'inherit',display:'block'}}>
                     {t.name} <i className="fa-solid fa-arrow-up-right-from-square" style={{fontSize:'8px',opacity:0.3,color:'var(--orange)',marginLeft:'4px'}}></i>
@@ -157,7 +169,11 @@ export default function TeamPage() {
                   <div className="leaders-cards">
                     {group.leaders.map((m, i) => (
                       <div className="leader-card" key={i}>
-                        <div className="leader-av">{getInitials(m.name)}</div>
+                        <div className="leader-av" style={{overflow:'hidden', padding:0}}>
+                          {getPhoto(m.name)
+                            ? <img src={getPhoto(m.name)} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                            : getInitials(m.name)}
+                        </div>
                         <div>
                           <div className="leader-name">{m.name}</div>
                           <div className="leader-role">{m.role}</div>
