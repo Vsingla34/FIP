@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
 import { useDebounce } from '../hooks/useDebounce.js';
-import { committees as defaultCommittees } from '../data/index.js';
 import * as XLSX from 'xlsx';
 import CertificateTemplateEditor from '../components/CertificateTemplateEditor.jsx';
 
@@ -59,7 +58,8 @@ export default function AdminPage() {
   const [openActionMenu, setOpenActionMenu] = useState(null);    // member id whose ⋮ menu is open
 
   /* committees state */
-  const [committees,    setCommittees]    = useState(defaultCommittees);
+  const [committees,    setCommittees]    = useState([]);
+  const [committeesLoading, setCommitteesLoading] = useState(false);
   const [editModal,     setEditModal]     = useState(null); // { mode:'committee'|'member', committeeId, memberIdx? }
   const [confirmDelete, setConfirmDelete] = useState(null); // { type, committeeId, memberIdx? }
 
@@ -67,7 +67,7 @@ export default function AdminPage() {
   const [cForm, setCForm] = useState({ name:'', abbr:'', category:'Other', desc:'' });
 
   /* member form */
-  const [mForm, setMForm] = useState({ name:'', role:'Member' });
+  const [mForm, setMForm] = useState({ name:'', role:'Member', photo_url:'', linkedin_url:'' });
 
   const { profile, signOut, isAdmin, fetchProfile, user } = useAuth();
 
@@ -148,19 +148,59 @@ export default function AdminPage() {
         ? { ...m, is_committee_member: true, committee_name: cmForm.committee_name, committee_role: cmForm.committee_role }
         : m
       ));
+
+      // Sync into the committees table too — this RPC only touches the
+      // profile, which used to mean someone assigned from a member's own
+      // profile page never actually showed up in Committee Management. Fetch
+      // fresh rather than trust local `committees` state, since the admin
+      // may not have visited the Committees tab this session at all.
+      try {
+        const { data: committee } = await supabase.from('committees')
+          .select('id, members').eq('name', cmForm.committee_name).maybeSingle();
+        if (committee) {
+          const name = committeeModal.full_name;
+          const existingIdx = (committee.members || []).findIndex(
+            m => m.name.toLowerCase().trim() === (name || '').toLowerCase().trim()
+          );
+          const members = [...(committee.members || [])];
+          if (existingIdx >= 0) members[existingIdx] = { name, role: cmForm.committee_role };
+          else members.push({ name, role: cmForm.committee_role });
+          await supabase.from('committees').update({ members, updated_at: new Date().toISOString() }).eq('id', committee.id);
+          // Keep the Committee Management panel in sync too, if it happens
+          // to be showing this same committee right now.
+          setCommittees(prev => prev.map(c => c.id === committee.id ? { ...c, members } : c));
+        }
+      } catch (e) { console.warn('committees table sync failed:', e.message); }
+
       setCommitteeModal(null);
-      showToast(`${committeeModal.full_name} assigned as ${cForm.committee_role}!`);
+      showToast(`${committeeModal.full_name} assigned as ${cmForm.committee_role}!`);
     }
   };
 
   const handleRemoveCommittee = async (memberId) => {
     if (!window.confirm('Remove committee membership?')) return;
+    // Capture their current committee BEFORE removal clears it — needed to
+    // know which committees row to remove them from.
+    const target = members.find(m => m.id === memberId);
     const { error } = await supabase.rpc('admin_remove_committee', { p_user_id: memberId });
     if (!error) {
       setMembers(prev => prev.map(m => m.id === memberId
         ? { ...m, is_committee_member: false, committee_name: null, committee_role: null }
         : m
       ));
+
+      if (target?.committee_name) {
+        try {
+          const { data: committee } = await supabase.from('committees')
+            .select('id, members').eq('name', target.committee_name).maybeSingle();
+          if (committee) {
+            const name = (target.full_name || '').toLowerCase().trim();
+            const members2 = (committee.members || []).filter(m => m.name.toLowerCase().trim() !== name);
+            await supabase.from('committees').update({ members: members2, updated_at: new Date().toISOString() }).eq('id', committee.id);
+            setCommittees(prev => prev.map(c => c.id === committee.id ? { ...c, members: members2 } : c));
+          }
+        } catch (e) { console.warn('committees table sync failed:', e.message); }
+      }
     }
   };
 
@@ -178,6 +218,28 @@ export default function AdminPage() {
   ════════════════════════════════════════ */
 
   /* open add-committee modal */
+  const [committeeAvatarMap, setCommitteeAvatarMap] = useState({});
+  useEffect(() => {
+    if (tab !== 'committees') return;
+    setCommitteesLoading(true);
+    supabase.from('committees').select('*').order('sort_order', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) { showToast('Could not load committees: ' + error.message, true); setCommitteesLoading(false); return; }
+        // Map DB column `description` -> `desc` so every existing reference
+        // to c.desc elsewhere in this file (and cForm.desc) keeps working
+        // unchanged.
+        setCommittees((data || []).map(c => ({ ...c, desc: c.description })));
+        setCommitteesLoading(false);
+      });
+    // Same source the public Team/Committees pages use for real photos —
+    // this panel never had photo support at all before, only initials.
+    supabase.rpc('get_committee_members').then(({ data }) => {
+      const avatars = {};
+      (data || []).forEach(m => { if (m.full_name && m.avatar_url) avatars[m.full_name.toLowerCase().trim()] = m.avatar_url; });
+      setCommitteeAvatarMap(avatars);
+    });
+  }, [tab]);
+
   const openAddCommittee = () => {
     setCForm({ name:'', abbr:'', category:'Other', desc:'' });
     setEditModal({ mode:'committee', committeeId: null });
@@ -189,34 +251,41 @@ export default function AdminPage() {
     setEditModal({ mode:'committee', committeeId: c.id });
   };
 
-  /* save committee (add or edit) */
-  const saveCommittee = () => {
+  /* save committee (add or edit) — persists to the database */
+  const saveCommittee = async () => {
     if (!cForm.name.trim()) return;
+    const abbr = cForm.abbr.trim() || cForm.name.trim().split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,6);
+    const icon = CATEGORY_ICONS[cForm.category] || CATEGORY_ICONS.Other;
+
     if (editModal.committeeId === null) {
-      // ADD
-      const newId = Math.max(0, ...committees.map(c => c.id)) + 1;
-      setCommittees(prev => [...prev, {
-        id: newId,
-        name: cForm.name.trim(),
-        abbr: cForm.abbr.trim() || cForm.name.trim().split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,6),
-        category: cForm.category,
-        icon: CATEGORY_ICONS[cForm.category] || CATEGORY_ICONS.Other,
-        desc: cForm.desc.trim(),
-        members: [],
-      }]);
+      // ADD — insert and get back the real DB-assigned id
+      const nextOrder = committees.length
+        ? Math.max(...committees.map(c => c.sort_order || 0)) + 1 : 1;
+      const { data, error } = await supabase.from('committees').insert({
+        name: cForm.name.trim(), abbr, category: cForm.category, icon,
+        description: cForm.desc.trim(), members: [], sort_order: nextOrder,
+      }).select().single();
+      if (error) { showToast('Could not add committee: ' + error.message, true); return; }
+      setCommittees(prev => [...prev, { ...data, desc: data.description }]);
     } else {
       // EDIT
+      const { error } = await supabase.from('committees').update({
+        name: cForm.name.trim(), abbr: cForm.abbr.trim(), category: cForm.category,
+        icon, description: cForm.desc.trim(), updated_at: new Date().toISOString(),
+      }).eq('id', editModal.committeeId);
+      if (error) { showToast('Could not save changes: ' + error.message, true); return; }
       setCommittees(prev => prev.map(c => c.id === editModal.committeeId
-        ? { ...c, name: cForm.name.trim(), abbr: cForm.abbr.trim(), category: cForm.category,
-            icon: CATEGORY_ICONS[cForm.category] || c.icon, desc: cForm.desc.trim() }
+        ? { ...c, name: cForm.name.trim(), abbr: cForm.abbr.trim(), category: cForm.category, icon, desc: cForm.desc.trim() }
         : c
       ));
     }
     setEditModal(null);
   };
 
-  /* delete committee */
-  const deleteCommittee = (committeeId) => {
+  /* delete committee — persists to the database */
+  const deleteCommittee = async (committeeId) => {
+    const { error } = await supabase.from('committees').delete().eq('id', committeeId);
+    if (error) { showToast('Could not delete committee: ' + error.message, true); setConfirmDelete(null); return; }
     setCommittees(prev => prev.filter(c => c.id !== committeeId));
     setConfirmDelete(null);
   };
@@ -227,51 +296,65 @@ export default function AdminPage() {
 
   /* open add-member modal */
   const openAddMember = (committeeId) => {
-    setMForm({ name:'', role:'Member' });
+    setMForm({ name:'', role:'Member', photo_url:'', linkedin_url:'' });
     setEditModal({ mode:'member', committeeId, memberIdx: null });
   };
 
   /* open edit-member modal */
   const openEditMember = (committeeId, idx, member) => {
-    setMForm({ name: member.name, role: member.role });
+    setMForm({ name: member.name, role: member.role, photo_url: member.photo_url || '', linkedin_url: member.linkedin_url || '' });
     setEditModal({ mode:'member', committeeId, memberIdx: idx });
   };
 
-  /* save member (add or edit) */
-  const saveMember = () => {
+  /* save member (add or edit) — persists the whole members array back to the committee row */
+  const saveMember = async () => {
     if (!mForm.name.trim()) return;
-    setCommittees(prev => prev.map(c => {
-      if (c.id !== editModal.committeeId) return c;
-      const members = [...c.members];
-      if (editModal.memberIdx === null) {
-        members.push({ name: mForm.name.trim(), role: mForm.role });
-      } else {
-        members[editModal.memberIdx] = { name: mForm.name.trim(), role: mForm.role };
-      }
-      return { ...c, members };
-    }));
+    const committee = committees.find(c => c.id === editModal.committeeId);
+    if (!committee) return;
+    const members = [...(committee.members || [])];
+    const entry = { name: mForm.name.trim(), role: mForm.role };
+    if (mForm.photo_url.trim())    entry.photo_url    = mForm.photo_url.trim();
+    if (mForm.linkedin_url.trim()) entry.linkedin_url = mForm.linkedin_url.trim();
+    if (editModal.memberIdx === null) {
+      members.push(entry);
+    } else {
+      members[editModal.memberIdx] = entry;
+    }
+    const { error } = await supabase.from('committees')
+      .update({ members, updated_at: new Date().toISOString() }).eq('id', committee.id);
+    if (error) { showToast('Could not save member: ' + error.message, true); return; }
+    setCommittees(prev => prev.map(c => c.id === committee.id ? { ...c, members } : c));
     setEditModal(null);
   };
 
-  /* delete member */
-  const deleteMember = (committeeId, memberIdx) => {
-    setCommittees(prev => prev.map(c => {
-      if (c.id !== committeeId) return c;
-      return { ...c, members: c.members.filter((_, i) => i !== memberIdx) };
-    }));
+  /* delete member — persists the updated members array */
+  const deleteMember = async (committeeId, memberIdx) => {
+    const committee = committees.find(c => c.id === committeeId);
+    if (!committee) return;
+    const members = committee.members.filter((_, i) => i !== memberIdx);
+    const { error } = await supabase.from('committees')
+      .update({ members, updated_at: new Date().toISOString() }).eq('id', committeeId);
+    if (error) { showToast('Could not delete member: ' + error.message, true); setConfirmDelete(null); return; }
+    setCommittees(prev => prev.map(c => c.id === committeeId ? { ...c, members } : c));
     setConfirmDelete(null);
   };
 
-  /* move member up/down */
-  const moveMember = (committeeId, idx, dir) => {
-    setCommittees(prev => prev.map(c => {
-      if (c.id !== committeeId) return c;
-      const members = [...c.members];
-      const target = idx + dir;
-      if (target < 0 || target >= members.length) return c;
-      [members[idx], members[target]] = [members[target], members[idx]];
-      return { ...c, members };
-    }));
+  /* move member up/down — persists the reordered members array */
+  const moveMember = async (committeeId, idx, dir) => {
+    const committee = committees.find(c => c.id === committeeId);
+    if (!committee) return;
+    const members = [...committee.members];
+    const target = idx + dir;
+    if (target < 0 || target >= members.length) return;
+    [members[idx], members[target]] = [members[target], members[idx]];
+    // Optimistic — reordering should feel instant. Reverts on failure.
+    setCommittees(prev => prev.map(c => c.id === committeeId ? { ...c, members } : c));
+    const { error } = await supabase.from('committees')
+      .update({ members, updated_at: new Date().toISOString() }).eq('id', committeeId);
+    if (error) {
+      showToast('Could not save new order: ' + error.message, true);
+      setCommittees(prev => prev.map(c => c.id === committeeId ? { ...c, members: committee.members } : c));
+    }
   };
 
   /* ── testimonials state ── */
@@ -1464,6 +1547,19 @@ export default function AdminPage() {
     : memberSubTab === 'members' ? paidMembers
     : allUsers;
 
+  // Pagination — filteredMembers can be hundreds of rows; rendering them all
+  // as <tr> elements at once is what was making this page sluggish. Slicing
+  // to a page keeps the DOM small regardless of how many members exist.
+  const MEMBERS_PAGE_SIZE = 25;
+  const [membersPage, setMembersPage] = useState(1);
+  useEffect(() => { setMembersPage(1); }, [memberSubTab, memberSearch]);
+  const membersTotalPages = Math.max(1, Math.ceil(filteredMembers.length / MEMBERS_PAGE_SIZE));
+  const membersPageClamped = Math.min(membersPage, membersTotalPages);
+  const pagedMembers = filteredMembers.slice(
+    (membersPageClamped - 1) * MEMBERS_PAGE_SIZE,
+    membersPageClamped * MEMBERS_PAGE_SIZE
+  );
+
   const getRoleStyle = (role) => {
     const r = (role||'').toLowerCase();
     if (r.includes('president')||r.includes('chairman')||r.includes('chairperson'))
@@ -1868,14 +1964,16 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredMembers.map((m,i) => (
+                      {pagedMembers.map((m,i) => (
                         <tr key={i} style={{background:selectedMemberIds.has(m.id)?'rgba(26,60,110,0.04)':undefined}}>
                           <td><input type="checkbox" checked={selectedMemberIds.has(m.id)}
                             onChange={e => setSelectedMemberIds(prev => { const n=new Set(prev); e.target.checked?n.add(m.id):n.delete(m.id); return n; })}/></td>
                           <td>
                             <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                              <div style={{width:'34px',height:'34px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontSize:'12px',fontWeight:700,flexShrink:0}}>
-                                {getInitials(m.full_name)}
+                              <div style={{width:'34px',height:'34px',borderRadius:'50%',background: m.avatar_url ? 'transparent' : 'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontSize:'12px',fontWeight:700,flexShrink:0,overflow:'hidden'}}>
+                                {m.avatar_url
+                                  ? <img src={m.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                                  : getInitials(m.full_name)}
                               </div>
                               <div>
                                 <div style={{fontWeight:700,color:'var(--blue)',fontSize:'13px'}}>
@@ -1990,6 +2088,30 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Pagination */}
+                {filteredMembers.length > MEMBERS_PAGE_SIZE && (
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 4px 4px',flexWrap:'wrap',gap:'10px'}}>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                      Showing {(membersPageClamped-1)*MEMBERS_PAGE_SIZE+1}–{Math.min(membersPageClamped*MEMBERS_PAGE_SIZE, filteredMembers.length)} of {filteredMembers.length}
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                      <button className="btn" style={{padding:'6px 12px',fontSize:'12px',background:'transparent',border:'1px solid var(--border)',color:'var(--blue)'}}
+                        disabled={membersPageClamped===1}
+                        onClick={() => setMembersPage(p => Math.max(1, p-1))}>
+                        <i className="fa-solid fa-chevron-left"></i> Prev
+                      </button>
+                      <span style={{fontSize:'12px',color:'var(--text-muted)',minWidth:'70px',textAlign:'center'}}>
+                        Page {membersPageClamped} of {membersTotalPages}
+                      </span>
+                      <button className="btn" style={{padding:'6px 12px',fontSize:'12px',background:'transparent',border:'1px solid var(--border)',color:'var(--blue)'}}
+                        disabled={membersPageClamped===membersTotalPages}
+                        onClick={() => setMembersPage(p => Math.min(membersTotalPages, p+1))}>
+                        Next <i className="fa-solid fa-chevron-right"></i>
+                      </button>
+                    </div>
+                  </div>
+                )}
                 </>
               )}
             </div>
@@ -3211,7 +3333,12 @@ export default function AdminPage() {
                 </button>
               </div>
 
-              {committees.length === 0 ? (
+              {committeesLoading ? (
+                <div style={{textAlign:'center',padding:'60px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'10px'}}></i>
+                  Loading committees…
+                </div>
+              ) : committees.length === 0 ? (
                 <div style={{textAlign:'center',padding:'60px',background:'var(--surface)',borderRadius:'var(--radius-lg)',border:'1px solid var(--border)',color:'var(--text-muted)'}}>
                   <i className="fa-solid fa-people-group" style={{fontSize:'36px',display:'block',marginBottom:'12px',opacity:.3}}></i>
                   <p style={{marginBottom:'16px'}}>No committees yet.</p>
@@ -3281,14 +3408,17 @@ export default function AdminPage() {
                                   <div style={{
                                     width:'36px',height:'36px',borderRadius:'50%',flexShrink:0,
                                     display:'flex',alignItems:'center',justifyContent:'center',
-                                    fontSize:'12px',fontWeight:700,
-                                    background: m.role.toLowerCase().includes('president')||m.role.toLowerCase().includes('chairman')||m.role.toLowerCase().includes('chairperson') ? 'var(--orange)' :
+                                    fontSize:'12px',fontWeight:700, overflow:'hidden',
+                                    background: (m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()]) ? 'transparent' :
+                                                m.role.toLowerCase().includes('president')||m.role.toLowerCase().includes('chairman')||m.role.toLowerCase().includes('chairperson') ? 'var(--orange)' :
                                                 m.role.toLowerCase().includes('vice')||m.role.toLowerCase().includes('co-')||m.role.toLowerCase().includes('secretary')||m.role.toLowerCase().includes('treasurer') ? 'var(--blue-mid)' : 'var(--blue-pale)',
                                     color: m.role.toLowerCase().includes('president')||m.role.toLowerCase().includes('chairman')||m.role.toLowerCase().includes('chairperson') ? '#fff' :
                                            m.role.toLowerCase().includes('vice')||m.role.toLowerCase().includes('co-')||m.role.toLowerCase().includes('secretary')||m.role.toLowerCase().includes('treasurer') ? '#fff' : 'var(--blue)',
                                     border: '1.5px solid var(--border)',
                                   }}>
-                                    {getInitials(m.name)}
+                                    {(m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()])
+                                      ? <img src={m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                                      : getInitials(m.name)}
                                   </div>
 
                                   {/* Name & Role */}
@@ -4433,7 +4563,7 @@ export default function AdminPage() {
               <div style={{background:'var(--blue-pale)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'16px',marginBottom:'20px'}}>
                 <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>
                   <i className="fa-solid fa-info-circle" style={{color:'var(--orange)',marginRight:'6px'}}></i>
-                  Committee changes are saved locally and reflected immediately on the public Committees page.
+                  Committee changes are saved to the database and visible to every visitor immediately — no longer just your own browser.
                 </div>
               </div>
               <div className="form-group">
@@ -4528,12 +4658,27 @@ export default function AdminPage() {
                 {ROLE_OPTIONS.map(r=><option key={r}>{r}</option>)}
               </select>
             </div>
+            <div className="form-group">
+              <label className="form-label">Photo URL <span style={{fontWeight:400,color:'var(--text-light)'}}>— optional</span></label>
+              <input className="form-input" type="text" placeholder="https://…"
+                value={mForm.photo_url} onChange={e=>setMForm(f=>({...f,photo_url:e.target.value}))}/>
+              <p style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>
+                A direct image link. Google Drive "view" links won't work as-is — use a direct-file link, or upload to image hosting instead.
+              </p>
+            </div>
+            <div className="form-group">
+              <label className="form-label">LinkedIn URL <span style={{fontWeight:400,color:'var(--text-light)'}}>— optional</span></label>
+              <input className="form-input" type="text" placeholder="https://linkedin.com/in/…"
+                value={mForm.linkedin_url} onChange={e=>setMForm(f=>({...f,linkedin_url:e.target.value}))}/>
+            </div>
 
             {/* Role preview */}
             {mForm.name && (
               <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px',background:'var(--blue-pale)',borderRadius:'var(--radius-md)',marginBottom:'20px'}}>
-                <div style={{width:'38px',height:'38px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'13px'}}>
-                  {getInitials(mForm.name)}
+                <div style={{width:'38px',height:'38px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'13px',overflow:'hidden'}}>
+                  {mForm.photo_url.trim()
+                    ? <img src={mForm.photo_url.trim()} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e => { e.currentTarget.style.display='none'; }}/>
+                    : getInitials(mForm.name)}
                 </div>
                 <div>
                   <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>{mForm.name}</div>

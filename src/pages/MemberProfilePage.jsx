@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
-import { committees } from '../data/index.js';
 
 function getInitials(name = '') {
   return name.split(' ').filter(w => w.length > 1).map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -13,10 +12,13 @@ function nameToSlug(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-// Find member in hardcoded committees by slug
-function findHardcodedMember(slug) {
-  for (const c of committees) {
-    for (const m of c.members) {
+// Find member in the real committees table by slug — this is a fallback for
+// someone the admin has added to a committee but who hasn't registered a
+// Supabase account yet, so their profile page can still show basic info.
+async function findCommitteeMember(slug) {
+  const { data } = await supabase.from('committees').select('name, members');
+  for (const c of data || []) {
+    for (const m of (c.members || [])) {
       if (nameToSlug(m.name) === slug) {
         return { name: m.name, role: m.role, committeeName: c.name };
       }
@@ -44,8 +46,8 @@ export default function MemberProfilePage() {
     const load = async () => {
       setLoading(true);
 
-      // 1. Check hardcoded data first — this always works
-      const hc = findHardcodedMember(slug);
+      // 1. Check the real committees table first — this always works
+      const hc = await findCommitteeMember(slug);
 
       // 2. Try to get DB profile (registered user)
       const { data: dbData } = await supabase

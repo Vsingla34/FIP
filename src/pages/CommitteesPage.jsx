@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
-import { committees as localCommittees } from '../data/index.js';
 
 const ROLE_STYLES = {
   president:          { avCls:'cm-av-chairman', roleCls:'cm-role-chairman' },
@@ -40,8 +39,9 @@ export default function CommitteesPage() {
   const committeeRefs  = useRef({});
 
   const [filter,    setFilter]    = useState('All');
+  const [committees, setCommittees] = useState([]);
+  const [committeesLoading, setCommitteesLoading] = useState(true);
   const [dbSlugs,   setDbSlugs]   = useState({});
-  const [liveExtra, setLiveExtra] = useState([]);
   const [avatarMap, setAvatarMap] = useState({});
 
   // Auto-scroll to the focused committee when arriving from Team page
@@ -60,6 +60,22 @@ export default function CommitteesPage() {
     setTimeout(tryScroll, 300);
   }, [focusCommittee]);
 
+  // The real roster, straight from the database — replaces the old
+  // hardcoded-array + "extra live members merged in by name-matching"
+  // approach, which is what produced a confusing duplicate entry whenever a
+  // linked account's real name didn't exactly match the hardcoded string.
+  useEffect(() => {
+    setCommitteesLoading(true);
+    supabase.from('committees').select('*').order('sort_order', { ascending: true })
+      .then(({ data }) => {
+        setCommittees((data || []).map(c => ({ ...c, desc: c.description })));
+        setCommitteesLoading(false);
+      });
+  }, []);
+
+  // Still needed for photos and profile-page links — this RPC now only
+  // supplies avatar_url/profile_slug per name, it no longer decides who's
+  // "extra".
   useEffect(() => {
     supabase.rpc('get_committee_members').then(({ data }) => {
       const slugMap = {};
@@ -70,27 +86,11 @@ export default function CommitteesPage() {
       });
       setDbSlugs(slugMap);
       setAvatarMap(avatars);
-
-      // Extra members not in hardcoded list
-      const hardcodedNames = new Set(
-        localCommittees.flatMap(c => c.members.map(m => m.name.toLowerCase().trim()))
-      );
-      setLiveExtra((data || []).filter(m =>
-        !hardcodedNames.has((m.full_name || '').toLowerCase().trim())
-      ));
     });
   }, []);
 
-  const categories = ['All', ...new Set(localCommittees.map(c => c.category))];
-  const filtered   = filter === 'All' ? localCommittees : localCommittees.filter(c => c.category === filter);
-
-  // Merge extra live members into their committee
-  const mergedFiltered = filtered.map(committee => {
-    const extra = liveExtra
-      .filter(m => m.committee_name === committee.name)
-      .map(m => ({ name: m.full_name, role: m.committee_role || 'Member', isLive: true }));
-    return { ...committee, members: [...committee.members, ...extra] };
-  });
+  const categories = ['All', ...new Set(committees.map(c => c.category))];
+  const filtered   = filter === 'All' ? committees : committees.filter(c => c.category === filter);
 
   return (
     <>
@@ -111,7 +111,12 @@ export default function CommitteesPage() {
           </div>
 
           <div className="committee-grid">
-            {mergedFiltered.map(c => (
+            {committeesLoading ? (
+              <div style={{gridColumn:'1/-1',textAlign:'center',padding:'60px',color:'var(--text-light)'}}>
+                <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'10px'}}></i>
+                Loading committees…
+              </div>
+            ) : filtered.map(c => (
               <div
                 className="committee-card"
                 key={c.id}
@@ -134,16 +139,14 @@ export default function CommitteesPage() {
                       <div
                         key={i}
                         className="cm-row"
-                        style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',transition:'background 0.15s',
-                          ...(m.isLive ? {background:'rgba(255,215,0,0.05)'} : {})
-                        }}
+                        style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',transition:'background 0.15s'}}
                         onClick={() => navigate(`/member/${slug}`)}
                         onMouseEnter={e => e.currentTarget.style.background='var(--blue-pale)'}
-                        onMouseLeave={e => e.currentTarget.style.background = m.isLive ? 'rgba(255,215,0,0.05)' : 'transparent'}
+                        onMouseLeave={e => e.currentTarget.style.background='transparent'}
                       >
-                        <div className={`cm-av ${avCls}`} style={avatarMap[m.name.toLowerCase().trim()] ? {overflow:'hidden', padding:0} : undefined}>
-                          {avatarMap[m.name.toLowerCase().trim()]
-                            ? <img src={avatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                        <div className={`cm-av ${avCls}`} style={(m.photo_url || avatarMap[m.name.toLowerCase().trim()]) ? {overflow:'hidden', padding:0} : undefined}>
+                          {(m.photo_url || avatarMap[m.name.toLowerCase().trim()])
+                            ? <img src={m.photo_url || avatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
                             : getInitials(m.name)}
                         </div>
                         <div style={{flex:1,minWidth:0}}>

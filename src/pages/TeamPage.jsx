@@ -3,16 +3,6 @@ import * as React from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase.js';
-import { committees as defaultCommittees } from '../data/index.js';
-
-const STORAGE_KEY = 'fip_committees';
-
-function loadCommittees() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : defaultCommittees;
-  } catch { return defaultCommittees; }
-}
 
 function getInitials(name) {
   return (name || '').split(' ').filter(w => w.length > 1).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
@@ -43,16 +33,11 @@ export default function TeamPage() {
   const getSlug  = (name) => profileSlugs[name.toLowerCase()]  || null;
   const getPhoto = (name) => profilePhotos[name.toLowerCase()] || null;
   const { showToast } = useApp();
-  const [committees, setCommittees] = useState(loadCommittees);
+  const [committees, setCommittees] = useState([]);
 
   useEffect(() => {
-    const sync = () => setCommittees(loadCommittees());
-    window.addEventListener('committees-updated', sync);
-    window.addEventListener('storage', sync);
-    return () => {
-      window.removeEventListener('committees-updated', sync);
-      window.removeEventListener('storage', sync);
-    };
+    supabase.from('committees').select('*').order('sort_order', { ascending: true })
+      .then(({ data }) => setCommittees((data || []).map(c => ({ ...c, desc: c.description }))));
   }, []);
 
   /* ── Founders: Executive Committee members ── */
@@ -60,6 +45,8 @@ export default function TeamPage() {
   const founders = (execCommittee?.members || []).map((m, i) => ({
     name: m.name,
     role: m.role,
+    photoUrl: m.photo_url || null,
+    linkedinUrl: m.linkedin_url || null,
     initials: getInitials(m.name),
     cls: AV_COLORS[i % AV_COLORS.length],
   }));
@@ -98,8 +85,8 @@ export default function TeamPage() {
             {founders.map((t, i) => (
               <div className="team-card" key={i}>
                 <div className={`team-av ${t.cls}`} style={{overflow:'hidden', padding:0}}>
-                  {getPhoto(t.name)
-                    ? <img src={getPhoto(t.name)} alt={t.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                  {(t.photoUrl || getPhoto(t.name))
+                    ? <img src={t.photoUrl || getPhoto(t.name)} alt={t.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
                     : t.initials}
                 </div>
                 {getSlug(t.name) ? (
@@ -121,7 +108,11 @@ export default function TeamPage() {
                 })()}
                 <div className="team-qual">FIP Executive Committee</div>
                 <div className="team-socials">
-                  <div className="team-sb" onClick={() => showToast('Opening LinkedIn…')}><i className="fa-brands fa-linkedin-in"></i></div>
+                  <div className="team-sb" onClick={() => {
+                    if (!t.linkedinUrl) { showToast('LinkedIn not linked for this member yet.'); return; }
+                    const url = /^https?:\/\//i.test(t.linkedinUrl) ? t.linkedinUrl : `https://${t.linkedinUrl}`;
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}><i className="fa-brands fa-linkedin-in"></i></div>
                   <div className="team-sb" onClick={() => showToast('Opening WhatsApp…')}><i className="fa-brands fa-whatsapp"></i></div>
                 </div>
               </div>
