@@ -77,6 +77,26 @@ export default function HomePage() {
   const navigate = useNavigate();
   const [testimonials, setTestimonials] = useState(FALLBACK);
 
+  // Executive Committee — same data source as the Team page (committees
+  // table + real-account photo matching), kept independent since this is
+  // just a compact photo/name/role strip, not the full founder cards.
+  const [execCommittee, setExecCommittee] = useState([]);
+  useEffect(() => {
+    let avatarMap = {};
+    supabase.rpc('get_committee_members').then(({ data }) => {
+      (data || []).forEach(m => { if (m.full_name && m.avatar_url) avatarMap[m.full_name.toLowerCase().trim()] = m.avatar_url; });
+      supabase.from('committees').select('members').eq('name', 'Executive Committee').maybeSingle()
+        .then(({ data: committee }) => {
+          const list = (committee?.members || []).map(m => ({
+            name: m.name,
+            role: m.role,
+            photo: m.photo_url || avatarMap[m.name.toLowerCase().trim()] || null,
+          }));
+          setExecCommittee(list);
+        });
+    });
+  }, []);
+
   // Testimonials slide as GROUPS of 3, not one at a time. Same drag pattern
   // as the hero slider above (refs to dodge stale closures in timers, a
   // px-threshold to decide snap-forward vs snap-back) — kept fully
@@ -609,6 +629,42 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* EXECUTIVE COMMITTEE — photo, name, role only */}
+      {execCommittee.length > 0 && (
+        <section className="section">
+          <div className="container">
+            <div className="section-header">
+              <span className="eyebrow">Leadership</span>
+              <h2 className="section-heading">Executive <span>Committee</span></h2>
+              <p className="section-sub">The professionals who built FIP and continue to drive its mission.</p>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'28px',maxWidth:'820px',margin:'0 auto'}}>
+              {execCommittee.map((m, i) => {
+                const initials = (m.name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase() || '?';
+                return (
+                  <div key={i} style={{textAlign:'center'}}>
+                    <div style={{
+                      width:'88px',height:'88px',borderRadius:'50%',margin:'0 auto 14px',overflow:'hidden',
+                      background: m.photo ? 'transparent' : 'linear-gradient(135deg,var(--blue),#1B4A9E)',
+                      display:'flex',alignItems:'center',justifyContent:'center',
+                      color:'#FFD09B',fontWeight:800,fontSize:'22px',
+                      border:'3px solid var(--orange-pale)',
+                    }}>
+                      {m.photo
+                        ? <img src={m.photo} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%'}}/>
+                        : initials}
+                    </div>
+                    <div style={{fontWeight:800,color:'var(--blue)',fontSize:'14px',marginBottom:'2px'}}>{m.name}</div>
+                    <div style={{fontSize:'11.5px',fontWeight:700,color:'var(--orange)',textTransform:'uppercase',letterSpacing:'.3px',marginBottom:'2px'}}>{m.role}</div>
+                    <div style={{fontSize:'11px',color:'var(--text-muted)'}}>of Federation of Indian Professionals</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* FEATURES */}
       {/* ── TESTIMONIALS — live from Supabase ── */}

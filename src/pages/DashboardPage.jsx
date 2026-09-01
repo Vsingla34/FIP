@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { getRSVPs, getPayments } from '../lib/api.js';
@@ -543,6 +543,43 @@ export default function DashboardPage() {
 
   const [enrollments, setEnrollments] = useState([]);
   const [rsvps,       setRsvps]       = useState([]);
+
+  // Committee-specific profile fields — same field set as the self-edit form
+  // on /member/:slug, just accessible from here too. Only relevant for
+  // committee members, so this stays hidden entirely for everyone else.
+  const [ccForm, setCcForm] = useState({
+    tagline:'', bio:'', organisation:'', linkedin_url:'', website_url:'', expertise:'',
+  });
+  const [ccSaving, setCcSaving] = useState(false);
+  useEffect(() => {
+    if (!profile) return;
+    setCcForm({
+      tagline:      profile.tagline      || '',
+      bio:          profile.bio          || '',
+      organisation: profile.organisation || '',
+      linkedin_url: profile.linkedin_url || '',
+      website_url:  profile.website_url  || '',
+      expertise:    (profile.expertise   || []).join(', '),
+    });
+  }, [profile?.id]);
+
+  const handleSaveCommitteeProfile = async (e) => {
+    e.preventDefault();
+    setCcSaving(true);
+    try {
+      await updateProfile({
+        tagline:      ccForm.tagline.trim()      || null,
+        bio:          ccForm.bio.trim()          || null,
+        organisation: ccForm.organisation.trim() || null,
+        linkedin_url: ccForm.linkedin_url.trim() || null,
+        website_url:  ccForm.website_url.trim()  || null,
+        expertise:    ccForm.expertise.split(',').map(x => x.trim()).filter(Boolean),
+      });
+      showToast('Committee profile updated!');
+    } catch (err) {
+      showToast('Failed to save: ' + err.message, true);
+    } finally { setCcSaving(false); }
+  };
   const [payments,    setPayments]    = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
 
@@ -1133,6 +1170,59 @@ export default function DashboardPage() {
               </div>
               <button type="submit" className="btn btn-secondary btn-sm">Save Changes</button>
             </form>
+
+            {profile?.is_committee_member && (
+              <div style={{marginTop:'32px',paddingTop:'32px',borderTop:'1px solid var(--border)'}}>
+                <div className="dash-card-title" style={{marginBottom:'6px'}}>
+                  <i className="fa-solid fa-crown" style={{color:'#B8860B',marginRight:'8px'}}></i>
+                  Committee Profile
+                </div>
+                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}}>
+                  Shown on your public committee page ({profile.committee_name}
+                  {profile.committee_role ? ` · ${profile.committee_role}` : ''}) —{' '}
+                  {profile.profile_slug && (
+                    <Link to={`/member/${profile.profile_slug}`} style={{color:'var(--orange)',fontWeight:600}}>view it →</Link>
+                  )}
+                </p>
+                <form onSubmit={handleSaveCommitteeProfile}>
+                  <div className="form-group">
+                    <label className="form-label">Tagline</label>
+                    <input className="form-input" placeholder="e.g. GST Specialist · 10+ years"
+                      value={ccForm.tagline} onChange={e=>setCcForm(f=>({...f,tagline:e.target.value}))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Bio</label>
+                    <textarea className="form-textarea" placeholder="Your professional journey…"
+                      value={ccForm.bio} onChange={e=>setCcForm(f=>({...f,bio:e.target.value}))} style={{minHeight:'110px'}}></textarea>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Organisation</label>
+                    <input className="form-input" placeholder="Firm or company name"
+                      value={ccForm.organisation} onChange={e=>setCcForm(f=>({...f,organisation:e.target.value}))}/>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">LinkedIn URL</label>
+                      <input className="form-input" placeholder="https://linkedin.com/in/…"
+                        value={ccForm.linkedin_url} onChange={e=>setCcForm(f=>({...f,linkedin_url:e.target.value}))}/>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Website URL</label>
+                      <input className="form-input" placeholder="https://…"
+                        value={ccForm.website_url} onChange={e=>setCcForm(f=>({...f,website_url:e.target.value}))}/>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Expertise Areas <span style={{fontWeight:400,color:'var(--text-light)'}}>— comma separated</span></label>
+                    <input className="form-input" placeholder="GST, IBC, Corporate Law, FEMA"
+                      value={ccForm.expertise} onChange={e=>setCcForm(f=>({...f,expertise:e.target.value}))}/>
+                  </div>
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={ccSaving}>
+                    {ccSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-check"></i> Save Committee Profile</>}
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         )}
 

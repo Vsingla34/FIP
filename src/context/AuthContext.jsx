@@ -198,6 +198,38 @@ export function AuthProvider({ children }) {
         console.error('Profile upsert after OTP:', profErr.message);
       } else if (prof) {
         setProfile(prof);
+
+        // Auto-assign committee membership if this person's name matches an
+        // existing committee roster entry — e.g. an admin already listed
+        // "CA Gaurav Aggarwal" in Committee Management before he ever
+        // registered; the moment he signs up under that exact name, this
+        // links his real account automatically instead of requiring the
+        // admin to manually find and assign him afterward. Admin can still
+        // change or remove this via the existing Assign/Remove Committee
+        // tools — this only sets the initial default.
+        try {
+          const stripCA = (s) => (s || '').toLowerCase().replace(/^ca\s+/, '').trim();
+          const target = stripCA(prof.full_name);
+          if (target) {
+            const { data: allCommittees } = await supabase.from('committees').select('name, members');
+            for (const c of allCommittees || []) {
+              const match = (c.members || []).find(m => stripCA(m.name) === target);
+              if (match) {
+                const { data: updated, error: assignErr } = await supabase.from('profiles').update({
+                  is_committee_member: true,
+                  committee_name: c.name,
+                  committee_role: match.role,
+                }).eq('id', prof.id).select().single();
+                if (!assignErr && updated) setProfile(updated);
+                break; // stop at first match — someone shouldn't match more than one committee by coincidence
+              }
+            }
+          }
+        } catch (e) {
+          // Non-fatal — worst case, admin assigns manually the way they
+          // already could before this existed.
+          console.warn('Auto committee-assign at signup failed:', e.message);
+        }
       }
     }
 

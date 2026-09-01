@@ -217,10 +217,13 @@ export default function AdminPage() {
      COMMITTEE CRUD
   ════════════════════════════════════════ */
 
-  /* open add-committee modal */
+  /* Committees data — fetched once on mount, not gated by which tab is
+     active. It's used by more than just the Committees tab: the "Assign
+     Committee Role" modal (opened from Members) needs this same list for its
+     dropdown, and was showing empty options because this fetch previously
+     only ran while viewing the Committees tab specifically. */
   const [committeeAvatarMap, setCommitteeAvatarMap] = useState({});
   useEffect(() => {
-    if (tab !== 'committees') return;
     setCommitteesLoading(true);
     supabase.from('committees').select('*').order('sort_order', { ascending: true })
       .then(({ data, error }) => {
@@ -238,7 +241,7 @@ export default function AdminPage() {
       (data || []).forEach(m => { if (m.full_name && m.avatar_url) avatars[m.full_name.toLowerCase().trim()] = m.avatar_url; });
       setCommitteeAvatarMap(avatars);
     });
-  }, [tab]);
+  }, []);
 
   const openAddCommittee = () => {
     setCForm({ name:'', abbr:'', category:'Other', desc:'' });
@@ -1972,7 +1975,7 @@ export default function AdminPage() {
                             <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
                               <div style={{width:'34px',height:'34px',borderRadius:'50%',background: m.avatar_url ? 'transparent' : 'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontSize:'12px',fontWeight:700,flexShrink:0,overflow:'hidden'}}>
                                 {m.avatar_url
-                                  ? <img src={m.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                                  ? <img src={m.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%'}}/>
                                   : getInitials(m.full_name)}
                               </div>
                               <div>
@@ -3417,7 +3420,7 @@ export default function AdminPage() {
                                     border: '1.5px solid var(--border)',
                                   }}>
                                     {(m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()])
-                                      ? <img src={m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                                      ? <img src={m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%'}}/>
                                       : getInitials(m.name)}
                                   </div>
 
@@ -4677,7 +4680,7 @@ export default function AdminPage() {
               <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px',background:'var(--blue-pale)',borderRadius:'var(--radius-md)',marginBottom:'20px'}}>
                 <div style={{width:'38px',height:'38px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'13px',overflow:'hidden'}}>
                   {mForm.photo_url.trim()
-                    ? <img src={mForm.photo_url.trim()} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e => { e.currentTarget.style.display='none'; }}/>
+                    ? <img src={mForm.photo_url.trim()} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%'}} onError={e => { e.currentTarget.style.display='none'; }}/>
                     : getInitials(mForm.name)}
                 </div>
                 <div>
@@ -4906,7 +4909,7 @@ export default function AdminPage() {
                 border: memberDetail.is_committee_member ? '2px solid #FFD700' : '2px solid var(--border)',
               }}>
                 {memberDetail.avatar_url
-                  ? <img src={memberDetail.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                  ? <img src={memberDetail.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%'}}/>
                   : (memberDetail.full_name||'M').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()
                 }
               </div>

@@ -29,7 +29,7 @@ async function findCommitteeMember(slug) {
 
 export default function MemberProfilePage() {
   const { slug }      = useParams();
-  const { user, profile: myProfile, updateProfile } = useAuth();
+  const { user, profile: myProfile, isAdmin, updateProfile } = useAuth();
   const { showToast } = useApp();
   const navigate      = useNavigate();
 
@@ -40,7 +40,17 @@ export default function MemberProfilePage() {
   const [saving,   setSaving]   = useState(false);
   const [form,     setForm]     = useState({});
 
-  const isOwner = user && myProfile?.profile_slug === slug;
+  // ID-based, not slug-based — a slug string comparison breaks the moment a
+  // committee entry's name differs from the account's real name (exactly
+  // the case that needed fixing above). Comparing the actual resolved
+  // profile ids is immune to any slug mismatch entirely.
+  const isOwner = user && profile && myProfile?.id === profile.id;
+  // Admin can edit ANY committee member's profile, not just their own — this
+  // is the actual gap: previously only the member themselves could ever see
+  // the edit UI, so an admin trying to fill in someone's profile on their
+  // behalf had no way to do it here at all. Requires a real profile row to
+  // exist (a committee entry with no linked account has nothing to edit).
+  const canEdit = (isOwner || isAdmin);
 
   useEffect(() => {
     const load = async () => {
@@ -49,12 +59,35 @@ export default function MemberProfilePage() {
       // 1. Check the real committees table first — this always works
       const hc = await findCommitteeMember(slug);
 
-      // 2. Try to get DB profile (registered user)
-      const { data: dbData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('profile_slug', slug)
-        .maybeSingle();
+      // 2. Try a direct slug match first — the fast path for accounts whose
+      // profile_slug happens to match the committee entry's name exactly.
+      let dbData = null;
+      {
+        const { data } = await supabase.from('profiles').select('*').eq('profile_slug', slug).maybeSingle();
+        dbData = data;
+      }
+
+      // 3. If that didn't find anyone but we DO have a committee entry, fall
+      // back to fuzzy name matching — the same mechanism the Team and
+      // Committees pages already use successfully. This is needed because a
+      // committee entry often uses a formal name ("CA Vishal Singla") while
+      // the person's real registered account uses a different variant
+      // ("Vishal Singla") — the URL slug derived from the committee name
+      // then never matches the account's actual stored profile_slug, and a
+      // strict equality check alone would never find them.
+      if (!dbData && hc) {
+        const { data: cm } = await supabase.rpc('get_committee_members');
+        const stripCA = (s) => (s || '').toLowerCase().replace(/^ca\s+/, '').trim();
+        const target = stripCA(hc.name);
+        const match = (cm || []).find(m => {
+          const n = stripCA(m.full_name);
+          return n === target || n.includes(target) || target.includes(n);
+        });
+        if (match?.id) {
+          const { data } = await supabase.from('profiles').select('*').eq('id', match.id).maybeSingle();
+          dbData = data;
+        }
+      }
 
       // 3. If found in DB and is committee member
       if (dbData && dbData.is_committee_member) {
@@ -101,10 +134,21 @@ export default function MemberProfilePage() {
         website_url:  form.website_url.trim()  || null,
         expertise:    form.expertise.split(',').map(e => e.trim()).filter(Boolean),
       };
-      await updateProfile(updates);
+      if (isOwner) {
+        // Self-edit: use the shared helper so the navbar/cached profile stay
+        // in sync immediately, not just this page.
+        await updateProfile(updates);
+      } else {
+        // Admin editing someone ELSE's profile. updateProfile() always
+        // targets auth.uid() — using it here would silently overwrite the
+        // ADMIN's own profile instead of the member being viewed. Target
+        // this profile's own id directly instead.
+        const { error } = await supabase.from('profiles').update(updates).eq('id', profile.id);
+        if (error) throw error;
+      }
       setProfile(prev => ({ ...prev, ...updates }));
       setEditing(false);
-      showToast('Profile updated successfully!');
+      showToast(isOwner ? 'Profile updated successfully!' : `${profile.full_name}'s profile updated!`);
     } catch (err) {
       showToast('Failed to save: ' + err.message, true);
     } finally { setSaving(false); }
@@ -195,10 +239,10 @@ export default function MemberProfilePage() {
               </div>
             </div>
 
-            {isOwner && !editing && (
+            {canEdit && !!profile && !editing && (
               <button className="btn btn-sm" style={{background:'rgba(255,255,255,0.12)',color:'#fff',border:'1px solid rgba(255,255,255,0.25)',flexShrink:0}}
                 onClick={() => setEditing(true)}>
-                <i className="fa-solid fa-pen"></i> Edit Profile
+                <i className="fa-solid fa-pen"></i> {isOwner ? 'Edit Profile' : 'Edit as Admin'}
               </button>
             )}
           </div>
@@ -213,9 +257,16 @@ export default function MemberProfilePage() {
             <div>
               {editing ? (
                 <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'28px'}}>
-                  <div style={{fontSize:'18px',fontWeight:700,color:'var(--blue)',marginBottom:'20px'}}>
-                    <i className="fa-solid fa-pen" style={{color:'var(--orange)',marginRight:'8px'}}></i>Edit Your Profile
+                  <div style={{fontSize:'18px',fontWeight:700,color:'var(--blue)',marginBottom: isOwner ? '20px' : '10px'}}>
+                    <i className="fa-solid fa-pen" style={{color:'var(--orange)',marginRight:'8px'}}></i>
+                    {isOwner ? 'Edit Your Profile' : `Editing ${profile?.full_name}'s Profile`}
                   </div>
+                  {!isOwner && (
+                    <div style={{background:'#FFF7E6',border:'1px solid #FFD580',borderRadius:'8px',padding:'10px 14px',marginBottom:'18px',fontSize:'12.5px',color:'#8B5A00'}}>
+                      <i className="fa-solid fa-triangle-exclamation" style={{marginRight:'6px'}}></i>
+                      You're editing this as an admin on <strong>{profile?.full_name}</strong>'s behalf, not your own profile.
+                    </div>
+                  )}
                   <div className="form-group">
                     <label className="form-label">Tagline</label>
                     <input className="form-input" placeholder="e.g. GST Specialist · 10+ years" value={form.tagline} onChange={e=>setForm(f=>({...f,tagline:e.target.value}))}/>
@@ -264,11 +315,11 @@ export default function MemberProfilePage() {
                       </div>
                       <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.8,margin:0,whiteSpace:'pre-wrap'}}>{profile.bio}</p>
                     </div>
-                  ) : isOwner ? (
+                  ) : (canEdit && !!profile) ? (
                     <div onClick={() => setEditing(true)} style={{background:'var(--off-white)',border:'2px dashed var(--border)',borderRadius:'var(--radius-lg)',padding:'32px',marginBottom:'16px',textAlign:'center',cursor:'pointer',color:'var(--text-muted)'}}>
                       <i className="fa-solid fa-pen" style={{fontSize:'22px',display:'block',marginBottom:'8px',opacity:.3}}></i>
-                      <div style={{fontWeight:600}}>Add your bio</div>
-                      <div style={{fontSize:'12px',marginTop:'4px'}}>Tell other members about yourself</div>
+                      <div style={{fontWeight:600}}>{isOwner ? 'Add your bio' : `Add a bio for ${profile.full_name}`}</div>
+                      <div style={{fontSize:'12px',marginTop:'4px'}}>{isOwner ? 'Tell other members about yourself' : 'Editing on their behalf as admin'}</div>
                     </div>
                   ) : (
                     <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'32px',marginBottom:'16px',textAlign:'center',color:'var(--text-muted)'}}>
@@ -343,16 +394,17 @@ export default function MemberProfilePage() {
                   <p style={{fontSize:'12px',color:'#8B6000',margin:0}}>
                     This member hasn't set up their profile yet.
                     {isOwner && <><br/><button onClick={() => setEditing(true)} style={{background:'none',border:'none',color:'var(--orange)',fontWeight:600,cursor:'pointer',fontSize:'12px',padding:0,marginTop:'6px'}}>Set up your profile →</button></>}
+                    {!isOwner && isAdmin && <><br/><span style={{fontSize:'11px',color:'#8B6000',opacity:.8}}>No account exists yet — use Committee Management to set their photo or details.</span></>}
                   </p>
                 )}
               </div>
 
-              {isOwner && !editing && (
+              {canEdit && !!profile && !editing && (
                 <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'var(--radius-md)',padding:'14px 16px',fontSize:'12px',color:'var(--blue-mid)'}}>
                   <i className="fa-solid fa-circle-info" style={{marginRight:'6px'}}></i>
-                  This is your public profile visible to all FIP members.
+                  {isOwner ? 'This is your public profile visible to all FIP members.' : `Editable as admin — this profile is publicly visible to all FIP members.`}
                   <button onClick={() => setEditing(true)} style={{display:'block',marginTop:'8px',background:'none',border:'none',color:'var(--orange)',fontWeight:600,cursor:'pointer',fontSize:'12px',padding:0}}>
-                    Edit profile →
+                    {isOwner ? 'Edit profile →' : 'Edit as admin →'}
                   </button>
                 </div>
               )}

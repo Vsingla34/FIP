@@ -86,7 +86,7 @@ export default function TeamPage() {
               <div className="team-card" key={i}>
                 <div className={`team-av ${t.cls}`} style={{overflow:'hidden', padding:0}}>
                   {(t.photoUrl || getPhoto(t.name))
-                    ? <img src={t.photoUrl || getPhoto(t.name)} alt={t.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                    ? <img src={t.photoUrl || getPhoto(t.name)} alt={t.name} style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%',borderRadius:'50%'}}/>
                     : t.initials}
                 </div>
                 {getSlug(t.name) ? (
@@ -106,7 +106,7 @@ export default function TeamPage() {
                     </div>
                   );
                 })()}
-                <div className="team-qual">FIP Executive Committee</div>
+                <div className="team-qual">{t.role} of Federation of Indian Professionals</div>
                 <div className="team-socials">
                   <div className="team-sb" onClick={() => {
                     if (!t.linkedinUrl) { showToast('LinkedIn not linked for this member yet.'); return; }
@@ -162,7 +162,7 @@ export default function TeamPage() {
                       <div className="leader-card" key={i}>
                         <div className="leader-av" style={{overflow:'hidden', padding:0}}>
                           {getPhoto(m.name)
-                            ? <img src={getPhoto(m.name)} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                            ? <img src={getPhoto(m.name)} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%',borderRadius:'50%'}}/>
                             : getInitials(m.name)}
                         </div>
                         <div>

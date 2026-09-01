@@ -146,7 +146,7 @@ export default function CommitteesPage() {
                       >
                         <div className={`cm-av ${avCls}`} style={(m.photo_url || avatarMap[m.name.toLowerCase().trim()]) ? {overflow:'hidden', padding:0} : undefined}>
                           {(m.photo_url || avatarMap[m.name.toLowerCase().trim()])
-                            ? <img src={m.photo_url || avatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:'50%'}}/>
+                            ? <img src={m.photo_url || avatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%',borderRadius:'50%'}}/>
                             : getInitials(m.name)}
                         </div>
                         <div style={{flex:1,minWidth:0}}>

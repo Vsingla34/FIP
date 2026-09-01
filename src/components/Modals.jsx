@@ -776,7 +776,7 @@ export default function Modals() {
             <div className="reg-type-row">
               <button type="button" className={`reg-type-btn${regType==='student'?' active':''}`} onClick={() => setRegType('student')}>
                 <i className="fa-solid fa-graduation-cap"></i>
-                <div><div className="reg-type-label">Student / Learner</div><div className="reg-type-desc">Free · Pay per course only</div></div>
+                <div><div className="reg-type-label">Guest User</div><div className="reg-type-desc">Free · Pay per course only</div></div>
               </button>
               <button type="button" className={`reg-type-btn${regType==='member'?' active':''}`} onClick={() => setRegType('member')}>
                 <i className="fa-solid fa-id-badge"></i>
