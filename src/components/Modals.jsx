@@ -225,7 +225,7 @@ export default function Modals() {
         email:        f.email.value.trim(),
         password:     f.password.value,
         fullName:     f.fullName.value.trim(),
-        profession:   regType === 'member' ? f.profession?.value : 'Student',
+        profession:   regType === 'member' ? f.profession?.value : null,
         phone:        f.phone.value.trim(),
         accountType:  regType,
         referralCode,
