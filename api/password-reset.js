@@ -30,8 +30,37 @@ export default async function handler(req, res) {
     if (!email) return res.status(400).json({ error: 'Email is required.' });
     const normalEmail = email.toLowerCase().trim();
 
-    const { data: profile } = await supabaseAdmin
+    let { data: profile } = await supabaseAdmin
       .from('profiles').select('id,full_name').eq('email', normalEmail).maybeSingle();
+
+    if (!profile) {
+      // Ghost user check: they may have started signing up but never
+      // completed OTP verification, so an auth.users row exists with no
+      // matching profiles row. Without this, they're permanently stuck —
+      // password reset fails (no profile), and re-registering also fails
+      // (Supabase rejects a duplicate email already in auth.users). Self-heal
+      // by creating the missing profile now, using whatever they originally
+      // entered at signup.
+      const { data: ghostRows } = await supabaseAdmin.rpc('admin_find_auth_user_by_email', { p_email: normalEmail });
+      const ghost = ghostRows?.[0];
+      if (ghost) {
+        const meta = ghost.raw_user_meta_data || {};
+        const { data: healed, error: healErr } = await supabaseAdmin.from('profiles').insert({
+          id: ghost.id,
+          email: normalEmail,
+          full_name: meta.full_name || 'FIP Member',
+          phone: meta.phone || null,
+          profession: meta.profession || null,
+          account_type: meta.account_type || 'guest_user',
+          membership_status: 'Inactive',
+          role: 'member',
+          profile_public: true,
+        }).select('id,full_name').single();
+        if (!healErr && healed) profile = healed;
+        else if (healErr) console.error('Ghost-user self-heal failed:', healErr.message);
+      }
+    }
+
     if (!profile) return res.status(404).json({ error: 'No account found with that email.' });
 
     const otp = String(Math.floor(100000 + Math.random() * 900000));
