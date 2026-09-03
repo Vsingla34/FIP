@@ -56,16 +56,15 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { name, email, courseTitle, eventDate, eventTime, zoomLink, zoomPassword, whatsappGroupLink, customSubject, customBody, transactionId } = req.body;
+  const { name, email, courseTitle, eventDate, eventTime, zoomLink, zoomPassword, whatsappGroupLink, customSubject, customBody, transactionId, invoiceNumber } = req.body;
   if (!email || !courseTitle) return res.status(400).json({ error: 'Missing fields' });
 
-  // Generated ONCE and reused for both the inline HTML invoice and the PDF
-  // attachment below — same fix as send-event-confirmation.js. Each used to
-  // call Date.now() independently at a different line, producing two
-  // different numbers for the same transaction.
-  const invoiceNo = 'FIP-INV-' + new Date().getFullYear() + '-' +
+  // Prefer the real, sequential, GST-compliant invoice number stored on the
+  // payment row — same fix as send-event-confirmation.js. Falls back to a
+  // display-only number only if the caller couldn't provide a real one.
+  const invoiceNo = invoiceNumber || ('FIP-INV-' + new Date().getFullYear() + '-' +
     (transactionId ? transactionId.replace(/[^0-9]/g, '').slice(-5) || Date.now().toString().slice(-5)
-                    : Date.now().toString().slice(-5));
+                    : Date.now().toString().slice(-5)));
 
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
     return res.status(200).json({ sent: false, reason: 'Email not configured' });

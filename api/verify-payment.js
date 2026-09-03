@@ -4,8 +4,9 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
-import { applyRefundUpdate } from './_lib/refundSync.js';
+import { applyRefundUpdate, sendCreditNoteEmail } from './_lib/refundSync.js';
 import { findOrCreateAccount, sendAccountSetupEmail } from './_lib/accountProvisioning.js';
+import { ensureInvoiceNumber, ensureCreditNoteNumber } from './_lib/invoicing.js';
 
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -620,6 +621,16 @@ async function handleReconcile(req, res) {
             sync_note: 'Corrected by reconciler',
           }).eq('id', row.id);
 
+          // Same coverage as the webhook and verify-payment fallback — the
+          // reconciler is a third path that can transition a payment's real
+          // status, so it needs the same invoice/credit-note generation.
+          if (truth === 'paid') {
+            await ensureInvoiceNumber(supabaseAdmin, row.id);
+          } else if (truth === 'refunded' || truth === 'partially_refunded') {
+            await ensureCreditNoteNumber(supabaseAdmin, row.id, new Date().toISOString());
+            await sendCreditNoteEmail(supabaseAdmin, row.id);
+          }
+
           if (truth === 'refunded' && row.status !== 'refunded' && row.purchase_type) {
             // The reconciler found a refund the webhook never told us about —
             // this is exactly the scenario in this conversation, so revoke
@@ -717,6 +728,7 @@ async function handleReconcile(req, res) {
           event: 'enrollment.autohealed', old_status: 'paid', new_status: 'paid',
           detail: { event_title: ev.title, email: rsvp.email, by: auth.adminId },
         });
+        const autoInvoiceNo = await ensureInvoiceNumber(supabaseAdmin, pay.id);
         try {
           await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-event-confirmation`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -725,6 +737,7 @@ async function handleReconcile(req, res) {
               eventTitle: ev.title, eventDate: ev.event_date, eventTime: ev.event_time,
               eventLocation: ev.location, eventType: ev.event_type,
               isPaid: true, amount: pay.total_amount, transactionId: pay.razorpay_payment_id,
+              invoiceNumber: autoInvoiceNo,
               zoomLink: ev.zoom_link, whatsappGroupLink: ev.whatsapp_group_link,
             }),
           });
@@ -777,12 +790,14 @@ async function handleReconcile(req, res) {
           event: 'enrollment.autohealed', old_status: 'paid', new_status: 'paid',
           detail: { course_title: course.title, email: rsvp.email, by: auth.adminId },
         });
+        const autoInvoiceNo = await ensureInvoiceNumber(supabaseAdmin, pay.id);
         try {
           await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-course-confirmation`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               name: rsvp.full_name || rsvp.email, email: rsvp.email,
               courseTitle: course.title, transactionId: pay.razorpay_payment_id,
+              invoiceNumber: autoInvoiceNo,
             }),
           });
         } catch (e) { /* non-fatal */ }
@@ -894,6 +909,11 @@ export default async function handler(req, res) {
       if (updateError) return res.status(500).json({ error: 'Failed to update payment status' });
       updatedPayment = up;
     }
+
+    // Same redundancy enrollment already has — this runs whether the
+    // webhook already handled invoicing or not, since ensureInvoiceNumber
+    // is idempotent (checks for an existing number before generating one).
+    const invoiceNumber = await ensureInvoiceNumber(supabaseAdmin, payment.id);
 
     // 4. Apply effect (activate membership OR enroll in course)
     if (payment.purchase_type === 'membership') {
@@ -1065,6 +1085,7 @@ export default async function handler(req, res) {
               zoomLink:           course.zoom_link,
               zoomPassword:       course.zoom_password,
               whatsappGroupLink:  course.whatsapp_group_link,
+              invoiceNumber,
               customSubject:      course.email_subject || null,
               customBody:         course.email_body    || null,
             }),
@@ -1155,6 +1176,7 @@ export default async function handler(req, res) {
               isPaid:            true,
               amount:            payment.total_amount,
               transactionId:     razorpay_payment_id,
+              invoiceNumber,
               zoomLink:          ev?.zoom_link,
               whatsappGroupLink: ev?.whatsapp_group_link,
               gstNumber:         rsvp.gst_number       || null,

@@ -26,20 +26,17 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
   if (!process.env.GMAIL_USER) return res.status(200).json({ skipped: true });
 
-  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress, customSubject, customBody } = req.body || {};
+  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress, customSubject, customBody, invoiceNumber } = req.body || {};
   if (!email || !eventTitle) return res.status(400).json({ error: 'email and eventTitle are required' });
 
-  // Generated ONCE here and reused for both the inline HTML invoice and the
-  // PDF attachment below. Previously each call site generated its own number
-  // independently via Date.now() — since that returns the current millisecond
-  // at the exact moment each line runs, and these two lines don't run at the
-  // same millisecond, the PDF and the inline invoice ended up with two
-  // different numbers for what is the same transaction. Anchoring on the
-  // Razorpay transaction ID (when available) also makes this number stable
-  // across a retry/resend rather than changing every time.
-  const invoiceNo = 'FIP-INV-' + new Date().getFullYear() + '-' +
+  // Prefer the REAL invoice number — sequential, GST-compliant, generated
+  // once by get_next_invoice_number() and stored on the payment row. Falling
+  // back to a display-only number here should now only happen if the caller
+  // genuinely couldn't produce a real one (e.g. free event, no payment
+  // record to attach a number to) — it is not the normal path anymore.
+  const invoiceNo = invoiceNumber || ('FIP-INV-' + new Date().getFullYear() + '-' +
     (transactionId ? transactionId.replace(/[^0-9]/g, '').slice(-5) || Date.now().toString().slice(-5)
-                    : Date.now().toString().slice(-5));
+                    : Date.now().toString().slice(-5)));
 
   const dateStr   = formatDate(eventDate);
   const isOnline  = eventType === 'Online' || eventType === 'Webinar';

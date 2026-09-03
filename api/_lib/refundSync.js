@@ -1,3 +1,71 @@
+import nodemailer from 'nodemailer';
+import { ensureCreditNoteNumber } from './invoicing.js';
+
+function getTransporter() {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+  });
+}
+
+// Same visual template as the tax invoice (Federation of Indian Professionals
+// header, same layout) — a credit note is legally the mirror image of an
+// invoice, so it should look unmistakably like the same family of document,
+// not a completely different design.
+function generateCreditNoteHTML({ creditNoteNo, originalInvoiceNo, noteDate, buyerName, buyerEmail, itemName, refundAmount, refundReason, isFullRefund }) {
+  const fmt  = n => Number(n).toLocaleString('en-IN');
+  const fmtD = new Date(noteDate || Date.now()).toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
+  return `<div style="margin:24px 0;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden"><div style="background:#7C2D12;padding:14px 22px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:11px;color:#FED7AA;letter-spacing:1px;text-transform:uppercase;font-weight:700">Credit Note</div><div style="font-size:17px;font-weight:900;color:#fff">Federation of Indian Professionals</div></div><div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,0.5)">Credit Note No.</div><div style="font-size:13px;font-weight:700;color:#FED7AA;font-family:monospace">${creditNoteNo}</div><div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">${fmtD}</div></div></div><div style="padding:18px 22px;background:#fff">${originalInvoiceNo ? `<div style="font-size:12px;color:#6B7280;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #F3F4F6">Against Invoice No. <strong style="font-family:monospace;color:#1A3C6E">${originalInvoiceNo}</strong></div>` : ''}<div style="margin-bottom:18px"><div style="font-size:10px;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">Issued To</div><div style="font-size:13px;font-weight:700;color:#1A3C6E">${buyerName}</div><div style="font-size:12px;color:#6B7280">${buyerEmail}</div></div><table style="width:100%;border-collapse:collapse;margin-bottom:14px"><tr style="background:#F7F9FC"><th style="text-align:left;padding:8px 12px;font-size:11px;color:#6B7280;font-weight:700">Description</th><th style="text-align:right;padding:8px 12px;font-size:11px;color:#6B7280;font-weight:700">Amount Refunded</th></tr><tr style="background:#F7F9FC"><td style="padding:10px 12px;font-size:14px;font-weight:800;color:#1A3C6E">${itemName}${isFullRefund ? ' (Full Refund)' : ' (Partial Refund)'}</td><td style="padding:10px 12px;font-size:16px;font-weight:900;color:#DC2626;text-align:right">−₹${fmt(refundAmount)}</td></tr></table>${refundReason ? `<div style="font-size:12px;color:#6B7280;margin-bottom:14px"><strong>Reason:</strong> ${refundReason}</div>` : ''}<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 16px"><div style="font-size:13px;font-weight:700;color:#B91C1C">This amount has been refunded to your original payment method.</div></div><p style="font-size:11px;color:#9CA3AF;text-align:center;margin:12px 0 0">Computer-generated credit note. No signature required.</p></div></div>`;
+}
+
+export async function sendCreditNoteEmail(supabaseAdmin, paymentId) {
+  try {
+    const { data: pay } = await supabaseAdmin.from('payments')
+      .select('id, user_id, item_name, purchase_type, amount_refunded, total_amount, refund_reason, invoice_number, credit_note_number, credit_note_generated_at, metadata')
+      .eq('id', paymentId).maybeSingle();
+    if (!pay || !pay.credit_note_number) return; // nothing to send if no credit note exists
+
+    // Buyer contact — prefer the profile (real account), fall back to
+    // whatever was captured in the payment's own metadata at checkout time
+    // (covers guest bookings and free-event fallbacks with no linked account).
+    let buyerName = pay.metadata?.rsvp?.full_name || null;
+    let buyerEmail = pay.metadata?.rsvp?.email || null;
+    if (pay.user_id) {
+      const { data: profile } = await supabaseAdmin.from('profiles')
+        .select('full_name, email').eq('id', pay.user_id).maybeSingle();
+      if (profile) { buyerName = profile.full_name || buyerName; buyerEmail = profile.email || buyerEmail; }
+    }
+    if (!buyerEmail || !process.env.GMAIL_USER) return; // nothing to send to, or email not configured
+
+    const isFullRefund = Number(pay.amount_refunded) >= Number(pay.total_amount) - 0.01;
+    const html = generateCreditNoteHTML({
+      creditNoteNo: pay.credit_note_number,
+      originalInvoiceNo: pay.invoice_number,
+      noteDate: pay.credit_note_generated_at,
+      buyerName: buyerName || 'FIP Member',
+      buyerEmail,
+      itemName: pay.item_name,
+      refundAmount: pay.amount_refunded,
+      refundReason: pay.refund_reason,
+      isFullRefund,
+    });
+
+    await getTransporter().sendMail({
+      from: `"FIP" <${process.env.GMAIL_USER}>`,
+      to: buyerEmail,
+      subject: `Credit Note ${pay.credit_note_number} — Refund Processed`,
+      html: `<div style="font-family:sans-serif;max-width:520px;margin:0 auto">
+        <p>Hi ${buyerName || 'there'},</p>
+        <p>Your refund for <strong>${pay.item_name}</strong> has been processed. Please find your credit note below for your records.</p>
+        ${html}
+      </div>`,
+    });
+  } catch (e) {
+    // Never let an email failure affect the refund itself — the refund and
+    // its credit note NUMBER are already correctly recorded regardless.
+    console.warn('sendCreditNoteEmail failed:', e.message);
+  }
+}
 
 export async function revokeAccess(supabaseAdmin, payment, reason) {
   const userId = payment.user_id;
@@ -137,6 +205,14 @@ export async function applyRefundUpdate(supabaseAdmin, { pay, refund, parentPaym
   }).eq('id', pay.id);
 
   if (isFull) await revokeAccess(supabaseAdmin, { ...pay, id: pay.id }, `Refund ${refund.id}`);
+
+  // Credit note only once the refund has actually settled — refund.created
+  // (still processing) shouldn't produce one yet, only refund.processed.
+  // Applies to partial refunds too, not just full ones.
+  if (settled) {
+    await ensureCreditNoteNumber(supabaseAdmin, pay.id, new Date().toISOString());
+    await sendCreditNoteEmail(supabaseAdmin, pay.id);
+  }
 
   await logSync(supabaseAdmin, { payment_id: pay.id, razorpay_payment_id: refund.payment_id, source,
                   event: eventLabel, old_status: pay.status, new_status: newStatus,

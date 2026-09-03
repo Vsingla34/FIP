@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { applyRefundUpdate } from './_lib/refundSync.js';
+import { ensureInvoiceNumber, ensureCreditNoteNumber } from './_lib/invoicing.js';
 
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -182,6 +183,11 @@ export default async function handler(req, res) {
 
   console.log(`Webhook: marked paid — ${razorpay_payment_id} (${payment.purchase_type})`);
 
+  // Invoice number generation happens exactly once here, regardless of
+  // purchase type — membership, event, and course all funnel through this
+  // same point the moment a payment is confirmed paid.
+  const invoiceNumber = await ensureInvoiceNumber(supabaseAdmin, payment.id);
+
   const userId   = payment.user_id;
   const meta     = payment.metadata || {};
 
@@ -230,6 +236,7 @@ export default async function handler(req, res) {
         courseTitle:   payment.item_name,
         baseAmount:    payment.amount,
         transactionId: razorpay_payment_id,
+        invoiceNumber,
         gstNumber:     meta.gst?.gst_number     || null,
         gstCompanyName:meta.gst?.gst_company_name|| null,
         gstAddress:    meta.gst?.gst_address     || null,
@@ -346,6 +353,7 @@ export default async function handler(req, res) {
           whatsappGroupLink: course.whatsapp_group_link,
           baseAmount:        payment.amount,
           transactionId:     razorpay_payment_id,
+          invoiceNumber,
           gstNumber:         meta.gst?.gst_number      || null,
           gstCompanyName:    meta.gst?.gst_company_name || null,
           gstAddress:        meta.gst?.gst_address      || null,
@@ -412,6 +420,7 @@ export default async function handler(req, res) {
           isPaid:            true,
           amount:            payment.total_amount,
           transactionId:     razorpay_payment_id,
+          invoiceNumber,
           zoomLink:          ev?.zoom_link,
           whatsappGroupLink: ev?.whatsapp_group_link,
           gstNumber:         rsvp.gst_number      || null,
