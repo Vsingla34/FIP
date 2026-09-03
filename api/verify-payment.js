@@ -561,8 +561,25 @@ async function handleReconcile(req, res) {
   const changes = [];
   let checked = 0, errors = 0, firstError = null;
 
-  for (const row of rows || []) {
-    if (!row.razorpay_order_id) continue;
+  // Runs `fn` over `items` with at most `limit` running concurrently, instead
+  // of one at a time. This is the actual fix for the slowness — checking up
+  // to 500 payments against Razorpay sequentially (one HTTP round-trip after
+  // another) could take well over a minute; running them in bounded batches
+  // cuts that dramatically while staying well under Razorpay's rate limits
+  // (10 concurrent requests is conservative, not maxed out).
+  async function mapWithConcurrency(items, limit, fn) {
+    let idx = 0;
+    async function worker() {
+      while (idx < items.length) {
+        const i = idx++;
+        await fn(items[i]);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  }
+
+  async function processRow(row) {
+    if (!row.razorpay_order_id) return;
     checked++;
     try {
       const { items = [] } = await rzp(`/orders/${row.razorpay_order_id}/payments`);
@@ -581,7 +598,7 @@ async function handleReconcile(req, res) {
               .eq('id', row.id);
           }
         }
-        continue;
+        return;
       }
 
       // refund_status here is copied straight off the payment object Razorpay
@@ -628,7 +645,7 @@ async function handleReconcile(req, res) {
             await ensureInvoiceNumber(supabaseAdmin, row.id);
           } else if (truth === 'refunded' || truth === 'partially_refunded') {
             await ensureCreditNoteNumber(supabaseAdmin, row.id, new Date().toISOString());
-            await sendCreditNoteEmail(supabaseAdmin, row.id);
+            sendCreditNoteEmail(supabaseAdmin, row.id).catch(e => console.warn('Credit note email failed:', e.message));
           }
 
           if (truth === 'refunded' && row.status !== 'refunded' && row.purchase_type) {
@@ -660,6 +677,8 @@ async function handleReconcile(req, res) {
       console.error('Reconcile', row.razorpay_order_id, e.message);
     }
   }
+
+  await mapWithConcurrency(rows || [], 10, processRow);
 
   // Second pass: money and access disagree. Reads the SQL view.
   let drift = [];
@@ -729,19 +748,70 @@ async function handleReconcile(req, res) {
           detail: { event_title: ev.title, email: rsvp.email, by: auth.adminId },
         });
         const autoInvoiceNo = await ensureInvoiceNumber(supabaseAdmin, pay.id);
-        try {
-          await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-event-confirmation`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: rsvp.full_name || rsvp.email, email: rsvp.email,
-              eventTitle: ev.title, eventDate: ev.event_date, eventTime: ev.event_time,
-              eventLocation: ev.location, eventType: ev.event_type,
-              isPaid: true, amount: pay.total_amount, transactionId: pay.razorpay_payment_id,
-              invoiceNumber: autoInvoiceNo,
-              zoomLink: ev.zoom_link, whatsappGroupLink: ev.whatsapp_group_link,
-            }),
-          });
-        } catch (e) { /* enrollment already succeeded — email failure is non-fatal */ }
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-event-confirmation`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: rsvp.full_name || rsvp.email, email: rsvp.email,
+            eventTitle: ev.title, eventDate: ev.event_date, eventTime: ev.event_time,
+            eventLocation: ev.location, eventType: ev.event_type,
+            isPaid: true, amount: pay.total_amount, transactionId: pay.razorpay_payment_id,
+            invoiceNumber: autoInvoiceNo,
+            zoomLink: ev.zoom_link, whatsappGroupLink: ev.whatsapp_group_link,
+          }),
+        }).catch(e => console.warn('Auto-heal event email failed:', e.message));
+      } catch (e) {
+        autoEnrollErrors.push({ payment_id: pay.id, error: e.message });
+      }
+    }
+
+    // ── Memberships ──
+    // This was the actual gap: reconcile could correct a payment's STATUS
+    // from 'created' to 'paid', but that alone never activated the
+    // membership — no account_type/membership_status update, no FIP member
+    // number. A member could show "paid" on their payment record and still
+    // never appear as a member anywhere. Mirrors the webhook's membership
+    // activation logic exactly, so it's the same effect regardless of which
+    // path actually applies it.
+    const { data: paidMemberships } = await supabaseAdmin
+      .from('payments')
+      .select('id,razorpay_payment_id,item_name,user_id,total_amount,created_at')
+      .eq('purchase_type', 'membership').eq('status', 'paid')
+      .gte('created_at', since).limit(200);
+
+    for (const pay of paidMemberships || []) {
+      try {
+        if (!pay.user_id) continue;
+        const { data: prof } = await supabaseAdmin.from('profiles')
+          .select('id, full_name, email, account_type, membership_status, fip_member_no')
+          .eq('id', pay.user_id).maybeSingle();
+        if (!prof) continue;
+        // Already active — nothing to heal here.
+        if (prof.account_type === 'fip_member' && prof.membership_status === 'Active') continue;
+
+        const validFrom  = new Date(pay.created_at).toISOString().split('T')[0];
+        const validUntil = new Date(new Date(pay.created_at).getTime() + 365*24*60*60*1000).toISOString().split('T')[0];
+        const plan        = (pay.item_name || '').replace('FIP ', '').replace(' Membership', '');
+
+        const { error: memErr } = await supabaseAdmin.from('profiles').update({
+          account_type:      'fip_member',
+          membership_status: 'Active',
+          membership_plan:   plan,
+          membership_start:  validFrom,
+          membership_end:    validUntil,
+        }).eq('id', pay.user_id);
+        if (memErr) { autoEnrollErrors.push({ payment_id: pay.id, error: memErr.message }); continue; }
+
+        if (!prof.fip_member_no) {
+          const { data: num } = await supabaseAdmin.rpc('generate_fip_member_no');
+          if (num) await supabaseAdmin.from('profiles').update({ fip_member_no: num }).eq('id', pay.user_id);
+        }
+
+        autoEnrolled.push({ payment_id: pay.id, email: prof.email, type: 'membership' });
+        await logSync({
+          payment_id: pay.id, razorpay_payment_id: pay.razorpay_payment_id, source: 'reconcile',
+          event: 'membership.autohealed', old_status: 'paid', new_status: 'paid',
+          detail: { email: prof.email, plan, by: auth.adminId },
+        });
       } catch (e) {
         autoEnrollErrors.push({ payment_id: pay.id, error: e.message });
       }
@@ -791,16 +861,14 @@ async function handleReconcile(req, res) {
           detail: { course_title: course.title, email: rsvp.email, by: auth.adminId },
         });
         const autoInvoiceNo = await ensureInvoiceNumber(supabaseAdmin, pay.id);
-        try {
-          await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-course-confirmation`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: rsvp.full_name || rsvp.email, email: rsvp.email,
-              courseTitle: course.title, transactionId: pay.razorpay_payment_id,
-              invoiceNumber: autoInvoiceNo,
-            }),
-          });
-        } catch (e) { /* non-fatal */ }
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/api/send-course-confirmation`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: rsvp.full_name || rsvp.email, email: rsvp.email,
+            courseTitle: course.title, transactionId: pay.razorpay_payment_id,
+            invoiceNumber: autoInvoiceNo,
+          }),
+        }).catch(e => console.warn('Auto-heal course email failed:', e.message));
       } catch (e) {
         autoEnrollErrors.push({ payment_id: pay.id, error: e.message });
       }
