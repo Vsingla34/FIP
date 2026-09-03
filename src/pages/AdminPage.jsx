@@ -476,9 +476,11 @@ export default function AdminPage() {
   };
 
   const downloadPaymentsExcel = function(paymentsList) {
-    var headers = ['Member Name (Paid By)', 'Email', 'Phone', 'Enrolled For', 'Enrolled Email', 'Is Guest Booking', 'Item / Plan', 'Type', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Refunded (₹)', 'Net (₹)', 'Transaction ID', 'Order ID', 'Refund ID', 'Refund Reason', 'Refunded On', 'Status', 'Date'];
+    var headers = ['GST Invoice No', 'Credit Note No.', 'Member Name (Paid By)', 'Email', 'Phone', 'Enrolled For', 'Enrolled Email', 'Is Guest Booking', 'Item / Plan', 'Type', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Refunded (₹)', 'Net (₹)', 'Transaction ID', 'Order ID', 'Refund ID', 'Refund Reason', 'Refunded On', 'Status', 'Date'];
     var rows = paymentsList.map(function(p) {
       return [
+        p.invoice_number      || '',
+        p.credit_note_number  || '',
         p.profiles?.full_name || '',
         p.profiles?.email     || '',
         p.profiles?.phone     || '',
@@ -1413,7 +1415,7 @@ export default function AdminPage() {
     while (keepGoing) {
       const { data, error } = await supabase
         .from('payments')
-        .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,profiles(full_name,email,phone)')
+        .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,invoice_number,credit_note_number,profiles(full_name,email,phone)')
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
       if (error || !data?.length) break;
@@ -1502,7 +1504,7 @@ export default function AdminPage() {
       while (keepGoing) {
         const { data, error } = await supabase
           .from('payments')
-          .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,profiles(full_name,email,phone)')
+          .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,invoice_number,credit_note_number,profiles(full_name,email,phone)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
         if (error || !data?.length) { keepGoing = false; break; }
@@ -3154,7 +3156,7 @@ export default function AdminPage() {
                   <table className="dboard-table">
                     <thead>
                       <tr><th>Member (Paid By)</th><th>Enrolled For</th><th>Phone</th><th>Item / Plan</th><th>Type</th><th>Amount</th>
-                          <th>Transaction ID</th><th>Date</th><th>Status</th><th>Action</th></tr>
+                          <th>GST Invoice No</th><th>Transaction ID</th><th>Date</th><th>Status</th><th>Action</th></tr>
                     </thead>
                     <tbody>
                       {filtPay.map((p,i) => {
@@ -3219,6 +3221,16 @@ export default function AdminPage() {
                             {refunded > 0 && (
                               <div style={{fontSize:'11px',color:(isProcessing||isPartProc)?'#1D4ED8':'#DC2626',fontWeight:600}}>
                                 −₹{refunded.toLocaleString('en-IN')} {(isProcessing||isPartProc) ? 'processing' : 'refunded'}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{fontSize:'11px',fontFamily:'monospace'}}>
+                            {p.invoice_number
+                              ? <div style={{color:'var(--blue)',fontWeight:600}}>{p.invoice_number}</div>
+                              : <span style={{color:'var(--text-light)'}}>—</span>}
+                            {p.credit_note_number && (
+                              <div style={{color:'#DC2626',marginTop:'2px'}} title="Credit note issued for this refund">
+                                {p.credit_note_number}
                               </div>
                             )}
                           </td>
