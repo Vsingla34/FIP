@@ -476,7 +476,7 @@ export default function AdminPage() {
   };
 
   const downloadPaymentsExcel = function(paymentsList) {
-    var headers = ['GST Invoice No', 'Credit Note No.', 'Member Name (Paid By)', 'Email', 'Phone', 'Enrolled For', 'Enrolled Email', 'Is Guest Booking', 'Item / Plan', 'Type', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Refunded (₹)', 'Net (₹)', 'Transaction ID', 'Order ID', 'Refund ID', 'Refund Reason', 'Refunded On', 'Status', 'Date'];
+    var headers = ['GST Invoice No', 'Credit Note No.', 'Member Name (Paid By)', 'Email', 'Phone', 'GST Company Name', 'GST Address', 'GSTIN', 'Enrolled For', 'Enrolled Email', 'Is Guest Booking', 'Item / Plan', 'Type', 'Amount (₹)', 'GST (₹)', 'Total (₹)', 'Refunded (₹)', 'Net (₹)', 'Transaction ID', 'Order ID', 'Refund ID', 'Refund Reason', 'Refunded On', 'Status', 'Date'];
     var rows = paymentsList.map(function(p) {
       return [
         p.invoice_number      || '',
@@ -484,6 +484,9 @@ export default function AdminPage() {
         p.profiles?.full_name || '',
         p.profiles?.email     || '',
         p.profiles?.phone     || '',
+        p.gst_company_name    || '',
+        p.gst_address         || '',
+        p.gst_number          || '',
         p.metadata?.rsvp?.full_name || '',
         p.metadata?.rsvp?.email     || '',
         p.metadata?.rsvp?.is_guest_booking === true ? 'Yes' : 'No',
@@ -1415,7 +1418,7 @@ export default function AdminPage() {
     while (keepGoing) {
       const { data, error } = await supabase
         .from('payments')
-        .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,invoice_number,credit_note_number,profiles(full_name,email,phone)')
+        .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,invoice_number,credit_note_number,gst_company_name,gst_address,gst_number,profiles(full_name,email,phone)')
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
       if (error || !data?.length) break;
@@ -1504,7 +1507,7 @@ export default function AdminPage() {
       while (keepGoing) {
         const { data, error } = await supabase
           .from('payments')
-          .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,invoice_number,credit_note_number,profiles(full_name,email,phone)')
+          .select('id,total_amount,amount,gst_amount,status,razorpay_status,refund_status,amount_refunded,refund_id,refunded_at,refund_reason,item_name,item_ref_id,purchase_type,created_at,user_id,razorpay_payment_id,razorpay_order_id,metadata,invoice_number,credit_note_number,gst_company_name,gst_address,gst_number,profiles(full_name,email,phone)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE_SIZE - 1);
         if (error || !data?.length) { keepGoing = false; break; }
