@@ -50,7 +50,7 @@ const TYPE_STYLE = {
 };
 
 export default function EventsPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const { showToast, openModal } = useApp();
   const { pay } = useRazorpay();
   const isFipMember = profile?.membership_status === 'Active';
@@ -111,13 +111,20 @@ export default function EventsPage() {
 
   // Pre-fill form from profile when opening RSVP
   const openRsvp = (event) => {
+    // Autofill GST from whatever's saved on the profile — from any past
+    // event, course, or membership purchase. Still fully editable; if they
+    // change it here, the new values become the saved default going forward.
+    const hasSavedGst = !!(profile?.gst_number || profile?.gst_company_name);
     setForm({
       full_name:          profile?.full_name || user?.user_metadata?.full_name || '',
       email:              user?.email || '',
       phone:              profile?.phone || '',
       designation:        profile?.designation || '',
       organisation:       profile?.organisation || '',
-      wants_gst: false, gst_number:'', gst_company_name:'', gst_address:'',
+      wants_gst: hasSavedGst,
+      gst_number:       profile?.gst_number       || '',
+      gst_company_name: profile?.gst_company_name || '',
+      gst_address:      profile?.gst_address       || '',
       customFieldResponses: {},
     });
     setSubmitted(false);
@@ -248,6 +255,15 @@ export default function EventsPage() {
           } else {
             setRegisteredEventIds(prev => new Set([...prev, capturedEvent.id]));
             showToast(`You're registered for ${capturedEvent.title}! 🎉`);
+            // Save GST details back to the profile so they autofill next
+            // time — same as the free-registration path.
+            if (capturedForm.wants_gst && (capturedForm.gst_number?.trim() || capturedForm.gst_company_name?.trim())) {
+              updateProfile({
+                gst_number:       capturedForm.gst_number?.trim()       || null,
+                gst_company_name: capturedForm.gst_company_name?.trim() || null,
+                gst_address:      capturedForm.gst_address?.trim()       || null,
+              }).catch(() => {});
+            }
             // NOTE: no client-side email send here. For a paid event the
             // confirmation email is already sent server-side — by the
             // webhook, or by verify-payment.js's fallback if the webhook
@@ -288,6 +304,17 @@ export default function EventsPage() {
         showToast('Registration failed: ' + (error.message || 'Please try again.'), true);
       }
       return;
+    }
+
+    // Save GST details back to the profile so they autofill next time —
+    // fire-and-forget, since this is a nice-to-have, not something that
+    // should block or fail the registration itself.
+    if (form.wants_gst && (form.gst_number.trim() || form.gst_company_name.trim())) {
+      updateProfile({
+        gst_number:       form.gst_number.trim()       || null,
+        gst_company_name: form.gst_company_name.trim() || null,
+        gst_address:      form.gst_address.trim()       || null,
+      }).catch(() => {});
     }
 
     // Send confirmation email (non-blocking)
@@ -616,7 +643,7 @@ export default function EventsPage() {
                   <div className="form-group">
                     <label style={{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',padding:'12px 14px',background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'var(--radius-md)'}}>
                       <input type="checkbox" checked={form.wants_gst}
-                        onChange={e => setForm(f => ({...f, wants_gst: e.target.checked, gst_number:'', gst_company_name:'', gst_address:''}))}
+                        onChange={e => setForm(f => ({...f, wants_gst: e.target.checked}))}
                         style={{width:'16px',height:'16px',accentColor:'var(--blue)',flexShrink:0}}/>
                       <div>
                         <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>

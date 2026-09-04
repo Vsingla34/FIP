@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase.js';
 
 export default function Modals() {
   const { modal, modalData, closeModal, openModal, showToast } = useApp();
-  const { signIn, signUp, verifyOTP, resendOTP, sendResetOtp, verifyResetOtp, resetPasswordWithToken, getErrMsg, user, profile } = useAuth();
+  const { signIn, signUp, verifyOTP, resendOTP, sendResetOtp, verifyResetOtp, resetPasswordWithToken, getErrMsg, user, profile, updateProfile } = useAuth();
   const { pay } = useRazorpay();
   const navigate = useNavigate();
 
@@ -33,7 +33,36 @@ export default function Modals() {
   const [courseGstAddress,    setCourseGstAddress]    = useState('');
   const [courseCouponResult,  setCourseCouponResult]  = useState(null);
   const [courseCouponLoading, setCourseCouponLoading] = useState(false);
+
+  // Autofill GST from the profile whenever the course enroll modal opens —
+  // same saved default used everywhere else, still fully editable.
+  useEffect(() => {
+    if (modal === 'enroll' && modalData?.course) {
+      const hasSavedGst = !!(profile?.gst_number || profile?.gst_company_name);
+      setCourseWantsGst(hasSavedGst);
+      setCourseGstNo(profile?.gst_number || '');
+      setCourseGstName(profile?.gst_company_name || '');
+      setCourseGstAddress(profile?.gst_address || '');
+    }
+  }, [modal, modalData]);
   const [payStep,       setPayStep]       = useState(false);
+  const [membershipWantsGst,   setMembershipWantsGst]   = useState(false);
+  const [membershipGstNo,      setMembershipGstNo]      = useState('');
+  const [membershipGstName,    setMembershipGstName]    = useState('');
+  const [membershipGstAddress, setMembershipGstAddress] = useState('');
+
+  // Autofill GST from the saved profile when the membership payment step
+  // opens — membership never had a GST section before, this is new, but
+  // uses the same saved default and remains fully editable.
+  useEffect(() => {
+    if (payStep) {
+      const hasSavedGst = !!(profile?.gst_number || profile?.gst_company_name);
+      setMembershipWantsGst(hasSavedGst);
+      setMembershipGstNo(profile?.gst_number || '');
+      setMembershipGstName(profile?.gst_company_name || '');
+      setMembershipGstAddress(profile?.gst_address || '');
+    }
+  }, [payStep]);
   const [couponCode,    setCouponCode]    = useState('');
   const [couponResult,  setCouponResult]  = useState(null); // { discount_amount, final_amount, message } | null
   const [couponLoading, setCouponLoading] = useState(false);
@@ -324,6 +353,14 @@ export default function Modals() {
       onSuccess:    () => {
         showToast('Enrolled successfully! 🎉');
         setCourseCouponCode(''); setCourseCouponResult(null);
+        // Save GST details back to the profile so they autofill next time.
+        if (courseWantsGst && (courseGstNo.trim() || courseGstName.trim())) {
+          updateProfile({
+            gst_number:       courseGstNo.trim()      || null,
+            gst_company_name: courseGstName.trim()    || null,
+            gst_address:      courseGstAddress.trim() || null,
+          }).catch(() => {});
+        }
         // Navigate to course page with flyer flag so it shows the popup
         if (course.slug) navigate(`/courses/${course.slug}`, { state: { showFlyer: true, buyerName: profile?.full_name } });
         else navigate('/dashboard');
@@ -470,6 +507,34 @@ export default function Modals() {
               </div>
               <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'6px'}}>Valid till 31 March · Secure payment via Razorpay</div>
             </div>
+
+            {/* GST Invoice section */}
+            <div style={{marginBottom:'14px'}}>
+              <label style={{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',padding:'11px 14px',background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'8px'}}>
+                <input type="checkbox" checked={membershipWantsGst}
+                  onChange={e=>setMembershipWantsGst(e.target.checked)}
+                  style={{width:'15px',height:'15px',accentColor:'var(--blue)',flexShrink:0}}/>
+                <div>
+                  <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
+                    <i className="fa-solid fa-file-invoice" style={{marginRight:'6px',color:'var(--orange)'}}></i>
+                    I need a GST Invoice
+                  </div>
+                  <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'1px'}}>Tax invoice sent to email for business reimbursement</div>
+                </div>
+              </label>
+              {membershipWantsGst && (
+                <div style={{marginTop:'10px',padding:'12px',background:'#F7F9FC',border:'1px solid var(--border)',borderRadius:'8px',display:'flex',flexDirection:'column',gap:'9px'}}>
+                  <input className="form-input" placeholder="GSTIN (e.g. 07AABCU9603R1ZV)"
+                    value={membershipGstNo} onChange={e=>setMembershipGstNo(e.target.value.toUpperCase())}
+                    style={{textTransform:'uppercase',letterSpacing:'.5px'}}/>
+                  <input className="form-input" placeholder="Company / Firm Name"
+                    value={membershipGstName} onChange={e=>setMembershipGstName(e.target.value)}/>
+                  <textarea className="form-input" rows={2} placeholder="Registered address with PIN code"
+                    value={membershipGstAddress} onChange={e=>setMembershipGstAddress(e.target.value)} style={{resize:'none'}}/>
+                </div>
+              )}
+            </div>
+
             {/* Coupon input */}
             {!couponResult ? (
               <div style={{display:'flex',gap:'8px',marginBottom:'16px'}}>
@@ -505,9 +570,22 @@ export default function Modals() {
                   const success  = await pay({
                     purchaseType:'membership', planName:'Standard', planPrice:finalAmt,
                     coupon_code: couponResult ? couponCode : undefined,
+                    gstData: membershipWantsGst ? {
+                      gst_number:       membershipGstNo.trim()      || null,
+                      gst_company_name: membershipGstName.trim()    || null,
+                      gst_address:      membershipGstAddress.trim() || null,
+                    } : null,
                     onSuccess: () => {
                       setPayStep(false); setCouponResult(null); setCouponCode('');
                       setPaySuccess({ name:profile?.full_name||user?.email||'Member', amount:Math.round(finalAmt*1.18), plan:'Standard' });
+                      // Save GST details back to the profile so they autofill next time.
+                      if (membershipWantsGst && (membershipGstNo.trim() || membershipGstName.trim())) {
+                        updateProfile({
+                          gst_number:       membershipGstNo.trim()      || null,
+                          gst_company_name: membershipGstName.trim()    || null,
+                          gst_address:      membershipGstAddress.trim() || null,
+                        }).catch(() => {});
+                      }
                     },
                   });
                   if (!success) { setPayStep(false); closeModal(); navigate('/membership'); }
@@ -895,7 +973,7 @@ export default function Modals() {
             <div style={{marginBottom:'14px'}}>
               <label style={{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',padding:'11px 14px',background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'8px'}}>
                 <input type="checkbox" checked={courseWantsGst}
-                  onChange={e=>{setCourseWantsGst(e.target.checked);setCourseGstNo('');setCourseGstName('');setCourseGstAddress('');}}
+                  onChange={e=>setCourseWantsGst(e.target.checked)}
                   style={{width:'15px',height:'15px',accentColor:'var(--blue)',flexShrink:0}}/>
                 <div>
                   <div style={{fontSize:'13px',fontWeight:700,color:'var(--blue)'}}>
