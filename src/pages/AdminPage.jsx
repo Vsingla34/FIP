@@ -682,6 +682,181 @@ export default function AdminPage() {
       .then(({ data }) => { setAdminEvents(data || []); setEventsLoading(false); });
   }, [tab]);
 
+  /* ═══════════════════ FEEDBACK FORMS ═══════════════════
+     Admin picks which events have a feedback form, builds a custom
+     question set per event, and can view/export responses. Events are
+     fetched independently here — not reused from adminEvents, which is
+     gated to only load on the Events tab. That exact gating mistake broke
+     the committee-assign dropdown earlier in this project; not repeating it. */
+  const [feedbackEvents,   setFeedbackEvents]   = useState([]);
+  const [feedbackForms,    setFeedbackForms]    = useState({}); // event_id -> form row
+  const [feedbackLoading,  setFeedbackLoading]  = useState(false);
+  const [feedbackEditingEvent, setFeedbackEditingEvent] = useState(null); // event object mid-edit
+  const [feedbackQuestions,    setFeedbackQuestions]    = useState([]);   // draft question list while editing
+  const [feedbackQSaving,      setFeedbackQSaving]      = useState(false);
+  const [feedbackQModal,       setFeedbackQModal]       = useState(null); // { idx: null|number } — null idx = adding new
+  const [feedbackQDraft,       setFeedbackQDraft]       = useState({ label:'', type:'short_text', required:true, options:'' });
+  const [feedbackViewingEvent, setFeedbackViewingEvent] = useState(null);
+  const [feedbackResponses,    setFeedbackResponses]    = useState([]);
+  const [feedbackRespLoading,  setFeedbackRespLoading]  = useState(false);
+
+  const FEEDBACK_QUESTION_TYPES = [
+    { value:'short_text',     label:'Short Answer' },
+    { value:'paragraph',      label:'Paragraph' },
+    { value:'rating',         label:'Star Rating (1–5)' },
+    { value:'multiple_choice',label:'Multiple Choice (pick one)' },
+    { value:'checkboxes',     label:'Checkboxes (pick multiple)' },
+    { value:'yes_no',         label:'Yes / No' },
+  ];
+
+  useEffect(() => {
+    if (tab !== 'feedback') return;
+    setFeedbackLoading(true);
+    Promise.all([
+      supabase.from('events').select('id,title,event_date,status').order('event_date', { ascending:false }),
+      supabase.from('event_feedback_forms').select('*'),
+    ]).then(([evRes, formRes]) => {
+      setFeedbackEvents(evRes.data || []);
+      const map = {};
+      (formRes.data || []).forEach(f => { map[f.event_id] = f; });
+      setFeedbackForms(map);
+      setFeedbackLoading(false);
+    });
+  }, [tab]);
+
+  /* Toggle whether an event has feedback enabled — creates the form row on
+     first enable, with an empty question list ready to build on. */
+  const toggleFeedbackEnabled = async (ev) => {
+    const existing = feedbackForms[ev.id];
+    if (existing) {
+      const { data, error } = await supabase.from('event_feedback_forms')
+        .update({ enabled: !existing.enabled, updated_at: new Date().toISOString() })
+        .eq('id', existing.id).select().single();
+      if (error) { showToast('Could not update: ' + error.message, true); return; }
+      setFeedbackForms(prev => ({ ...prev, [ev.id]: data }));
+    } else {
+      const { data, error } = await supabase.from('event_feedback_forms')
+        .insert({ event_id: ev.id, event_name: ev.title, enabled: true, questions: [] })
+        .select().single();
+      if (error) { showToast('Could not enable feedback: ' + error.message, true); return; }
+      setFeedbackForms(prev => ({ ...prev, [ev.id]: data }));
+    }
+  };
+
+  const openFeedbackEditor = (ev) => {
+    const form = feedbackForms[ev.id];
+    setFeedbackEditingEvent(ev);
+    setFeedbackQuestions(form?.questions || []);
+  };
+
+  const openAddQuestion = () => {
+    setFeedbackQDraft({ label:'', type:'short_text', required:true, options:'' });
+    setFeedbackQModal({ idx: null });
+  };
+  const openEditQuestion = (idx) => {
+    const q = feedbackQuestions[idx];
+    setFeedbackQDraft({
+      label: q.label, type: q.type, required: q.required !== false,
+      options: (q.options || []).join(', '),
+    });
+    setFeedbackQModal({ idx });
+  };
+
+  const saveQuestionDraft = () => {
+    if (!feedbackQDraft.label.trim()) return;
+    const needsOptions = feedbackQDraft.type === 'multiple_choice' || feedbackQDraft.type === 'checkboxes';
+    const optionsList = feedbackQDraft.options.split(',').map(o=>o.trim()).filter(Boolean);
+    if (needsOptions && optionsList.length < 2) {
+      showToast('Add at least 2 options for this question type.', true);
+      return;
+    }
+    const q = {
+      id: feedbackQModal.idx !== null ? feedbackQuestions[feedbackQModal.idx].id : `q_${Date.now()}`,
+      label: feedbackQDraft.label.trim(),
+      type: feedbackQDraft.type,
+      required: feedbackQDraft.required,
+      ...(needsOptions ? { options: optionsList } : {}),
+    };
+    setFeedbackQuestions(prev => {
+      const next = [...prev];
+      if (feedbackQModal.idx !== null) next[feedbackQModal.idx] = q;
+      else next.push(q);
+      return next;
+    });
+    setFeedbackQModal(null);
+  };
+
+  const deleteQuestion = (idx) => {
+    if (!window.confirm('Delete this question?')) return;
+    setFeedbackQuestions(prev => prev.filter((_,i) => i !== idx));
+  };
+
+  const moveQuestion = (idx, dir) => {
+    setFeedbackQuestions(prev => {
+      const next = [...prev];
+      const target = idx + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  };
+
+  const saveFeedbackQuestions = async () => {
+    setFeedbackQSaving(true);
+    const ev = feedbackEditingEvent;
+    const existing = feedbackForms[ev.id];
+    let result;
+    if (existing) {
+      result = await supabase.from('event_feedback_forms')
+        .update({ questions: feedbackQuestions, updated_at: new Date().toISOString() })
+        .eq('id', existing.id).select().single();
+    } else {
+      result = await supabase.from('event_feedback_forms')
+        .insert({ event_id: ev.id, event_name: ev.title, enabled: true, questions: feedbackQuestions })
+        .select().single();
+    }
+    setFeedbackQSaving(false);
+    if (result.error) { showToast('Could not save: ' + result.error.message, true); return; }
+    setFeedbackForms(prev => ({ ...prev, [ev.id]: result.data }));
+    setFeedbackEditingEvent(null);
+    showToast('Questions saved!');
+  };
+
+  const openFeedbackResponses = async (ev) => {
+    setFeedbackViewingEvent(ev);
+    setFeedbackRespLoading(true);
+    const form = feedbackForms[ev.id];
+    const { data } = await supabase.from('event_feedback_responses')
+      .select('*').eq('event_id', ev.id).order('created_at', { ascending:false });
+    setFeedbackResponses(data || []);
+    setFeedbackRespLoading(false);
+  };
+
+  const downloadFeedbackExcel = () => {
+    const form = feedbackForms[feedbackViewingEvent.id];
+    const questions = form?.questions || [];
+    const headers = ['Full Name', 'Email', ...questions.map(q => q.label), 'Submitted On'];
+    const rows = feedbackResponses.map(r => [
+      r.full_name || '', r.email || '',
+      ...questions.map(q => {
+        const a = r.answers?.[q.id];
+        return Array.isArray(a) ? a.join(', ') : (a ?? '');
+      }),
+      r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : '',
+    ]);
+    var csvLines = [headers].concat(rows).map(function(row) {
+      return row.map(function(cell) {
+        return '"' + String(cell).split('"').join('""') + '"';
+      }).join(',');
+    });
+    var blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
+    var a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = 'FIP_Feedback_' + feedbackViewingEvent.title.replace(/[^a-z0-9]+/gi,'_') + '.csv';
+    a.click();
+    showToast('Feedback exported!');
+  };
+
   const openEventModal = (ev) => {
     if (ev === 'new') {
       setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, members_only_registration:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true });
@@ -1477,8 +1652,15 @@ export default function AdminPage() {
       if (out.autoEnrollErrorDetails?.length) console.warn('Auto-enroll failures:', out.autoEnrollErrorDetails);
       if (!dryRun) {
         const parts = [`${out.statusChanges} payment(s) corrected`];
-        if (out.autoEnrolled > 0) parts.push(`${out.autoEnrolled} missing enrollment(s) created`);
-        if (out.autoEnrollErrors > 0) parts.push(`⚠️ ${out.autoEnrollErrors} could not be auto-created — see panel`);
+        if (out.autoEnrolled > 0) {
+          const byType = {};
+          (out.autoEnrolledDetails || []).forEach(d => { byType[d.type] = (byType[d.type]||0) + 1; });
+          const breakdown = Object.entries(byType)
+            .map(([type, n]) => `${n} ${type}${n>1?'s':''} activated/enrolled`)
+            .join(', ');
+          parts.push(breakdown || `${out.autoEnrolled} missing enrollment(s) created`);
+        }
+        if (out.autoEnrollErrors > 0) parts.push(`⚠️ ${out.autoEnrollErrors} could not be auto-fixed — see panel`);
         showToast(`Reconciled — ${parts.join(', ')}.`);
         reloadPayments();
       }
@@ -1639,6 +1821,9 @@ export default function AdminPage() {
           </button>
           <button className={`admin-nav-v2${tab==='events'?' active':''}`} onClick={() => setTab('events')}>
             <i className="fa-solid fa-calendar-days"></i> Events
+          </button>
+          <button className={`admin-nav-v2${tab==='feedback'?' active':''}`} onClick={() => setTab('feedback')}>
+            <i className="fa-solid fa-comment-dots"></i> Feedback Forms
           </button>
           <button className={`admin-nav-v2${tab==='courses'?' active':''}`} onClick={() => setTab('courses')}>
             <i className="fa-solid fa-book-open"></i> Courses
@@ -3105,8 +3290,15 @@ export default function AdminPage() {
                              {reconcileResult.statusChanges} status mismatch(es), {reconcileResult.enrollmentDrift} enrollment drift(s).
                              {reconcileResult.statusChanges === 0 && <strong> Nothing to apply.</strong>}</>
                           : <>✅ Corrected {reconcileResult.statusChanges} payment(s) to match Razorpay.
-                             {reconcileResult.autoEnrolled > 0 &&
-                               <strong style={{color:'#15803D'}}> {reconcileResult.autoEnrolled} missing enrollment(s) created automatically.</strong>}
+                             {reconcileResult.autoEnrolled > 0 && (() => {
+                               const byType = {};
+                               (reconcileResult.autoEnrolledDetails || []).forEach(d => { byType[d.type] = (byType[d.type]||0) + 1; });
+                               return (
+                                 <strong style={{color:'#15803D'}}>
+                                   {' '}{Object.entries(byType).map(([type,n]) => `${n} ${type}${n>1?'s':''}`).join(', ')} activated/enrolled automatically.
+                                 </strong>
+                               );
+                             })()}
                              {reconcileResult.autoEnrollErrors > 0 &&
                                <strong style={{color:'#B91C1C'}}> {reconcileResult.autoEnrollErrors} could not be auto-created (often a full event) — check autoEnrollErrorDetails in the browser console.</strong>}</>}
                     </div>
@@ -3491,6 +3683,242 @@ export default function AdminPage() {
                 </div>
               )}
             </>
+          )}
+
+
+          {/* ═══ FEEDBACK FORMS ═══ */}
+          {tab === 'feedback' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{marginBottom:'4px'}}>Feedback Forms</div>
+              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}}>
+                Turn on feedback for any event, then build a custom set of questions for it.
+                Attendees see only the events you've enabled here.
+              </p>
+
+              {feedbackLoading ? (
+                <div style={{textAlign:'center',padding:'60px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'10px'}}></i>
+                  Loading events…
+                </div>
+              ) : feedbackEvents.length === 0 ? (
+                <div style={{textAlign:'center',padding:'60px',color:'var(--text-light)'}}>No events found.</div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr><th>Event</th><th>Date</th><th>Feedback</th><th>Questions</th><th>Responses</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                      {feedbackEvents.map(ev => {
+                        const form = feedbackForms[ev.id];
+                        const enabled = form?.enabled === true;
+                        const qCount = form?.questions?.length || 0;
+                        return (
+                          <tr key={ev.id}>
+                            <td style={{fontWeight:600,color:'var(--blue)'}}>{ev.title}</td>
+                            <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                              {ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}
+                            </td>
+                            <td>
+                              <div onClick={() => toggleFeedbackEnabled(ev)}
+                                style={{width:'42px',height:'22px',borderRadius:'11px',background:enabled?'var(--green)':'var(--border-dark)',position:'relative',cursor:'pointer',transition:'background .2s'}}>
+                                <div style={{position:'absolute',top:'2px',left:enabled?'22px':'2px',width:'18px',height:'18px',borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+                              </div>
+                            </td>
+                            <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                              {qCount} question{qCount !== 1 ? 's' : ''}
+                            </td>
+                            <td>
+                              <button className="btn btn-sm" style={{background:'transparent',border:'1px solid var(--border)',fontSize:'11px',padding:'5px 10px'}}
+                                onClick={() => openFeedbackResponses(ev)}>
+                                <i className="fa-solid fa-inbox"></i> View
+                              </button>
+                            </td>
+                            <td>
+                              <button className="btn btn-sm" style={{background:'var(--blue)',color:'#fff',border:'none',fontSize:'11px',padding:'5px 10px'}}
+                                onClick={() => openFeedbackEditor(ev)}>
+                                <i className="fa-solid fa-pen"></i> Manage Questions
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Question builder modal ── */}
+          {feedbackEditingEvent && (
+            <div className="modal-overlay" onClick={() => !feedbackQSaving && setFeedbackEditingEvent(null)}>
+              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'620px'}}>
+                {!feedbackQSaving && (
+                  <button className="modal-close" onClick={() => setFeedbackEditingEvent(null)}>&#x2715;</button>
+                )}
+                <div className="modal-title" style={{marginBottom:'4px'}}>Feedback Questions</div>
+                <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'18px'}}>
+                  For <strong>{feedbackEditingEvent.title}</strong>
+                </p>
+
+                {feedbackQuestions.length === 0 ? (
+                  <div style={{textAlign:'center',padding:'32px',color:'var(--text-light)',background:'var(--off-white)',borderRadius:'10px',marginBottom:'16px'}}>
+                    No questions yet. Add your first one below.
+                  </div>
+                ) : (
+                  <div style={{marginBottom:'16px'}}>
+                    {feedbackQuestions.map((q, idx) => (
+                      <div key={q.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',background:'var(--off-white)',borderRadius:'8px',marginBottom:'8px'}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:'13px',fontWeight:600,color:'var(--blue)'}}>
+                            {q.label} {q.required && <span style={{color:'var(--orange)'}}>*</span>}
+                          </div>
+                          <div style={{fontSize:'11px',color:'var(--text-muted)'}}>
+                            {FEEDBACK_QUESTION_TYPES.find(t=>t.value===q.type)?.label || q.type}
+                            {q.options ? ` · ${q.options.length} options` : ''}
+                          </div>
+                        </div>
+                        <button onClick={() => moveQuestion(idx,-1)} disabled={idx===0}
+                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===0?'default':'pointer',opacity:idx===0?0.4:1}}>
+                          <i className="fa-solid fa-chevron-up" style={{fontSize:'10px'}}></i>
+                        </button>
+                        <button onClick={() => moveQuestion(idx,1)} disabled={idx===feedbackQuestions.length-1}
+                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===feedbackQuestions.length-1?'default':'pointer',opacity:idx===feedbackQuestions.length-1?0.4:1}}>
+                          <i className="fa-solid fa-chevron-down" style={{fontSize:'10px'}}></i>
+                        </button>
+                        <button onClick={() => openEditQuestion(idx)}
+                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:'pointer',color:'var(--blue)'}}>
+                          <i className="fa-solid fa-pen" style={{fontSize:'10px'}}></i>
+                        </button>
+                        <button onClick={() => deleteQuestion(idx)}
+                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:'pointer',color:'#DC2626'}}>
+                          <i className="fa-solid fa-trash" style={{fontSize:'10px'}}></i>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button className="btn btn-sm" style={{background:'transparent',border:'1px dashed var(--border-dark)',width:'100%',justifyContent:'center',marginBottom:'20px'}}
+                  onClick={openAddQuestion}>
+                  <i className="fa-solid fa-plus"></i> Add Question
+                </button>
+
+                <div style={{display:'flex',gap:'10px'}}>
+                  <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}}
+                    disabled={feedbackQSaving} onClick={saveFeedbackQuestions}>
+                    {feedbackQSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-check"></i> Save Questions</>}
+                  </button>
+                  <button className="btn" style={{background:'transparent',border:'1px solid var(--border)'}}
+                    disabled={feedbackQSaving} onClick={() => setFeedbackEditingEvent(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Add/edit single question modal ── */}
+          {feedbackQModal && (
+            <div className="modal-overlay" onClick={() => setFeedbackQModal(null)}>
+              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'440px'}}>
+                <button className="modal-close" onClick={() => setFeedbackQModal(null)}>&#x2715;</button>
+                <div className="modal-title" style={{marginBottom:'16px'}}>
+                  {feedbackQModal.idx === null ? 'Add Question' : 'Edit Question'}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Question *</label>
+                  <input className="form-input" type="text" placeholder="e.g. How would you rate this event?"
+                    value={feedbackQDraft.label} onChange={e=>setFeedbackQDraft(f=>({...f,label:e.target.value}))}/>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Answer Type</label>
+                  <select className="form-select" value={feedbackQDraft.type}
+                    onChange={e=>setFeedbackQDraft(f=>({...f,type:e.target.value}))}>
+                    {FEEDBACK_QUESTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+
+                {(feedbackQDraft.type === 'multiple_choice' || feedbackQDraft.type === 'checkboxes') && (
+                  <div className="form-group">
+                    <label className="form-label">Options <span style={{fontWeight:400,color:'var(--text-light)'}}>— comma separated, at least 2</span></label>
+                    <input className="form-input" type="text" placeholder="Excellent, Good, Average, Poor"
+                      value={feedbackQDraft.options} onChange={e=>setFeedbackQDraft(f=>({...f,options:e.target.value}))}/>
+                  </div>
+                )}
+
+                <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',marginBottom:'20px',fontSize:'13px',color:'var(--text-muted)'}}>
+                  <input type="checkbox" checked={feedbackQDraft.required}
+                    onChange={e=>setFeedbackQDraft(f=>({...f,required:e.target.checked}))}/>
+                  Required — attendee must answer this to submit
+                </label>
+
+                <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}}
+                  disabled={!feedbackQDraft.label.trim()} onClick={saveQuestionDraft}>
+                  <i className="fa-solid fa-check"></i> {feedbackQModal.idx === null ? 'Add Question' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Responses viewer ── */}
+          {feedbackViewingEvent && (
+            <div className="modal-overlay" onClick={() => setFeedbackViewingEvent(null)}>
+              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'720px',maxHeight:'82vh',overflowY:'auto'}}>
+                <button className="modal-close" onClick={() => setFeedbackViewingEvent(null)}>&#x2715;</button>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',paddingRight:'30px'}}>
+                  <div className="modal-title" style={{marginBottom:0}}>Feedback Responses</div>
+                  {feedbackResponses.length > 0 && (
+                    <button className="btn btn-sm" style={{background:'#15803D',color:'#fff',border:'none',fontSize:'11px'}}
+                      onClick={downloadFeedbackExcel}>
+                      <i className="fa-solid fa-file-excel"></i> Download Excel
+                    </button>
+                  )}
+                </div>
+                <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'18px'}}>
+                  For <strong>{feedbackViewingEvent.title}</strong> · {feedbackResponses.length} response{feedbackResponses.length !== 1 ? 's' : ''}
+                </p>
+
+                {feedbackRespLoading ? (
+                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
+                    <i className="fa-solid fa-spinner fa-spin"></i> Loading…
+                  </div>
+                ) : feedbackResponses.length === 0 ? (
+                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-light)'}}>No responses yet.</div>
+                ) : (
+                  feedbackResponses.map(r => {
+                    const form = feedbackForms[feedbackViewingEvent.id];
+                    const questions = form?.questions || [];
+                    return (
+                      <div key={r.id} style={{border:'1px solid var(--border)',borderRadius:'10px',padding:'14px 16px',marginBottom:'12px'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}>
+                          <div>
+                            <div style={{fontWeight:700,fontSize:'13px',color:'var(--blue)'}}>{r.full_name || 'Anonymous'}</div>
+                            <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{r.email}</div>
+                          </div>
+                          <div style={{fontSize:'11px',color:'var(--text-light)'}}>
+                            {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : ''}
+                          </div>
+                        </div>
+                        {questions.map(q => {
+                          const a = r.answers?.[q.id];
+                          if (a === undefined || a === null || a === '') return null;
+                          return (
+                            <div key={q.id} style={{fontSize:'12.5px',marginBottom:'4px'}}>
+                              <span style={{color:'var(--text-muted)'}}>{q.label}: </span>
+                              <span style={{fontWeight:600,color:'var(--blue)'}}>{Array.isArray(a) ? a.join(', ') : String(a)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           )}
 
 

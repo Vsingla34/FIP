@@ -32,6 +32,7 @@ export default function Footer() {
             <Link to="/webinars">Webinars</Link>
             <Link to="/committees">Committees</Link>
             <Link to="/directory">Member Directory</Link>
+            <Link to="/feedback">Event Feedback</Link>
             <Link to="/contact">Contact</Link>
           </div>
           <div className="footer-col">

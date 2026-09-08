@@ -26,7 +26,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
   if (!process.env.GMAIL_USER) return res.status(200).json({ skipped: true });
 
-  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress, customSubject, customBody, invoiceNumber } = req.body || {};
+  const { name, email, eventTitle, eventDate, eventTime, eventLocation, eventType, isPaid, amount, zoomLink, whatsappGroupLink, transactionId, gstNumber, gstCompanyName, gstAddress, customSubject, customBody, invoiceNumber, eventId } = req.body || {};
   if (!email || !eventTitle) return res.status(400).json({ error: 'email and eventTitle are required' });
 
   // Prefer the REAL invoice number — sequential, GST-compliant, generated
@@ -103,6 +103,15 @@ export default async function handler(req, res) {
     </p>
     ${customMessageHtml}`}
 
+    ${isPaid && eventId ? `
+    <div style="margin-top:8px;padding:16px 20px;background:#F7F9FC;border:1px solid #E2E8F0;border-radius:10px;text-align:center">
+      <p style="font-size:13px;color:#4A5568;margin:0 0 10px">Once the event takes place, we'd love to hear how it went.</p>
+      <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/feedback?event=${eventId}"
+         style="display:inline-block;background:#1A3C6E;color:#fff;text-decoration:none;padding:9px 20px;border-radius:8px;font-weight:700;font-size:13px">
+        Share Your Feedback →
+      </a>
+    </div>` : ''}
+
     ${!isPaid ? `
     <!-- Event card -->
     <div style="background:#F7F9FC;border-left:4px solid #1A3C6E;border-radius:0 8px 8px 0;padding:18px 20px;margin-bottom:24px">
@@ -130,6 +139,15 @@ export default async function handler(req, res) {
           💬 Join WhatsApp Group →
         </a>
       </div>` : ''}
+    </div>` : ''}
+
+    ${eventId ? `
+    <div style="margin-top:20px;padding:16px 20px;background:#F7F9FC;border:1px solid #E2E8F0;border-radius:10px;text-align:center">
+      <p style="font-size:13px;color:#4A5568;margin:0 0 10px">Attended the event? We'd love to hear how it went.</p>
+      <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/feedback?event=${eventId}"
+         style="display:inline-block;background:#1A3C6E;color:#fff;text-decoration:none;padding:9px 20px;border-radius:8px;font-weight:700;font-size:13px">
+        Share Your Feedback →
+      </a>
     </div>` : ''}
 
     <!-- Tax Invoice -->

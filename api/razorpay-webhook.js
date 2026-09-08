@@ -421,6 +421,7 @@ export default async function handler(req, res) {
           amount:            payment.total_amount,
           transactionId:     razorpay_payment_id,
           invoiceNumber,
+          eventId:           rsvp.event_id,
           zoomLink:          ev?.zoom_link,
           whatsappGroupLink: ev?.whatsapp_group_link,
           gstNumber:         rsvp.gst_number      || null,

@@ -756,6 +756,7 @@ async function handleReconcile(req, res) {
             eventLocation: ev.location, eventType: ev.event_type,
             isPaid: true, amount: pay.total_amount, transactionId: pay.razorpay_payment_id,
             invoiceNumber: autoInvoiceNo,
+            eventId: ev.id,
             zoomLink: ev.zoom_link, whatsappGroupLink: ev.whatsapp_group_link,
           }),
         }).catch(e => console.warn('Auto-heal event email failed:', e.message));
@@ -774,17 +775,49 @@ async function handleReconcile(req, res) {
     // path actually applies it.
     const { data: paidMemberships } = await supabaseAdmin
       .from('payments')
-      .select('id,razorpay_payment_id,item_name,user_id,total_amount,created_at')
+      .select('id,razorpay_payment_id,item_name,user_id,total_amount,created_at,metadata')
       .eq('purchase_type', 'membership').eq('status', 'paid')
       .gte('created_at', since).limit(200);
 
     for (const pay of paidMemberships || []) {
       try {
-        if (!pay.user_id) continue;
-        const { data: prof } = await supabaseAdmin.from('profiles')
-          .select('id, full_name, email, account_type, membership_status, fip_member_no')
-          .eq('id', pay.user_id).maybeSingle();
-        if (!prof) continue;
+        // Never silently skip a payment — if user_id is missing, that used
+        // to mean this payment was invisibly ignored with no trace anywhere.
+        // Fall back to the email captured in the payment's own metadata
+        // (present for every payment regardless of path) before giving up.
+        let resolvedUserId = pay.user_id;
+        let prof = null;
+
+        if (resolvedUserId) {
+          const { data } = await supabaseAdmin.from('profiles')
+            .select('id, full_name, email, account_type, membership_status, fip_member_no')
+            .eq('id', resolvedUserId).maybeSingle();
+          prof = data;
+        }
+
+        if (!prof) {
+          const fallbackEmail = pay.metadata?.rsvp?.email || pay.metadata?.email;
+          if (fallbackEmail) {
+            const { data } = await supabaseAdmin.from('profiles')
+              .select('id, full_name, email, account_type, membership_status, fip_member_no')
+              .ilike('email', fallbackEmail).maybeSingle();
+            if (data) { prof = data; resolvedUserId = data.id; }
+          }
+        }
+
+        if (!prof) {
+          // Genuinely nothing to resolve this to — log it explicitly rather
+          // than silently moving on, so this shows up in payment_sync_log
+          // instead of disappearing without a trace.
+          autoEnrollErrors.push({ payment_id: pay.id, error: 'No profile found — payment has no user_id and no resolvable email in metadata.' });
+          await logSync({
+            payment_id: pay.id, razorpay_payment_id: pay.razorpay_payment_id, source: 'reconcile',
+            event: 'membership.autoheal_failed', old_status: 'paid', new_status: 'paid',
+            detail: { reason: 'no_resolvable_profile', by: auth.adminId },
+          });
+          continue;
+        }
+
         // Already active — nothing to heal here.
         if (prof.account_type === 'fip_member' && prof.membership_status === 'Active') continue;
 
@@ -798,19 +831,19 @@ async function handleReconcile(req, res) {
           membership_plan:   plan,
           membership_start:  validFrom,
           membership_end:    validUntil,
-        }).eq('id', pay.user_id);
+        }).eq('id', resolvedUserId);
         if (memErr) { autoEnrollErrors.push({ payment_id: pay.id, error: memErr.message }); continue; }
 
         if (!prof.fip_member_no) {
           const { data: num } = await supabaseAdmin.rpc('generate_fip_member_no');
-          if (num) await supabaseAdmin.from('profiles').update({ fip_member_no: num }).eq('id', pay.user_id);
+          if (num) await supabaseAdmin.from('profiles').update({ fip_member_no: num }).eq('id', resolvedUserId);
         }
 
         autoEnrolled.push({ payment_id: pay.id, email: prof.email, type: 'membership' });
         await logSync({
           payment_id: pay.id, razorpay_payment_id: pay.razorpay_payment_id, source: 'reconcile',
           event: 'membership.autohealed', old_status: 'paid', new_status: 'paid',
-          detail: { email: prof.email, plan, by: auth.adminId },
+          detail: { email: prof.email, plan, resolved_via: pay.user_id ? 'user_id' : 'email_fallback', by: auth.adminId },
         });
       } catch (e) {
         autoEnrollErrors.push({ payment_id: pay.id, error: e.message });
@@ -1245,6 +1278,7 @@ export default async function handler(req, res) {
               amount:            payment.total_amount,
               transactionId:     razorpay_payment_id,
               invoiceNumber,
+              eventId,
               zoomLink:          ev?.zoom_link,
               whatsappGroupLink: ev?.whatsapp_group_link,
               gstNumber:         rsvp.gst_number       || null,

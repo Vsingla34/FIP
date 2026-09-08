@@ -346,6 +346,7 @@ export default function EventsPage() {
         eventLocation:      rsvpOpen.location,
         eventType:          rsvpOpen.event_type,
         isPaid:             false,
+        eventId:            rsvpOpen.id,
         zoomLink:           rsvpOpen.zoom_link,
         whatsappGroupLink:  rsvpOpen.whatsapp_group_link,
         customSubject:      rsvpOpen.email_subject || null,
