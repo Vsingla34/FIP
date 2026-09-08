@@ -381,7 +381,18 @@ export default function EventsPage() {
           onClose={() => setFlyerEvent(null)}
         />
       )}
-      <div className="page-hero">
+      <div className="page-hero" style={{position:'relative'}}>
+        <button onClick={() => navigate('/feedback')}
+          style={{
+            position:'absolute', top:'24px', right:'24px', zIndex:2,
+            background:'rgba(255,255,255,0.12)', border:'1px solid rgba(255,255,255,0.35)', borderRadius:'10px',
+            padding:'10px 18px', fontSize:'13px', fontWeight:700, color:'#fff',
+            cursor:'pointer', display:'flex', alignItems:'center', gap:'8px', backdropFilter:'blur(4px)',
+          }}
+          onMouseOver={e => e.currentTarget.style.background='rgba(255,255,255,0.22)'}
+          onMouseOut={e => e.currentTarget.style.background='rgba(255,255,255,0.12)'}>
+          <i className="fa-solid fa-comment-dots"></i> Give Feedback
+        </button>
         <div className="container">
           <div className="breadcrumb">Home <i className="fa-solid fa-chevron-right"></i> <span>Events</span></div>
           <h1>Events &amp; Programmes</h1>
