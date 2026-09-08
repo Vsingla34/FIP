@@ -671,7 +671,7 @@ export default function AdminPage() {
   const [enrollEmailSending, setEnrollEmailSending] = useState(false);
   const [eventForm, setEventForm] = useState({
     title:'', description:'', event_type:'Physical', location:'', venue:'',
-    city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0,
+    city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, members_only_registration:false,
     status:'upcoming', tags:'', image_url:'', zoom_link:'',
   });
 
@@ -684,9 +684,9 @@ export default function AdminPage() {
 
   const openEventModal = (ev) => {
     if (ev === 'new') {
-      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true });
+      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, members_only_registration:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true });
     } else {
-      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', event_end_date:ev.event_end_date||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, price_member:ev.price_member||0, price_non_member:ev.price_non_member||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false, whatsapp_group_link:ev.whatsapp_group_link||'', flyer_template_url:ev.flyer_template_url||'', enable_flyer:ev.enable_flyer!==false });
+      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', event_end_date:ev.event_end_date||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, price_member:ev.price_member||0, price_non_member:ev.price_non_member||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false, members_only_registration:ev.members_only_registration||false, whatsapp_group_link:ev.whatsapp_group_link||'', flyer_template_url:ev.flyer_template_url||'', enable_flyer:ev.enable_flyer!==false });
     }
     setShowEventModal(ev);
   };
@@ -4865,6 +4865,28 @@ export default function AdminPage() {
               <div onClick={() => setEventForm(f => ({...f, is_private: !f.is_private}))}
                 style={{width:'48px',height:'26px',borderRadius:'13px',background:eventForm.is_private?'var(--orange)':'var(--green)',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
                 <div style={{position:'absolute',top:'3px',left:eventForm.is_private?'25px':'3px',width:'20px',height:'20px',borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.2)'}}/>
+              </div>
+            </div>
+
+            {/* Members-only REGISTRATION — different from the visibility toggle
+                above. This event stays fully public and visible to everyone;
+                only who can actually REGISTER is restricted. */}
+            <div style={{display:'flex',alignItems:'center',gap:'16px',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'10px',padding:'14px 18px',marginBottom:'12px'}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:'14px',color:'var(--blue)',marginBottom:'3px'}}>
+                  {eventForm.members_only_registration
+                    ? <><i className="fa-solid fa-user-lock" style={{color:'var(--orange)',marginRight:'7px'}}></i>Members-Only Registration</>
+                    : <><i className="fa-solid fa-user-check" style={{color:'var(--green)',marginRight:'7px'}}></i>Open Registration</>}
+                </div>
+                <div style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                  {eventForm.members_only_registration
+                    ? 'Everyone can see this event, but only active FIP Members can register.'
+                    : 'Anyone can both see and register for this event.'}
+                </div>
+              </div>
+              <div onClick={() => setEventForm(f => ({...f, members_only_registration: !f.members_only_registration}))}
+                style={{width:'48px',height:'26px',borderRadius:'13px',background:eventForm.members_only_registration?'var(--orange)':'var(--green)',position:'relative',cursor:'pointer',transition:'background .2s',flexShrink:0}}>
+                <div style={{position:'absolute',top:'3px',left:eventForm.members_only_registration?'25px':'3px',width:'20px',height:'20px',borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.2)'}}/>
               </div>
             </div>
 

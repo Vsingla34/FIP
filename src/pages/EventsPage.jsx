@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { useRazorpay } from '../hooks/useRazorpay.js';
@@ -53,6 +54,7 @@ export default function EventsPage() {
   const { user, profile, updateProfile } = useAuth();
   const { showToast, openModal } = useApp();
   const { pay } = useRazorpay();
+  const navigate = useNavigate();
   const isFipMember = profile?.membership_status === 'Active';
 
   const [events,  setEvents]  = useState([]);
@@ -184,6 +186,20 @@ export default function EventsPage() {
       setSubmitting(false);
       showToast(`Please fill in: ${missing.join(', ')}`, true);
       return;
+    }
+
+    // ── Members-only event check ─────────────────────────────────────────
+    // Immediate, clean feedback here — the actual enforcement (which can't
+    // be bypassed by editing client-side state) is the database trigger and,
+    // for paid events, a check in create-order.js before any charge happens.
+    if (rsvpOpen?.is_private || rsvpOpen?.members_only_registration) {
+      const isAdmin = profile?.role === 'admin' || profile?.is_admin;
+      const isActiveMember = profile?.membership_status === 'Active' || profile?.account_type === 'fip_member';
+      if (!isAdmin && !isActiveMember) {
+        setSubmitting(false);
+        showToast('This event is open to active FIP Members only.', true);
+        return;
+      }
     }
 
     // ── Capacity check ───────────────────────────────────────────────────
@@ -441,6 +457,11 @@ export default function EventsPage() {
                             <i className="fa-solid fa-lock"></i> Members Only
                           </span>
                         )}
+                        {!ev.is_private && ev.members_only_registration && (
+                          <span className="ev-meta-chip" style={{background:'rgba(242,101,34,0.1)',color:'var(--orange)',border:'1px solid rgba(242,101,34,0.3)'}}>
+                            <i className="fa-solid fa-user-lock"></i> Registration: Members Only
+                          </span>
+                        )}
                         {ev.capacity && (
                           <span className="ev-meta-note">
                             <i className="fa-solid fa-users" style={{marginRight:'4px'}}></i>
@@ -493,20 +514,38 @@ export default function EventsPage() {
                         const isFull = ev.capacity && (ev.registered_count||0) >= ev.capacity;
                         const isReg  = registeredEventIds.has(ev.id);
                         const evPrice = getEventPrice(ev, isFipMember);
+                        const isAdminUser = profile?.role === 'admin' || profile?.is_admin;
+                        const isActiveMemberForGate = profile?.membership_status === 'Active' || profile?.account_type === 'fip_member';
+                        // Registration is member-restricted and this viewer
+                        // isn't one — show a distinct state pointing at
+                        // membership instead of opening a form they'd be
+                        // rejected from at the last step anyway. Uses the
+                        // same broader membership check as the actual
+                        // submit-time validation, not the narrower
+                        // isFipMember used for pricing elsewhere on this
+                        // page — keeps this button and the real enforcement
+                        // in agreement.
+                        const blockedNonMember = ev.members_only_registration && !isActiveMemberForGate && !isAdminUser;
                         return (
                           <button
                             className="ev-card-cta"
                             style={{
-                              background: isReg ? 'var(--green)' : isFull ? '#6B7280' : evPrice>0 ? 'var(--orange)' : 'var(--blue)',
+                              background: isReg ? 'var(--green)' : (isFull || blockedNonMember) ? '#6B7280' : evPrice>0 ? 'var(--orange)' : 'var(--blue)',
                               color:'#fff',
-                              cursor: isReg || isFull ? 'default' : 'pointer',
-                              opacity: isFull && !isReg ? 0.8 : 1,
+                              cursor: (isReg || isFull || blockedNonMember) ? (blockedNonMember ? 'pointer' : 'default') : 'pointer',
+                              opacity: (isFull || blockedNonMember) && !isReg ? 0.85 : 1,
                             }}
-                            onClick={() => { if (!isReg && !isFull) openRsvp(ev); }}>
+                            onClick={() => {
+                              if (isReg || isFull) return;
+                              if (blockedNonMember) { navigate('/membership'); return; }
+                              openRsvp(ev);
+                            }}>
                             {isReg
                               ? <><i className="fa-solid fa-circle-check"></i> Already Registered</>
                               : isFull
                               ? <><i className="fa-solid fa-ban"></i> Fully Booked</>
+                              : blockedNonMember
+                              ? <><i className="fa-solid fa-user-lock"></i> Members Only — Join FIP</>
                               : evPrice > 0
                               ? <><i className="fa-solid fa-lock"></i> Register Now</>
                               : <><i className="fa-solid fa-calendar-check"></i> Register Now</>

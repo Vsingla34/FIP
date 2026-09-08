@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     // Verify user exists
     const { data: profile, error: pErr } = await supabaseAdmin
       .from('profiles')
-      .select('id, full_name, email, membership_status')
+      .select('id, full_name, email, membership_status, account_type, role, is_admin')
       .eq('id', userId)
       .single();
     if (pErr || !profile) return res.status(401).json({ error: 'User not found.' });
@@ -73,8 +73,20 @@ export default async function handler(req, res) {
 
     } else if (purchaseType === 'event') {
       const { data: event, error: eErr } = await supabaseAdmin
-        .from('events').select('id, title, price, is_free, price_member, price_non_member, capacity').eq('id', itemRefId).single();
+        .from('events').select('id, title, price, is_free, price_member, price_non_member, capacity, is_private, members_only_registration').eq('id', itemRefId).single();
       if (eErr || !event) return res.status(400).json({ error: 'Event not found' });
+
+      // Private events are FIP-members-only. The frontend already hides these
+      // from non-members in the events list, but that's just a display
+      // filter — it never actually stopped a paid registration from going
+      // through if someone reached this endpoint another way. This is the
+      // real enforcement point, checked server-side against the requester's
+      // actual membership status, not whatever the client sends.
+      const isAdmin = profile.role === 'admin' || profile.is_admin === true;
+      const isActiveMember = profile.membership_status === 'Active' || profile.account_type === 'fip_member';
+      if ((event.is_private || event.members_only_registration) && !isAdmin && !isActiveMember) {
+        return res.status(403).json({ error: 'This event is open to active FIP Members only.' });
+      }
 
       // Capacity is checked BEFORE creating the Razorpay order — without this,
       // someone could pay for an event that's already full and only discover
