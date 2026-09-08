@@ -459,7 +459,7 @@ export default function EventsPage() {
                         )}
                         {!ev.is_private && ev.members_only_registration && (
                           <span className="ev-meta-chip" style={{background:'rgba(242,101,34,0.1)',color:'var(--orange)',border:'1px solid rgba(242,101,34,0.3)'}}>
-                            <i className="fa-solid fa-user-lock"></i> Registration: Members Only
+                            <i className="fa-solid fa-user-lock"></i> Registration for FIP Members Only
                           </span>
                         )}
                         {ev.capacity && (
@@ -482,7 +482,9 @@ export default function EventsPage() {
                           if (pMember === 0 && pNonMember === 0) {
                             return (
                               <div className="ev-price-block">
-                                <span className="ev-price-free"><i className="fa-solid fa-circle-check"></i> Free for everyone</span>
+                                {ev.members_only_registration
+                                  ? <span className="ev-price-free" style={{color:'var(--orange)'}}><i className="fa-solid fa-user-lock"></i> This event is available for FIP Members only</span>
+                                  : <span className="ev-price-free"><i className="fa-solid fa-circle-check"></i> Free for everyone</span>}
                               </div>
                             );
                           }
@@ -503,7 +505,9 @@ export default function EventsPage() {
                         }
                         return (
                           <div className="ev-price-block">
-                            {ev.is_free
+                            {ev.members_only_registration
+                              ? <span className="ev-price-free" style={{color:'var(--orange)'}}><i className="fa-solid fa-user-lock"></i> This event is available for FIP Members only</span>
+                              : ev.is_free
                               ? <span className="ev-price-free"><i className="fa-solid fa-circle-check"></i> Free to attend</span>
                               : <span className="ev-price-single">₹{ev.price}</span>}
                           </div>
