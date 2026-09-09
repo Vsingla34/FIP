@@ -117,12 +117,19 @@ export default function EventsPage() {
     // event, course, or membership purchase. Still fully editable; if they
     // change it here, the new values become the saved default going forward.
     const hasSavedGst = !!(profile?.gst_number || profile?.gst_company_name);
+    // Profession: locked to the event's restriction when the admin set
+    // exactly one. This is the real fix for the restriction never actually
+    // being enforced — instead of validating a free-choice field against
+    // allowed_professions after the fact, the field itself can't be
+    // anything else in the first place.
+    const restricted = event.allowed_professions || [];
+    const lockedProfession = restricted.length === 1 ? restricted[0] : '';
     setForm({
       full_name:          profile?.full_name || user?.user_metadata?.full_name || '',
       email:              user?.email || '',
       phone:              profile?.phone || '',
-      designation:        profile?.designation || '',
-      organisation:       profile?.organisation || '',
+      profession:         lockedProfession,
+      icai_membership_no: '',
       wants_gst: hasSavedGst,
       gst_number:       profile?.gst_number       || '',
       gst_company_name: profile?.gst_company_name || '',
@@ -146,8 +153,8 @@ export default function EventsPage() {
       full_name:          form.full_name.trim(),
       email:              form.email.trim(),
       phone:              form.phone.trim() || null,
-      designation:        form.designation.trim() || null,
-      organisation:       form.organisation.trim() || null,
+      profession:         form.profession.trim() || null,
+      icai_membership_no: form.icai_membership_no.trim() || null,
       event_name:         rsvpOpen.title,
       status:             'confirmed',
       gst_number:         form.wants_gst ? form.gst_number.trim() || null : null,
@@ -174,17 +181,27 @@ export default function EventsPage() {
     if (!form.full_name.trim() || !form.email.trim()) return;
     setSubmitting(true);
 
-    // ── Validation: only Name, Email, Mobile are required now — Organisation
-    // and Designation are optional. Profession/ICAI/City are no longer part
-    // of the base form (see note below); admins needing them for a specific
-    // event can add them back via Custom Registration Fields.
+    // ── Validation ──────────────────────────────────────────────────────
     const missing = [];
     if (!form.full_name.trim())          missing.push('Full Name');
     if (!form.email.trim())              missing.push('Email');
     if (!form.phone.trim())              missing.push('Mobile Number');
+    if (!form.profession.trim())         missing.push('Profession');
+    if (form.profession === 'Chartered Accountant' && !form.icai_membership_no.trim())
+      missing.push('ICAI Membership Number');
     if (missing.length > 0) {
       setSubmitting(false);
       showToast(`Please fill in: ${missing.join(', ')}`, true);
+      return;
+    }
+
+    // Belt-and-suspenders client-side check — the real enforcement is
+    // server-side (create-order.js) and the database trigger, since this
+    // alone can't stop a manipulated request.
+    const restricted = rsvpOpen?.allowed_professions || [];
+    if (restricted.length > 0 && !restricted.includes(form.profession)) {
+      setSubmitting(false);
+      showToast(`This event is open to ${restricted.join(' / ')} only.`, true);
       return;
     }
 
@@ -244,8 +261,8 @@ export default function EventsPage() {
           full_name:          capturedForm.full_name.trim(),
           email:              capturedForm.email.trim(),
           phone:              capturedForm.phone?.trim() || null,
-          designation:        capturedForm.designation?.trim() || null,
-          organisation:       capturedForm.organisation?.trim() || null,
+          profession:         capturedForm.profession?.trim() || null,
+          icai_membership_no: capturedForm.icai_membership_no?.trim() || null,
           gst_number:         capturedForm.wants_gst ? capturedForm.gst_number : null,
           gst_company_name:   capturedForm.wants_gst ? capturedForm.gst_company_name : null,
           gst_address:        capturedForm.wants_gst ? capturedForm.gst_address : null,
@@ -260,8 +277,8 @@ export default function EventsPage() {
             full_name:          capturedForm.full_name.trim(),
             email:              capturedForm.email.trim(),
             phone:              capturedForm.phone?.trim() || null,
-            designation:        capturedForm.designation?.trim() || null,
-            organisation:       capturedForm.organisation?.trim() || null,
+            profession:         capturedForm.profession?.trim() || null,
+            icai_membership_no: capturedForm.icai_membership_no?.trim() || null,
             status:             'confirmed',
           });
           // 23505 = unique violation, meaning the webhook already inserted
@@ -678,21 +695,38 @@ export default function EventsPage() {
                         value={form.phone} onChange={handleChange} />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Organisation / Firm <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
-                      <input className="form-input" name="organisation" type="text"
-                        placeholder="Firm or Company name"
-                        value={form.organisation} onChange={handleChange} />
+                      <label className="form-label">Profession *</label>
+                      {(rsvpOpen?.allowed_professions || []).length === 1 ? (
+                        // Locked to the event's restriction — this is the actual
+                        // fix for allowed_professions never being enforced: the
+                        // field can't be anything else in the first place,
+                        // rather than trusting a free-choice input.
+                        <input className="form-input" type="text" disabled
+                          value={form.profession}
+                          style={{background:'var(--off-white)',color:'var(--text-muted)',cursor:'not-allowed'}} />
+                      ) : (
+                        <select className="form-select" name="profession" required
+                          value={form.profession} onChange={handleChange}>
+                          <option value="">Select…</option>
+                          {(((rsvpOpen?.allowed_professions || []).length > 0)
+                            ? rsvpOpen.allowed_professions
+                            : ['Chartered Accountant','Company Secretary','Cost Accountant','Advocate','Student','Other']
+                          ).map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      )}
                     </div>
                   </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Designation <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
-                      <input className="form-input" name="designation" type="text"
-                        placeholder="e.g. Partner, Senior Manager"
-                        value={form.designation} onChange={handleChange} />
+                  {form.profession === 'Chartered Accountant' && (
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">ICAI Membership Number *</label>
+                        <input className="form-input" name="icai_membership_no" type="text"
+                          placeholder="e.g. 123456" required
+                          value={form.icai_membership_no} onChange={handleChange} />
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* GST Invoice section */}
                   <div className="form-group">

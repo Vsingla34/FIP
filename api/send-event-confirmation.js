@@ -56,13 +56,14 @@ export default async function handler(req, res) {
     : '';
   const emailSubject = isPaid
     ? `${eventTitle} — Your Registration is Under Review for the time being`
-    : (customSubject ? fillVars(customSubject) : `✅ Seat Confirmed: ${eventTitle}`);
+    : (customSubject ? fillVars(customSubject) : `${eventTitle} — Your Registration is Under Review for the time being`);
 
-  // Paid events now send a "pending review" acknowledgement instead of an
+  // Paid events send a "pending review" acknowledgement instead of an
   // immediate confirmation — this applies to EVERY paid event going forward
   // (per-event email customization was deferred), not just one specific
-  // event. Free registrations are unaffected — they keep the original
-  // "seat confirmed" email below, since there's no payment/review context.
+  // event. Free events now go through the same review-first messaging, but
+  // with wording that doesn't reference payment or refunds, since neither
+  // applies to a free registration.
   const reviewParagraphs = [
     `Dear ${name || 'Participant'},`,
     `Thank you for your interest in ${eventTitle}.`,
@@ -77,6 +78,19 @@ export default async function handler(req, res) {
     `<p style="font-size:14px;color:#4A5568;line-height:1.8;margin:0 0 ${i === 0 ? '6' : '16'}px;${i===0?'font-weight:700;color:#1A3C6E;font-size:16px;':''}">${p}</p>`
   ).join('');
 
+  const freeReviewParagraphs = [
+    `Dear ${name || 'Participant'},`,
+    `Thank you for your interest in ${eventTitle}.`,
+    `We are pleased to confirm that your registration has been successfully received.`,
+    `To ensure a high-quality, focused and curated learning experience, all registrations for ${eventTitle} undergo a brief review process. Accordingly, your registration is currently under review.`,
+    `Please note that this email is an acknowledgement of your application, and not the final confirmation of participation. A final Confirmation mail — including event access details — will be sent within 12 Working Hours.`,
+    `For any registration-related queries, please write to us at fipmediaoffice@gmail.com`,
+    `We appreciate your interest in being a part of ${eventTitle} and look forward to welcoming a thoughtfully curated cohort of professionals.`,
+  ];
+  const freeReviewBodyHtml = freeReviewParagraphs.map((p, i) =>
+    `<p style="font-size:14px;color:#4A5568;line-height:1.8;margin:0 0 ${i === 0 ? '6' : '16'}px;${i===0?'font-weight:700;color:#1A3C6E;font-size:16px;':''}">${p}</p>`
+  ).join('');
+
   const html = `
 <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden">
 
@@ -87,33 +101,22 @@ export default async function handler(req, res) {
   </div>
 
   <!-- Status bar -->
-  <div style="background:${isPaid ? '#B45309' : '#16A34A'};padding:12px 28px;display:flex;align-items:center;gap:10px">
-    <span style="font-size:18px">${isPaid ? '⏳' : '✅'}</span>
+  <div style="background:#B45309;padding:12px 28px;display:flex;align-items:center;gap:10px">
+    <span style="font-size:18px">⏳</span>
     <span style="color:#fff;font-weight:700;font-size:14px">
-      ${isPaid ? 'Registration Received — Under Review' : 'Registration Confirmed — Seat Reserved!'}
+      Registration Received — Under Review
     </span>
   </div>
 
   <!-- Body -->
   <div style="padding:28px;background:#fff">
-    ${isPaid ? reviewBodyHtml : `
-    <p style="font-size:16px;color:#1A3C6E;font-weight:700;margin:0 0 6px">Dear ${name || 'Participant'},</p>
-    <p style="font-size:14px;color:#4A5568;line-height:1.8;margin:0 0 20px">
-      Your registration has been received and your seat is confirmed.
-    </p>
-    ${customMessageHtml}`}
+    ${isPaid ? reviewBodyHtml : freeReviewBodyHtml}
+    ${!isPaid ? customMessageHtml : ''}
 
-    ${isPaid && eventId ? `
-    <div style="margin-top:8px;padding:16px 20px;background:#F7F9FC;border:1px solid #E2E8F0;border-radius:10px;text-align:center">
-      <p style="font-size:13px;color:#4A5568;margin:0 0 10px">Once the event takes place, we'd love to hear how it went.</p>
-      <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://www.fipin.org'}/feedback?event=${eventId}"
-         style="display:inline-block;background:#1A3C6E;color:#fff;text-decoration:none;padding:9px 20px;border-radius:8px;font-weight:700;font-size:13px">
-        Share Your Feedback →
-      </a>
-    </div>` : ''}
-
-    ${!isPaid ? `
-    <!-- Event card -->
+    <!-- Event card — informational only. Zoom/WhatsApp access links are
+         deliberately withheld here now that every registration goes through
+         review first; those should go out once someone is actually
+         confirmed, not before. -->
     <div style="background:#F7F9FC;border-left:4px solid #1A3C6E;border-radius:0 8px 8px 0;padding:18px 20px;margin-bottom:24px">
       <div style="font-size:11px;font-weight:700;color:#F26522;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">
         ${eventType || 'Event'} · FIP
@@ -127,19 +130,7 @@ export default async function handler(req, res) {
       <div style="font-size:13px;color:#718096;margin-bottom:4px">
         📍 ${eventLocation}
       </div>` : ''}
-      ${isOnline && zoomLink ? `
-      <div style="margin-top:12px">
-        <a href="${zoomLink}" style="display:inline-block;background:#2D8CFF;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:13px;margin-right:8px">
-          Join via Zoom →
-        </a>
-      </div>` : ''}
-    ${whatsappGroupLink ? `
-      <div style="margin-top:12px">
-        <a href="${whatsappGroupLink}" style="display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:13px">
-          💬 Join WhatsApp Group →
-        </a>
-      </div>` : ''}
-    </div>` : ''}
+    </div>
 
     ${eventId ? `
     <div style="margin-top:20px;padding:16px 20px;background:#F7F9FC;border:1px solid #E2E8F0;border-radius:10px;text-align:center">

@@ -7,6 +7,11 @@ import { supabase } from '../lib/supabase.js';
 import { useDebounce } from '../hooks/useDebounce.js';
 import * as XLSX from 'xlsx';
 import CertificateTemplateEditor from '../components/CertificateTemplateEditor.jsx';
+import AdminTestimonialsTab from './admin/AdminTestimonialsTab.jsx';
+import AdminBlogTab from './admin/AdminBlogTab.jsx';
+import AdminJobApplicationsTab from './admin/AdminJobApplicationsTab.jsx';
+import AdminPopupsTab from './admin/AdminPopupsTab.jsx';
+import AdminJobsListTab from './admin/AdminJobsListTab.jsx';
 
 const ROLE_OPTIONS   = ['President','Vice President','Chairman','Co-Chairman','Co-Chairperson','Secretary','Treasurer','Member'];
 const CATEGORY_ICONS = {
@@ -3924,396 +3929,41 @@ export default function AdminPage() {
 
           {/* ═══ TESTIMONIALS ═══ */}
           {tab === 'testimonials' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
-                <span>Testimonials
-                  <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400,marginLeft:'8px'}}>
-                    ({testimonials.filter(t => t.status === testiFilter).length} {testiFilter})
-                  </span>
-                </span>
-                <div style={{display:'flex',gap:'6px'}}>
-                  {['pending','approved','rejected'].map(f => (
-                    <button key={f} onClick={() => setTestiFilter(f)}
-                      style={{padding:'5px 14px',borderRadius:'20px',fontSize:'12px',fontWeight:600,cursor:'pointer',border:'1.5px solid',
-                        background: testiFilter===f ? (f==='approved'?'var(--green)':f==='rejected'?'#C0392B':'var(--blue)') : 'transparent',
-                        color: testiFilter===f ? '#fff' : 'var(--text-muted)',
-                        borderColor: testiFilter===f ? (f==='approved'?'var(--green)':f==='rejected'?'#C0392B':'var(--blue)') : 'var(--border)',
-                      }}>
-                      {f.charAt(0).toUpperCase()+f.slice(1)}
-                      <span style={{marginLeft:'5px',background:'rgba(255,255,255,0.2)',padding:'1px 6px',borderRadius:'10px'}}>
-                        {testimonials.filter(t=>t.status===f).length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Search bar */}
-              <div className="search-wrap" style={{marginBottom:'16px'}}>
-                <i className="fa-solid fa-magnifying-glass"></i>
-                <input type="search" placeholder="Search by name, profession, content…"
-                  value={testiSearch} onChange={e=>{setTestiSearch(e.target.value);setTestiPage(1);}}/>
-              </div>
-
-              {testiLoading ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
-                </div>
-              ) : testimonials.filter(t => t.status === testiFilter).length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-star" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
-                  No {testiFilter} testimonials.
-                </div>
-              ) : testimonials.filter(t => t.status === testiFilter).map((t,i) => {
-                const initials = (t.name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase()||'?';
-                const stars = '★'.repeat(t.rating||5)+'☆'.repeat(5-(t.rating||5));
-                return (
-                  <div key={t.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'20px',marginBottom:'16px'}}>
-                    {/* Header */}
-                    <div style={{display:'flex',alignItems:'flex-start',gap:'14px',marginBottom:'14px'}}>
-                      <div style={{width:'44px',height:'44px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'14px',flexShrink:0}}>
-                        {initials}
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,color:'var(--blue)',fontSize:'14px'}}>{t.name}</div>
-                        <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'1px'}}>{t.designation}</div>
-                        {t.profession && <div style={{fontSize:'11px',color:'var(--orange)',fontWeight:600,marginTop:'2px'}}>{t.profession}</div>}
-                        <div style={{fontSize:'13px',color:'var(--orange)',marginTop:'4px'}}>{stars}</div>
-                      </div>
-                      <div style={{display:'flex',alignItems:'center',gap:'6px',flexShrink:0}}>
-                        {/* Status badge */}
-                        <span style={{padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:700,
-                          background:t.status==='approved'?'var(--green-pale)':t.status==='rejected'?'#FFF0EE':'var(--blue-tint)',
-                          color:t.status==='approved'?'var(--green)':t.status==='rejected'?'#C0392B':'var(--blue-mid)',
-                          border:`1px solid ${t.status==='approved'?'#9ADDC3':t.status==='rejected'?'#F5BDBA':'#C0CDE8'}`}}>
-                          {t.status.charAt(0).toUpperCase()+t.status.slice(1)}
-                        </span>
-                        <span style={{fontSize:'11px',color:'var(--text-light)'}}>
-                          {t.created_at ? new Date(t.created_at).toLocaleDateString('en-IN') : ''}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Content */}
-                    <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.75,fontStyle:'italic',borderLeft:'3px solid var(--orange)',paddingLeft:'12px',margin:'0 0 16px'}}>
-                      "{t.content}"
-                    </p>
-
-                    {/* Action buttons */}
-                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                      {t.status !== 'approved' && (
-                        <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none',display:'flex',alignItems:'center',gap:'6px'}}
-                          onClick={() => handleTestiAction(t.id, 'approved')}>
-                          <i className="fa-solid fa-check"></i> Approve & Publish
-                        </button>
-                      )}
-                      {t.status !== 'rejected' && (
-                        <button className="admin-btn" style={{background:'#FFF0EE',color:'#C0392B',border:'1px solid #F5BDBA',display:'flex',alignItems:'center',gap:'6px'}}
-                          onClick={() => handleTestiAction(t.id, 'rejected')}>
-                          <i className="fa-solid fa-xmark"></i> Reject
-                        </button>
-                      )}
-                      {t.status === 'approved' && (
-                        <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8',display:'flex',alignItems:'center',gap:'6px'}}
-                          onClick={() => handleTestiAction(t.id, 'pending')}>
-                          <i className="fa-solid fa-rotate-left"></i> Unpublish
-                        </button>
-                      )}
-                      <button className="admin-btn admin-btn-danger" style={{display:'flex',alignItems:'center',gap:'6px'}}
-                        onClick={() => { if(window.confirm('Permanently delete this testimonial?')) handleTestiAction(t.id, 'delete'); }}>
-                        <i className="fa-solid fa-trash"></i> Delete
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <AdminTestimonialsTab
+              testimonials={testimonials} testiFilter={testiFilter} setTestiFilter={setTestiFilter}
+              testiSearch={testiSearch} setTestiSearch={setTestiSearch}
+              testiLoading={testiLoading} handleTestiAction={handleTestiAction}
+            />
           )}
 
           {/* ═══ JOBS ═══ */}
           {tab === 'jobs' && !viewingJobId && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
-                <span>Job Postings <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({jobs.length})</span></span>
-                <button className="btn btn-primary btn-sm" onClick={openNewJob}>
-                  <i className="fa-solid fa-plus"></i> Post New Job
-                </button>
-              </div>
-              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-                <div className="search-wrap" style={{flex:1,minWidth:'200px',marginBottom:0}}>
-                  <i className="fa-solid fa-magnifying-glass"></i>
-                  <input type="search" placeholder="Search by title, company, location…"
-                    value={jobSearch} onChange={e=>setJobSearch(e.target.value)}/>
-                </div>
-                <select className="form-select" style={{width:'150px'}} value={jobTypeFilter} onChange={e=>setJobTypeFilter(e.target.value)}>
-                  <option value="All">All Types</option>
-                  <option>Full-time</option><option>Part-time</option>
-                  <option>Contract</option><option>Internship</option><option>Freelance</option>
-                </select>
-              </div>
-
-              {/* ── Member submissions pending approval ── */}
-              {jobs.filter(j => j.approval_status === 'pending').length > 0 && (
-                <div style={{background:'#FEF3C7',border:'1px solid #FCD34D',borderRadius:'var(--radius-md)',padding:'14px 18px',marginBottom:'20px'}}>
-                  <div style={{fontSize:'13px',fontWeight:700,color:'#92400E',marginBottom:'10px',display:'flex',alignItems:'center',gap:'7px'}}>
-                    <i className="fa-solid fa-clock" style={{color:'#D97706'}}></i>
-                    {jobs.filter(j=>j.approval_status==='pending').length} Member Job Post{jobs.filter(j=>j.approval_status==='pending').length>1?'s':''} Awaiting Approval
-                  </div>
-                  {jobs.filter(j => j.approval_status === 'pending').map(job => (
-                    <div key={job.id} style={{background:'#fff',border:'1px solid #FCD34D',borderRadius:'var(--radius-md)',padding:'14px 16px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap'}}>
-                      <div style={{flex:1,minWidth:'200px'}}>
-                        <div style={{fontSize:'14px',fontWeight:700,color:'var(--blue)',marginBottom:'3px'}}>{job.title}</div>
-                        <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'4px'}}>
-                          {job.company} · {job.location} · {job.job_type}
-                        </div>
-                        {(job.poster_name || job.poster_email) && (
-                          <div style={{fontSize:'12px',color:'#92400E',fontWeight:600}}>
-                            <i className="fa-solid fa-user" style={{marginRight:'4px'}}></i>
-                            Posted by: {job.poster_name || job.poster_email}
-                          </div>
-                        )}
-                        {job.description && (
-                          <p style={{fontSize:'12px',color:'var(--text-muted)',margin:'6px 0 0',lineHeight:1.6}}>
-                            {job.description.slice(0,150)}{job.description.length>150?'…':''}
-                          </p>
-                        )}
-                      </div>
-                      <div style={{display:'flex',gap:'8px',flexShrink:0,flexWrap:'wrap'}}>
-                        <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none'}}
-                          onClick={async () => {
-                            const { error } = await supabase.rpc('admin_approve_job', { p_job_id: job.id });
-                            if (!error) setJobs(prev => prev.map(j => j.id===job.id ? {...j,approval_status:'approved',status:'active'} : j));
-                            else showToast('Error: '+error.message, true);
-                          }}>
-                          <i className="fa-solid fa-check"></i> Approve
-                        </button>
-                        <button className="admin-btn" style={{background:'#FFF0EE',color:'#C0392B',border:'1px solid #F5BDBA'}}
-                          onClick={async () => {
-                            const note = window.prompt('Reason for rejection (shown to member):');
-                            if (note === null) return;
-                            const { error } = await supabase.rpc('admin_reject_job', { p_job_id: job.id, p_note: note });
-                            if (!error) setJobs(prev => prev.map(j => j.id===job.id ? {...j,approval_status:'rejected',rejection_note:note} : j));
-                          }}>
-                          <i className="fa-solid fa-xmark"></i> Reject
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {jobsLoading ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
-                </div>
-              ) : jobs.length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-briefcase" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
-                  No jobs posted yet.
-                  <div style={{marginTop:'16px'}}>
-                    <button className="btn btn-primary btn-sm" onClick={openNewJob}><i className="fa-solid fa-plus"></i> Post Your First Job</button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
-                  {jobs.map(job => (
-                    <div key={job.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'18px 20px'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap'}}>
-                        <div style={{flex:1,minWidth:'220px'}}>
-                          <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
-                            <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{job.title}</span>
-                            <span className={`status-pill ${job.status==='active'?'sp-active':'sp-pending'}`}>
-                              {job.status.charAt(0).toUpperCase()+job.status.slice(1)}
-                            </span>
-                          </div>
-                          <div style={{fontSize:'13px',color:'var(--text-muted)'}}>
-                            <i className="fa-solid fa-building" style={{marginRight:'5px',color:'var(--orange)'}}></i>{job.company}
-                            <span style={{margin:'0 8px',color:'var(--border-dark)'}}>·</span>
-                            <i className="fa-solid fa-location-dot" style={{marginRight:'5px',color:'var(--orange)'}}></i>{job.location}
-                            <span style={{margin:'0 8px',color:'var(--border-dark)'}}>·</span>
-                            {job.job_type}
-                          </div>
-                        </div>
-                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                          <button className="admin-btn admin-btn-orange" onClick={() => viewApplications(job.id)}>
-                            <i className="fa-solid fa-users"></i> {appCounts[job.id] || 0} Applications
-                          </button>
-                          <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => openEditJob(job)}>
-                            <i className="fa-solid fa-pen"></i> Edit
-                          </button>
-                          <button className="admin-btn" style={{background: job.status==='active'?'var(--off-white)':'var(--green-pale)', color: job.status==='active'?'var(--text-muted)':'var(--green)', border:'1px solid var(--border)'}} onClick={() => toggleJobStatus(job)}>
-                            {job.status==='active' ? <><i className="fa-solid fa-pause"></i> Close</> : <><i className="fa-solid fa-play"></i> Reopen</>}
-                          </button>
-                          <button className="admin-btn admin-btn-danger" onClick={() => deleteJob(job.id)}>
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AdminJobsListTab
+              jobs={jobs} setJobs={setJobs} openNewJob={openNewJob}
+              jobSearch={jobSearch} setJobSearch={setJobSearch}
+              jobTypeFilter={jobTypeFilter} setJobTypeFilter={setJobTypeFilter}
+              jobsLoading={jobsLoading} supabase={supabase} showToast={showToast}
+              appCounts={appCounts} viewApplications={viewApplications}
+              openEditJob={openEditJob} toggleJobStatus={toggleJobStatus} deleteJob={deleteJob}
+            />
           )}
 
           {/* ═══ JOB APPLICATIONS VIEW ═══ */}
           {tab === 'jobs' && viewingJobId && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',alignItems:'center',gap:'12px'}}>
-                <button onClick={() => setViewingJobId(null)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--blue)',fontSize:'16px'}}>
-                  <i className="fa-solid fa-arrow-left"></i>
-                </button>
-                <span>Applications for <strong>{jobs.find(j=>j.id===viewingJobId)?.title}</strong></span>
-              </div>
-
-              {appsLoading ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
-                </div>
-              ) : applications.length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-inbox" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
-                  No applications yet for this job.
-                </div>
-              ) : (
-                <div style={{display:'flex',flexDirection:'column',gap:'14px'}}>
-                  {applications.map(app => {
-                    const initials = (app.applicant_name||'').split(' ').filter(w=>w.length>1).map(w=>w[0]).join('').slice(0,2).toUpperCase()||'?';
-                    return (
-                      <div key={app.application_id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'18px 20px'}}>
-                        <div style={{display:'flex',gap:'14px',alignItems:'flex-start',marginBottom:'12px'}}>
-                          <div style={{width:'40px',height:'40px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'13px',flexShrink:0}}>
-                            {initials}
-                          </div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:700,color:'var(--blue)',fontSize:'14px'}}>{app.applicant_name}</div>
-                            <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}}>
-                              {app.applicant_profession} {app.applicant_city ? `· ${app.applicant_city}` : ''}
-                            </div>
-                            <div style={{fontSize:'12px',color:'var(--text-light)',marginTop:'2px'}}>
-                              <i className="fa-solid fa-envelope" style={{marginRight:'4px'}}></i>{app.applicant_email}
-                              {app.applicant_phone && <span style={{marginLeft:'12px'}}><i className="fa-solid fa-phone" style={{marginRight:'4px'}}></i>{app.applicant_phone}</span>}
-                            </div>
-                          </div>
-                          <span style={{padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:700,
-                            background:app.status==='shortlisted'?'var(--green-pale)':app.status==='rejected'?'#FFF0EE':app.status==='reviewed'?'var(--blue-tint)':'var(--orange-pale)',
-                            color:app.status==='shortlisted'?'var(--green)':app.status==='rejected'?'#C0392B':app.status==='reviewed'?'var(--blue-mid)':'var(--orange-dark)'}}>
-                            {app.status.charAt(0).toUpperCase()+app.status.slice(1)}
-                          </span>
-                        </div>
-                        <p style={{fontSize:'13px',color:'var(--text-muted)',lineHeight:1.65,borderLeft:'3px solid var(--orange)',paddingLeft:'12px',margin:'0 0 12px'}}>
-                          {app.cover_note}
-                        </p>
-                        {app.resume_url && (
-                          <a href={app.resume_url} target="_blank" rel="noopener noreferrer" style={{fontSize:'12px',color:'var(--orange)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:'5px',marginBottom:'12px'}}>
-                            <i className="fa-solid fa-file-lines"></i> View Resume/Portfolio
-                          </a>
-                        )}
-                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                          {app.status !== 'shortlisted' && (
-                            <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none'}} onClick={() => reviewApplication(app.application_id, 'shortlisted')}>
-                              <i className="fa-solid fa-star"></i> Shortlist
-                            </button>
-                          )}
-                          {app.status === 'submitted' && (
-                            <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => reviewApplication(app.application_id, 'reviewed')}>
-                              <i className="fa-solid fa-eye"></i> Mark Reviewed
-                            </button>
-                          )}
-                          {app.status !== 'rejected' && (
-                            <button className="admin-btn admin-btn-danger" onClick={() => reviewApplication(app.application_id, 'rejected')}>
-                              <i className="fa-solid fa-xmark"></i> Reject
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <AdminJobApplicationsTab
+              viewingJobId={viewingJobId} setViewingJobId={setViewingJobId} jobs={jobs}
+              appsLoading={appsLoading} applications={applications} reviewApplication={reviewApplication}
+            />
           )}
 
           {/* ═══ BLOG POSTS ═══ */}
           {tab === 'blog' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
-                <span>Blog Posts</span>
-                <div style={{display:'flex',gap:'6px'}}>
-                  {['pending','approved','rejected'].map(f => (
-                    <button key={f} onClick={() => setBlogFilter(f)}
-                      style={{padding:'5px 14px',borderRadius:'20px',fontSize:'12px',fontWeight:600,cursor:'pointer',border:'1.5px solid',
-                        background: blogFilter===f ? (f==='approved'?'var(--green)':f==='rejected'?'#C0392B':'var(--blue)') : 'transparent',
-                        color: blogFilter===f ? '#fff' : 'var(--text-muted)',
-                        borderColor: blogFilter===f ? (f==='approved'?'var(--green)':f==='rejected'?'#C0392B':'var(--blue)') : 'var(--border)',
-                      }}>
-                      {f.charAt(0).toUpperCase()+f.slice(1)}
-                      <span style={{marginLeft:'5px',background:'rgba(0,0,0,0.1)',padding:'1px 6px',borderRadius:'10px'}}>
-                        {blogPosts.filter(p=>p.status===f).length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Search bar */}
-              <div className="search-wrap" style={{marginBottom:'16px'}}>
-                <i className="fa-solid fa-magnifying-glass"></i>
-                <input type="search" placeholder="Search by title, category…"
-                  value={blogSearch} onChange={e=>{setBlogSearch(e.target.value);setBlogPage(1);}}/>
-              </div>
-
-              {blogLoading ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
-                </div>
-              ) : (() => { const filtBlog = blogPosts.filter(p=>p.status===blogFilter && (!dBlogSearch || p.title?.toLowerCase().includes(dBlogSearch.toLowerCase()) || p.category?.toLowerCase().includes(dBlogSearch.toLowerCase()))); return filtBlog.length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-newspaper" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
-                  No {blogFilter} blog posts.
-                </div>
-              ) : filtBlog.map(post => (
-                <div key={post.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'20px',marginBottom:'14px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'12px',flexWrap:'wrap'}}>
-                    <div style={{flex:1,minWidth:'200px'}}>
-                      <div style={{fontSize:'15px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>{post.title}</div>
-                      <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
-                        {post.category && <span>{post.category}</span>}
-                        <span>by <strong>{blogAuthors[post.author_id]?.full_name || 'Unknown'}</strong> · {blogAuthors[post.author_id]?.email || ''}</span>
-                        <span>{new Date(post.created_at).toLocaleDateString('en-IN')}</span>
-                        {post.read_time_mins && <span>{post.read_time_mins} min read</span>}
-                      </div>
-                    </div>
-                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
-                      {post.status !== 'approved' && (
-                        <button className="admin-btn" style={{background:'var(--green)',color:'#fff',border:'none'}}
-                          onClick={() => handleBlogAction(post.id, 'approved')}>
-                          <i className="fa-solid fa-check"></i> Approve & Publish
-                        </button>
-                      )}
-                      {post.status !== 'rejected' && (
-                        <button className="admin-btn" style={{background:'#FFF0EE',color:'#C0392B',border:'1px solid #F5BDBA'}}
-                          onClick={() => {
-                            const note = window.prompt('Reason for rejection (optional):');
-                            handleBlogAction(post.id, 'rejected', note);
-                          }}>
-                          <i className="fa-solid fa-xmark"></i> Reject
-                        </button>
-                      )}
-                      {post.status === 'approved' && (
-                        <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}}
-                          onClick={() => handleBlogAction(post.id, 'pending')}>
-                          <i className="fa-solid fa-rotate-left"></i> Unpublish
-                        </button>
-                      )}
-                      <button className="admin-btn admin-btn-danger"
-                        onClick={() => handleBlogAction(post.id, 'delete')}>
-                        <i className="fa-solid fa-trash"></i>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ));
-              })()}
-            </div>
+            <AdminBlogTab
+              blogFilter={blogFilter} setBlogFilter={setBlogFilter} blogPosts={blogPosts}
+              blogSearch={blogSearch} setBlogSearch={setBlogSearch}
+              blogLoading={blogLoading} dBlogSearch={dBlogSearch} blogAuthors={blogAuthors}
+              handleBlogAction={handleBlogAction}
+            />
           )}
 
           {/* ═══ CONTACT MESSAGES ═══ */}
@@ -4898,109 +4548,12 @@ export default function AdminPage() {
           )}
 
           {/* ═══ POPUPS ═══ */}
-          {tab === 'popups' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
-                <span>Hero Popups <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({popups.length})</span></span>
-                <button className="btn btn-primary btn-sm" onClick={() => { setPopupForm({title:'',image_url:'',cta_label:'Register Now',cta_link:'/courses',is_active:true,sort_order:popups.length}); setPopupModal('new'); }}>
-                  <i className="fa-solid fa-plus"></i> Add Popup
-                </button>
-              </div>
-              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'16px'}}>
-                These popups appear on the homepage hero when visitors land on the site. Multiple popups show as a carousel.
-              </p>
-              {popupsLoading ? (
-                <div style={{textAlign:'center',padding:'40px'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',color:'var(--orange)'}}></i></div>
-              ) : popups.length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-rectangle-ad" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-                  <p>No popups yet. Add your first popup to show on the homepage.</p>
-                </div>
-              ) : popups.map(p => (
-                <div key={p.id} style={{display:'flex',gap:'16px',alignItems:'center',background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'14px 16px',marginBottom:'10px',flexWrap:'wrap'}}>
-                  {/* Preview thumbnail */}
-                  <img src={p.image_url} alt={p.title} style={{width:'80px',height:'56px',objectFit:'cover',borderRadius:'8px',flexShrink:0,border:'1px solid var(--border)'}}
-                    onError={e=>e.target.style.display='none'}/>
-                  <div style={{flex:1,minWidth:'160px'}}>
-                    <div style={{fontSize:'14px',fontWeight:700,color:'var(--blue)',marginBottom:'3px'}}>{p.title}</div>
-                    <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
-                      <span>CTA: {p.cta_label}</span>
-                      <span>Link: {p.cta_link}</span>
-                      <span>Order: {p.sort_order}</span>
-                    </div>
-                  </div>
-                  {/* Toggle active */}
-                  <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',flexShrink:0}}>
-                    <div style={{position:'relative',width:'36px',height:'20px'}} onClick={() => togglePopup(p.id, !p.is_active)}>
-                      <div style={{position:'absolute',inset:0,borderRadius:'10px',background:p.is_active?'var(--green)':'var(--border)',transition:'background 0.2s'}}/>
-                      <div style={{position:'absolute',top:'2px',left:p.is_active?'18px':'2px',width:'16px',height:'16px',borderRadius:'50%',background:'#fff',transition:'left 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
-                    </div>
-                    <span style={{fontSize:'12px',color:p.is_active?'var(--green)':'var(--text-muted)',fontWeight:600}}>{p.is_active?'Active':'Hidden'}</span>
-                  </label>
-                  <div style={{display:'flex',gap:'6px',flexShrink:0}}>
-                    <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}}
-                      onClick={() => { setPopupForm({title:p.title,image_url:p.image_url,cta_label:p.cta_label||'Register Now',cta_link:p.cta_link||'/courses',is_active:p.is_active,sort_order:p.sort_order||0}); setPopupModal(p); }}>
-                      <i className="fa-solid fa-pen"></i> Edit
-                    </button>
-                    <button className="admin-btn admin-btn-danger" onClick={() => deletePopup(p.id)}>
-                      <i className="fa-solid fa-trash"></i>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ── Popup Create/Edit Modal ── */}
-          {popupModal && (
-            <div className="modal-overlay">
-              <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'520px'}}>
-                <button className="modal-close" onClick={() => setPopupModal(null)}>&#x2715;</button>
-                <div className="modal-title">{popupModal==='new'?'Add New Popup':'Edit Popup'}</div>
-                <div className="form-group">
-                  <label className="form-label">Title *</label>
-                  <input className="form-input" placeholder="e.g. ITR Filing Mastery Webinar" value={popupForm.title} onChange={e=>setPopupForm(f=>({...f,title:e.target.value}))}/>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">
-                    Image URL *
-                    <span style={{fontWeight:400,color:'var(--text-light)',marginLeft:'6px'}}>— upload to Supabase Storage and paste URL here</span>
-                  </label>
-                  <input className="form-input" type="url" placeholder="https://..." value={popupForm.image_url} onChange={e=>setPopupForm(f=>({...f,image_url:e.target.value}))}/>
-                  {popupForm.image_url && (
-                    <img src={popupForm.image_url} alt="preview" style={{marginTop:'8px',width:'100%',maxHeight:'200px',objectFit:'cover',borderRadius:'8px',border:'1px solid var(--border)'}}
-                      onError={e=>e.target.style.display='none'}/>
-                  )}
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">CTA Button Label</label>
-                    <input className="form-input" placeholder="Register Now" value={popupForm.cta_label} onChange={e=>setPopupForm(f=>({...f,cta_label:e.target.value}))}/>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">CTA Link</label>
-                    <input className="form-input" placeholder="/courses or https://..." value={popupForm.cta_link} onChange={e=>setPopupForm(f=>({...f,cta_link:e.target.value}))}/>
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Display Order</label>
-                    <input className="form-input" type="number" placeholder="0 = first" value={popupForm.sort_order} onChange={e=>setPopupForm(f=>({...f,sort_order:e.target.value}))}/>
-                  </div>
-                  <div className="form-group" style={{display:'flex',alignItems:'center',gap:'10px',paddingTop:'22px'}}>
-                    <input type="checkbox" id="popup_active" checked={popupForm.is_active} onChange={e=>setPopupForm(f=>({...f,is_active:e.target.checked}))} style={{width:'16px',height:'16px',accentColor:'var(--green)'}}/>
-                    <label htmlFor="popup_active" style={{fontSize:'13px',color:'var(--text-muted)',cursor:'pointer'}}>Active (show on site)</label>
-                  </div>
-                </div>
-                <div style={{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'8px'}}>
-                  <button className="btn btn-outline-blue btn-sm" onClick={() => setPopupModal(null)}>Cancel</button>
-                  <button className="btn btn-primary btn-sm" onClick={savePopup} disabled={!popupForm.title.trim()||!popupForm.image_url.trim()}>
-                    {popupModal==='new'?'Create Popup':'Save Changes'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <AdminPopupsTab
+            tab={tab} popups={popups} popupsLoading={popupsLoading}
+            popupForm={popupForm} setPopupForm={setPopupForm}
+            popupModal={popupModal} setPopupModal={setPopupModal}
+            togglePopup={togglePopup} deletePopup={deletePopup} savePopup={savePopup}
+          />
 
           {/* ═══ SETTINGS ═══ */}
           {tab === 'settings' && (

@@ -73,7 +73,7 @@ export default async function handler(req, res) {
 
     } else if (purchaseType === 'event') {
       const { data: event, error: eErr } = await supabaseAdmin
-        .from('events').select('id, title, price, is_free, price_member, price_non_member, capacity, is_private, members_only_registration').eq('id', itemRefId).single();
+        .from('events').select('id, title, price, is_free, price_member, price_non_member, capacity, is_private, members_only_registration, allowed_professions').eq('id', itemRefId).single();
       if (eErr || !event) return res.status(400).json({ error: 'Event not found' });
 
       // Private events are FIP-members-only. The frontend already hides these
@@ -86,6 +86,16 @@ export default async function handler(req, res) {
       const isActiveMember = profile.membership_status === 'Active' || profile.account_type === 'fip_member';
       if ((event.is_private || event.members_only_registration) && !isAdmin && !isActiveMember) {
         return res.status(403).json({ error: 'This event is open to active FIP Members only.' });
+      }
+
+      // Profession restriction — same story as above. The registration form
+      // now locks this field when the admin set exactly one profession, but
+      // a disabled input is still just a client-side hint; someone could
+      // still submit a different value directly to this endpoint. This is
+      // the actual enforcement.
+      const allowedProfessions = event.allowed_professions || [];
+      if (allowedProfessions.length > 0 && !allowedProfessions.includes(rsvpData?.profession)) {
+        return res.status(403).json({ error: `This event is open to ${allowedProfessions.join(' / ')} only.` });
       }
 
       // Capacity is checked BEFORE creating the Razorpay order — without this,
