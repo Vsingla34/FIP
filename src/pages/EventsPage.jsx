@@ -275,7 +275,7 @@ export default function EventsPage() {
             showToast('Payment done but RSVP save failed. Please contact support.', true);
           } else {
             setRegisteredEventIds(prev => new Set([...prev, capturedEvent.id]));
-            showToast(`You're registered for ${capturedEvent.title}! 🎉`);
+            showToast(`Registration received for ${capturedEvent.title} — currently under review.`);
             // Save GST details back to the profile so they autofill next
             // time — same as the free-registration path.
             if (capturedForm.wants_gst && (capturedForm.gst_number?.trim() || capturedForm.gst_company_name?.trim())) {
@@ -622,15 +622,15 @@ export default function EventsPage() {
             )}
 
             {submitted ? (
-              /* ── Success ── */
+              /* ── Under Review ── */
               <div style={{textAlign:'center',padding:'24px 8px'}}>
-                <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'var(--green-pale)',border:'2px solid var(--green)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px',color:'var(--green)'}}>
-                  <i className="fa-solid fa-check"></i>
+                <div style={{width:'68px',height:'68px',borderRadius:'50%',background:'#FEF3C7',border:'2px solid #B45309',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',fontSize:'26px',color:'#B45309'}}>
+                  <i className="fa-solid fa-clock"></i>
                 </div>
-                <div className="modal-title">Registration Confirmed!</div>
+                <div className="modal-title">Registration Received — Under Review</div>
                 <p style={{fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,marginBottom:'8px'}}>
-                  You're registered for <strong>{rsvpOpen.title}</strong>.
-                  {rsvpOpen.event_date && <> We'll see you on <strong>{formatDateRange(rsvpOpen.event_date, rsvpOpen.event_end_date)}</strong>.</>}
+                  Your registration for <strong>{rsvpOpen.title}</strong> has been received and is currently under review.
+                  You'll receive a confirmation email once it's approved.
                 </p>
                 <button className="btn btn-outline-blue btn-sm" onClick={() => setRsvpOpen(null)}>Close</button>
               </div>
