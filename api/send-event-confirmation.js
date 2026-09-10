@@ -113,10 +113,11 @@ export default async function handler(req, res) {
     ${isPaid ? reviewBodyHtml : freeReviewBodyHtml}
     ${!isPaid ? customMessageHtml : ''}
 
-    <!-- Event card — informational only. Zoom/WhatsApp access links are
-         deliberately withheld here now that every registration goes through
-         review first; those should go out once someone is actually
-         confirmed, not before. -->
+    <!-- Event card — informational, plus the WhatsApp group. The Zoom link
+         specifically stays withheld until someone is actually confirmed,
+         since that's real event access — the WhatsApp group is more of a
+         general community/announcements channel, so that one goes out
+         here regardless of review status. -->
     <div style="background:#F7F9FC;border-left:4px solid #1A3C6E;border-radius:0 8px 8px 0;padding:18px 20px;margin-bottom:24px">
       <div style="font-size:11px;font-weight:700;color:#F26522;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">
         ${eventType || 'Event'} · FIP
@@ -129,6 +130,12 @@ export default async function handler(req, res) {
       ${eventLocation ? `
       <div style="font-size:13px;color:#718096;margin-bottom:4px">
         📍 ${eventLocation}
+      </div>` : ''}
+      ${whatsappGroupLink ? `
+      <div style="margin-top:12px">
+        <a href="${whatsappGroupLink}" style="display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:13px">
+          💬 Join WhatsApp Group →
+        </a>
       </div>` : ''}
     </div>
 
