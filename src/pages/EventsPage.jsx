@@ -161,18 +161,6 @@ export default function EventsPage() {
       gst_company_name:   form.wants_gst ? form.gst_company_name.trim() || null : null,
       gst_address:        form.wants_gst ? form.gst_address.trim() || null : null,
     });
-    // Enroll additional registrants for free events too
-    for (const r of extras) {
-      await supabase.from('event_rsvps').insert({
-        event_id:   rsvpOpen.id,
-        event_name: rsvpOpen.title,
-        user_id:    null,
-        full_name:  r.name,
-        email:      r.email,
-        phone:      r.phone,
-        status:     'confirmed',
-      });
-    }
     return error;
   };
 
@@ -316,7 +304,17 @@ export default function EventsPage() {
     }
 
     // Free event — save directly
-    const error = await saveRsvp();
+    let error;
+    try {
+      error = await saveRsvp();
+    } catch (err) {
+      // Safety net: if anything unexpected throws here, the button must
+      // still recover rather than hang indefinitely — that silent-hang
+      // failure mode is exactly what the "extras is not defined" bug caused.
+      setSubmitting(false);
+      showToast('Registration failed: ' + (err.message || 'Please try again.'), true);
+      return;
+    }
     setSubmitting(false);
 
     if (error) {
