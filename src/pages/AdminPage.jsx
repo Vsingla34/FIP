@@ -661,9 +661,35 @@ export default function AdminPage() {
   const [eventsLoading,    setEventsLoading]    = useState(false);
   const [showEventModal,   setShowEventModal]   = useState(null); // 'new' | event obj
   const [eventRsvps,       setEventRsvps]       = useState([]);
+  const [cancelledRsvps,   setCancelledRsvps]   = useState([]);
+  const [rsvpSubTab,       setRsvpSubTab]       = useState('all'); // 'all' | 'registered' | 'cancelled'
   const [rsvpEventView,    setRsvpEventView]    = useState(null);
   const [rsvpLoading,      setRsvpLoading]      = useState(false);
   const [selectedRsvpIds,  setSelectedRsvpIds]  = useState(new Set());
+  const [rsvpStatusFilter, setRsvpStatusFilter] = useState('active'); // 'active' | 'cancelled'
+
+  // Bulk-cancel selected registrants — reuses the same selection mechanism
+  // already built for bulk email, just a different action on the same set.
+  const moveSelectedToCancelled = async () => {
+    if (selectedRsvpIds.size === 0) return;
+    if (!window.confirm(`Move ${selectedRsvpIds.size} registrant(s) to Cancelled?`)) return;
+    const ids = [...selectedRsvpIds];
+    const { error } = await supabase.from('event_rsvps').update({ status: 'cancelled' }).in('id', ids);
+    if (error) { showToast('Error: ' + error.message, true); return; }
+    setEventRsvps(prev => prev.map(r => ids.includes(r.id) ? { ...r, status: 'cancelled' } : r));
+    setSelectedRsvpIds(new Set());
+    showToast(`${ids.length} registrant(s) moved to Cancelled.`);
+  };
+
+  const moveSelectedToActive = async () => {
+    if (selectedRsvpIds.size === 0) return;
+    const ids = [...selectedRsvpIds];
+    const { error } = await supabase.from('event_rsvps').update({ status: 'confirmed' }).in('id', ids);
+    if (error) { showToast('Error: ' + error.message, true); return; }
+    setEventRsvps(prev => prev.map(r => ids.includes(r.id) ? { ...r, status: 'confirmed' } : r));
+    setSelectedRsvpIds(new Set());
+    showToast(`${ids.length} registrant(s) restored to active.`);
+  };
   const [showRsvpEmail,    setShowRsvpEmail]    = useState(false);
   const [rsvpEmailSubject, setRsvpEmailSubject] = useState('');
   const [rsvpEmailContent, setRsvpEmailContent] = useState('');
@@ -683,9 +709,94 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab !== 'events') return;
     setEventsLoading(true);
-    supabase.from('events').select('*').order('event_date', { ascending: true, nullsFirst: false })
+    supabase.from('events').select('*').order('event_date', { ascending: false, nullsFirst: false })
       .then(({ data }) => { setAdminEvents(data || []); setEventsLoading(false); });
   }, [tab]);
+
+  /* ═══════════════════ GALLERY ═══════════════════
+     Admin uploads event photos to Supabase Storage, optionally tagging each
+     with an event. Events fetched independently here too — same reasoning
+     as Feedback Forms below: gating this fetch to only run when adminEvents
+     loads (Events tab) was exactly the bug that broke the committee-assign
+     dropdown earlier in this project. Not repeating it. */
+  const [galleryImages,    setGalleryImages]    = useState([]);
+  const [galleryLoading,   setGalleryLoading]   = useState(false);
+  const [galleryEvents,    setGalleryEvents]    = useState([]);
+  const [galleryUploading, setGalleryUploading] = useState(false);
+  const [galleryCaption,   setGalleryCaption]   = useState('');
+  const [galleryEventId,   setGalleryEventId]   = useState('');
+
+  const loadGallery = async () => {
+    setGalleryLoading(true);
+    const [imgRes, evRes] = await Promise.all([
+      supabase.from('gallery_images').select('*').order('sort_order', { ascending: true }),
+      supabase.from('events').select('id,title').order('event_date', { ascending: false }),
+    ]);
+    setGalleryImages(imgRes.data || []);
+    setGalleryEvents(evRes.data || []);
+    setGalleryLoading(false);
+  };
+
+  useEffect(() => {
+    if (tab !== 'gallery') return;
+    loadGallery();
+  }, [tab]);
+
+  const uploadGalleryImage = async (file) => {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { showToast('Image too large — please keep under 8MB.', true); return; }
+    setGalleryUploading(true);
+    try {
+      const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const { error: upErr } = await supabase.storage.from('gallery').upload(fileName, file);
+      if (upErr) { showToast('Upload failed: ' + upErr.message, true); setGalleryUploading(false); return; }
+      const { data: urlData } = supabase.storage.from('gallery').getPublicUrl(fileName);
+      const selectedEvent = galleryEvents.find(e => e.id === galleryEventId);
+      const { error: insErr } = await supabase.from('gallery_images').insert({
+        image_url:  urlData.publicUrl,
+        caption:    galleryCaption.trim() || null,
+        event_id:   galleryEventId || null,
+        event_name: selectedEvent?.title || null,
+        sort_order: galleryImages.length,
+        uploaded_by: profile?.id || null,
+      });
+      if (insErr) { showToast('Could not save image: ' + insErr.message, true); setGalleryUploading(false); return; }
+      showToast('Photo uploaded!');
+      setGalleryCaption(''); setGalleryEventId('');
+      loadGallery();
+    } catch (e) {
+      showToast('Upload error: ' + e.message, true);
+    }
+    setGalleryUploading(false);
+  };
+
+  const deleteGalleryImage = async (img) => {
+    if (!window.confirm('Delete this photo?')) return;
+    // Remove from storage too, not just the database row — the file path
+    // is the last segment of the public URL.
+    try {
+      const path = img.image_url.split('/gallery/').pop();
+      if (path) await supabase.storage.from('gallery').remove([path]);
+    } catch (e) { /* non-fatal — still remove the DB row even if storage cleanup fails */ }
+    const { error } = await supabase.from('gallery_images').delete().eq('id', img.id);
+    if (error) { showToast('Error: ' + error.message, true); return; }
+    showToast('Photo removed.');
+    setGalleryImages(prev => prev.filter(i => i.id !== img.id));
+  };
+
+  const moveGalleryImage = async (idx, dir) => {
+    const next = [...galleryImages];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    setGalleryImages(next);
+    // Persist the new order for just these two swapped rows
+    await Promise.all([
+      supabase.from('gallery_images').update({ sort_order: idx }).eq('id', next[idx].id),
+      supabase.from('gallery_images').update({ sort_order: target }).eq('id', next[target].id),
+    ]);
+  };
+
 
   /* ═══════════════════ FEEDBACK FORMS ═══════════════════
      Admin picks which events have a feedback form, builds a custom
@@ -1036,8 +1147,12 @@ export default function AdminPage() {
     // still showing up here as if it were an active registrant, selectable
     // for bulk email/certificates and counted in the total. Filtered at this
     // single entry point so every view derived from eventRsvps is correct.
-    const active = rows.filter(r => r.status !== 'cancelled');
+    // Cancelled rows aren't discarded though — captured separately so the
+    // Cancelled Users tab has something to actually show.
+    const active    = rows.filter(r => r.status !== 'cancelled');
+    const cancelled = rows.filter(r => r.status === 'cancelled');
     setEventRsvps(active);
+    setCancelledRsvps(cancelled);
     setRsvpLoading(false);
   };
 
@@ -1314,7 +1429,6 @@ export default function AdminPage() {
   const [memForm,         setMemForm]         = useState({
     standard_price: 500,
     renewal_price:  200,
-    validity_months: 12,
     membership_start_date: '',
     membership_end_date:   '',
     description: '',
@@ -1513,6 +1627,28 @@ export default function AdminPage() {
   const [selectedMemberIds, setSelectedMemberIds] = useState(new Set());
   const [showEmailCompose,  setShowEmailCompose]  = useState(false);
   const [emailSubject,      setEmailSubject]      = useState('');
+  const [emailAttachment,   setEmailAttachment]   = useState(null); // { filename, content, mimeType } | null
+  const [rsvpEmailAttachment,   setRsvpEmailAttachment]   = useState(null);
+  const [enrollEmailAttachment, setEnrollEmailAttachment] = useState(null);
+
+  // Shared by all three bulk-email composers (Members, Event registrations,
+  // Course enrollments) — reads a picked file into the base64 shape
+  // send-bulk-email.js expects. 4MB cap matches the backend's own check,
+  // so the UI can reject an oversized file immediately instead of waiting
+  // on a round trip that would fail anyway.
+  const readFileAsAttachment = (file, setter) => {
+    if (!file) { setter(null); return; }
+    if (file.size > 4 * 1024 * 1024) {
+      showToast('File too large — please keep attachments under 4MB.', true);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1]; // strip the data: URL prefix
+      setter({ filename: file.name, content: base64, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+  };
   const [emailContent,      setEmailContent]      = useState('');
   const [emailSending,      setEmailSending]      = useState(false);
 
@@ -1742,6 +1878,12 @@ export default function AdminPage() {
     : memberSubTab === 'members' ? paidMembers
     : allUsers;
 
+  const filteredEventRsvps = rsvpSubTab === 'cancelled' ? cancelledRsvps
+    : rsvpSubTab === 'registered' ? eventRsvps
+    : [...eventRsvps, ...cancelledRsvps];
+
+  useEffect(() => { setRsvpSubTab('all'); setSelectedRsvpIds(new Set()); }, [rsvpEventView?.id]);
+
   // Pagination — filteredMembers can be hundreds of rows; rendering them all
   // as <tr> elements at once is what was making this page sluggish. Slicing
   // to a page keeps the DOM small regardless of how many members exist.
@@ -1847,6 +1989,9 @@ export default function AdminPage() {
           </button>
           <button className={`admin-nav-v2${tab==='slides'?' active':''}`} onClick={() => setTab('slides')}>
             <i className="fa-solid fa-image"></i> Hero Slides
+          </button>
+          <button className={`admin-nav-v2${tab==='gallery'?' active':''}`} onClick={() => setTab('gallery')}>
+            <i className="fa-solid fa-images"></i> Gallery
           </button>
 
           <div className="admin-nav-group-label">Finance</div>
@@ -2108,7 +2253,7 @@ export default function AdminPage() {
                         <i className="fa-solid fa-envelope" style={{color:'var(--orange)',marginRight:'8px'}}></i>
                         Send Email to {selectedMemberIds.size} member{selectedMemberIds.size>1?'s':''}
                       </div>
-                      <button onClick={() => { setShowEmailCompose(false); setEmailSubject(''); setEmailContent(''); }} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'20px'}}>✕</button>
+                      <button onClick={() => { setShowEmailCompose(false); setEmailSubject(''); setEmailContent(''); setEmailAttachment(null); }} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'20px'}}>✕</button>
                     </div>
                     <div style={{fontSize:'12px',color:'var(--text-muted)',background:'var(--blue-pale)',padding:'8px 12px',borderRadius:'6px',marginBottom:'14px'}}>
                       💡 Tip: Use <strong>{'{name}'}</strong> in content to personalise each email with the member's name.
@@ -2123,6 +2268,17 @@ export default function AdminPage() {
                         placeholder={'Dear {name},\n\nWrite your message here...\n\nWarm regards,\nFIP Team'}
                         value={emailContent} onChange={e=>setEmailContent(e.target.value)}/>
                     </div>
+                    <div className="form-group">
+                      <label className="form-label">Attachment <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional, max 4MB)</span></label>
+                      <input className="form-input" type="file"
+                        onChange={e=>readFileAsAttachment(e.target.files[0], setEmailAttachment)}/>
+                      {emailAttachment && (
+                        <div style={{fontSize:'12px',color:'var(--blue)',marginTop:'6px',display:'flex',alignItems:'center',gap:'8px'}}>
+                          <i className="fa-solid fa-paperclip"></i> {emailAttachment.filename}
+                          <button onClick={()=>setEmailAttachment(null)} style={{background:'none',border:'none',color:'#DC2626',cursor:'pointer',fontSize:'11px'}}>Remove</button>
+                        </div>
+                      )}
+                    </div>
                     <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
                       <button disabled={!emailSubject.trim()||!emailContent.trim()||emailSending}
                         style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'11px 24px',fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',gap:'8px',opacity:(!emailSubject.trim()||!emailContent.trim()||emailSending)?.55:1}}
@@ -2130,18 +2286,18 @@ export default function AdminPage() {
                           setEmailSending(true);
                           try {
                             const res = await fetch('/api/send-bulk-email', { method:'POST', headers:{'Content-Type':'application/json'},
-                              body: JSON.stringify({ userId:profile?.id, subject:emailSubject, content:emailContent, recipientIds:[...selectedMemberIds] }) });
+                              body: JSON.stringify({ userId:profile?.id, subject:emailSubject, content:emailContent, recipientIds:[...selectedMemberIds], attachments: emailAttachment ? [emailAttachment] : undefined }) });
                             const d = await res.json();
                             if (res.ok) {
                               showToast(`Email sent to ${d.sent} member${d.sent!==1?'s':''}! ${d.failed>0?`(${d.failed} failed)`:''}`);
-                              setShowEmailCompose(false); setSelectedMemberIds(new Set()); setEmailSubject(''); setEmailContent('');
+                              setShowEmailCompose(false); setSelectedMemberIds(new Set()); setEmailSubject(''); setEmailContent(''); setEmailAttachment(null);
                             } else showToast('Error: ' + (d.error||'Send failed'), true);
                           } catch(e) { showToast('Network error: ' + e.message, true); }
                           setEmailSending(false);
                         }}>
                         {emailSending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending to {selectedMemberIds.size} members…</> : <><i className="fa-solid fa-paper-plane"></i> Send Now</>}
                       </button>
-                      <button onClick={() => { setShowEmailCompose(false); setEmailSubject(''); setEmailContent(''); }}
+                      <button onClick={() => { setShowEmailCompose(false); setEmailSubject(''); setEmailContent(''); setEmailAttachment(null); }}
                         style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',borderRadius:'8px',padding:'11px 16px',cursor:'pointer',fontWeight:600}}>
                         Cancel
                       </button>
@@ -2603,9 +2759,36 @@ export default function AdminPage() {
                   );
                 })()}
               </div>
+
+              {/* Sub-tabs — Registered vs Cancelled, same pattern as Members */}
+              {!rsvpLoading && (eventRsvps.length > 0 || cancelledRsvps.length > 0) && (
+                <div style={{display:'flex',gap:'8px',marginBottom:'18px',flexWrap:'wrap'}}>
+                  {[
+                    { id:'all',        label:'All',       count: eventRsvps.length + cancelledRsvps.length },
+                    { id:'registered', label:'Registered', count: eventRsvps.length },
+                    { id:'cancelled',  label:'Cancelled Users', count: cancelledRsvps.length },
+                  ].map(t => (
+                    <button key={t.id} onClick={() => { setRsvpSubTab(t.id); setSelectedRsvpIds(new Set()); }}
+                      style={{
+                        padding:'6px 16px', borderRadius:'20px', fontSize:'12px', fontWeight:700,
+                        cursor:'pointer', border:'1.5px solid',
+                        background: rsvpSubTab===t.id ? 'var(--blue)' : 'transparent',
+                        color:      rsvpSubTab===t.id ? '#fff'        : 'var(--text-muted)',
+                        borderColor:rsvpSubTab===t.id ? 'var(--blue)' : 'var(--border)',
+                        transition:'all 0.15s',
+                      }}>
+                      {t.label}
+                      <span style={{marginLeft:'6px',background:rsvpSubTab===t.id?'rgba(255,255,255,0.2)':'rgba(0,0,0,0.08)',padding:'1px 7px',borderRadius:'10px'}}>
+                        {t.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {rsvpLoading ? (
                 <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…</div>
-              ) : eventRsvps.length === 0 ? (
+              ) : (eventRsvps.length === 0 && cancelledRsvps.length === 0) ? (
                 <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
                   <i className="fa-solid fa-users" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>No registrations yet.
                 </div>
@@ -2626,6 +2809,49 @@ export default function AdminPage() {
                           style={{background:'var(--orange)',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
                           <i className="fa-solid fa-envelope"></i> Send Email
                         </button>
+                        {rsvpSubTab !== 'cancelled' && (
+                          <button onClick={async () => {
+                              if (!window.confirm(`Move ${selectedRsvpIds.size} registrant(s) to Cancelled Users?`)) return;
+                              const { data: updated, error } = await supabase.from('event_rsvps')
+                                .update({ status: 'cancelled' }).in('id', [...selectedRsvpIds]).select('id');
+                              if (error) { showToast('Error: ' + error.message, true); return; }
+                              if (!updated || updated.length === 0) {
+                                showToast('Update matched 0 rows — the selected registrant IDs may not match the database. See console for details.', true);
+                                console.error('Move to Cancelled: 0 rows updated. Attempted IDs:', [...selectedRsvpIds]);
+                                return;
+                              }
+                              if (updated.length < selectedRsvpIds.size) {
+                                showToast(`Only ${updated.length} of ${selectedRsvpIds.size} registrant(s) were actually updated — see console.`, true);
+                                console.warn('Move to Cancelled: partial match.', { attempted: [...selectedRsvpIds], updated });
+                              } else {
+                                showToast(`${updated.length} registrant(s) moved to Cancelled Users.`);
+                              }
+                              setSelectedRsvpIds(new Set());
+                              loadRsvps(rsvpEventView);
+                            }}
+                            style={{background:'#DC2626',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
+                            <i className="fa-solid fa-ban"></i> Move to Cancelled
+                          </button>
+                        )}
+                        {rsvpSubTab === 'cancelled' && (
+                          <button onClick={async () => {
+                              if (!window.confirm(`Restore ${selectedRsvpIds.size} registrant(s) back to Registered?`)) return;
+                              const { data: updated, error } = await supabase.from('event_rsvps')
+                                .update({ status: 'confirmed' }).in('id', [...selectedRsvpIds]).select('id');
+                              if (error) { showToast('Error: ' + error.message, true); return; }
+                              if (!updated || updated.length === 0) {
+                                showToast('Update matched 0 rows — see console for details.', true);
+                                console.error('Restore: 0 rows updated. Attempted IDs:', [...selectedRsvpIds]);
+                                return;
+                              }
+                              showToast(`${updated.length} registrant(s) restored to Registered.`);
+                              setSelectedRsvpIds(new Set());
+                              loadRsvps(rsvpEventView);
+                            }}
+                            style={{background:'var(--green)',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
+                            <i className="fa-solid fa-rotate-left"></i> Restore to Registered
+                          </button>
+                        )}
                         <button onClick={() => setSelectedRsvpIds(new Set())}
                           style={{background:'rgba(255,255,255,0.15)',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',fontSize:'12px'}}>
                           Deselect All
@@ -2642,7 +2868,7 @@ export default function AdminPage() {
                           <i className="fa-solid fa-envelope" style={{color:'var(--orange)',marginRight:'7px'}}></i>
                           Compose Email — {selectedRsvpIds.size} registrant{selectedRsvpIds.size!==1?'s':''}
                         </div>
-                        <button onClick={() => {setShowRsvpEmail(false);setRsvpEmailSubject('');setRsvpEmailContent('');}}
+                        <button onClick={() => {setShowRsvpEmail(false);setRsvpEmailSubject('');setRsvpEmailContent('');setRsvpEmailAttachment(null);}}
                           style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'18px'}}>✕</button>
                       </div>
                       <div style={{fontSize:'12px',color:'var(--text-muted)',background:'var(--blue-pale)',padding:'7px 12px',borderRadius:'6px',marginBottom:'12px'}}>
@@ -2659,6 +2885,17 @@ export default function AdminPage() {
                           placeholder={'Dear {name},\n\nYour message here...\n\nWarm regards,\nFIP Team'}
                           value={rsvpEmailContent} onChange={e=>setRsvpEmailContent(e.target.value)}/>
                       </div>
+                      <div className="form-group">
+                        <label className="form-label">Attachment <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional, max 4MB)</span></label>
+                        <input className="form-input" type="file"
+                          onChange={e=>readFileAsAttachment(e.target.files[0], setRsvpEmailAttachment)}/>
+                        {rsvpEmailAttachment && (
+                          <div style={{fontSize:'12px',color:'var(--blue)',marginTop:'6px',display:'flex',alignItems:'center',gap:'8px'}}>
+                            <i className="fa-solid fa-paperclip"></i> {rsvpEmailAttachment.filename}
+                            <button onClick={()=>setRsvpEmailAttachment(null)} style={{background:'none',border:'none',color:'#DC2626',cursor:'pointer',fontSize:'11px'}}>Remove</button>
+                          </div>
+                        )}
+                      </div>
                       <div style={{display:'flex',gap:'10px'}}>
                         <button disabled={!rsvpEmailSubject.trim()||!rsvpEmailContent.trim()||rsvpEmailSending}
                           style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'10px 22px',fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',gap:'7px',opacity:(!rsvpEmailSubject.trim()||!rsvpEmailContent.trim()||rsvpEmailSending)?.55:1}}
@@ -2668,18 +2905,18 @@ export default function AdminPage() {
                             const recipients = selected.map(r => ({ name: r.full_name || 'Registrant', email: r.email })).filter(r => r.email);
                             try {
                               const res = await fetch('/api/send-bulk-email', { method:'POST', headers:{'Content-Type':'application/json'},
-                                body: JSON.stringify({ userId:profile?.id, subject:rsvpEmailSubject, content:rsvpEmailContent, recipients }) });
+                                body: JSON.stringify({ userId:profile?.id, subject:rsvpEmailSubject, content:rsvpEmailContent, recipients, attachments: rsvpEmailAttachment ? [rsvpEmailAttachment] : undefined }) });
                               const d = await res.json();
                               if (res.ok) {
                                 showToast(`Email sent to ${d.sent} registrant${d.sent!==1?'s':''}!`);
-                                setShowRsvpEmail(false); setSelectedRsvpIds(new Set()); setRsvpEmailSubject(''); setRsvpEmailContent('');
+                                setShowRsvpEmail(false); setSelectedRsvpIds(new Set()); setRsvpEmailSubject(''); setRsvpEmailContent(''); setRsvpEmailAttachment(null);
                               } else showToast('Error: '+(d.error||'Send failed'), true);
                             } catch(e) { showToast('Network error: '+e.message, true); }
                             setRsvpEmailSending(false);
                           }}>
                           {rsvpEmailSending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</> : <><i className="fa-solid fa-paper-plane"></i> Send Now</>}
                         </button>
-                        <button onClick={() => {setShowRsvpEmail(false);setRsvpEmailSubject('');setRsvpEmailContent('');}}
+                        <button onClick={() => {setShowRsvpEmail(false);setRsvpEmailSubject('');setRsvpEmailContent('');setRsvpEmailAttachment(null);}}
                           style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',borderRadius:'8px',padding:'10px 16px',cursor:'pointer',fontWeight:600}}>
                           Cancel
                         </button>
@@ -2687,17 +2924,22 @@ export default function AdminPage() {
                     </div>
                   )}
                   <div style={{overflowX:'auto'}}>
+                    {filteredEventRsvps.length === 0 ? (
+                      <div style={{textAlign:'center',padding:'40px',color:'var(--text-light)'}}>
+                        No registrants in this view.
+                      </div>
+                    ) : (
                     <table className="dboard-table">
                       <thead><tr>
                         <th style={{width:'36px'}}>
                           <input type="checkbox" title="Select all"
-                            checked={eventRsvps.length>0 && eventRsvps.every(r=>selectedRsvpIds.has(r.id))}
-                            onChange={e => setSelectedRsvpIds(e.target.checked ? new Set(eventRsvps.map(r=>r.id)) : new Set())}/>
+                            checked={filteredEventRsvps.length>0 && filteredEventRsvps.every(r=>selectedRsvpIds.has(r.id))}
+                            onChange={e => setSelectedRsvpIds(e.target.checked ? new Set(filteredEventRsvps.map(r=>r.id)) : new Set())}/>
                         </th>
                         <th>Name</th><th>Contact</th><th>Profession</th><th>ICAI No.</th><th>City</th><th>Vol.</th><th>Registered</th>
                       </tr></thead>
                       <tbody>
-                        {eventRsvps.map((r,i) => (
+                        {filteredEventRsvps.map((r,i) => (
                           <tr key={i} style={{background:selectedRsvpIds.has(r.id)?'rgba(26,60,110,0.04)':undefined}}>
                             <td>
                               <input type="checkbox" checked={selectedRsvpIds.has(r.id)}
@@ -2728,6 +2970,7 @@ export default function AdminPage() {
                         ))}
                       </tbody>
                     </table>
+                    )}
                   </div>
                 </>
               )}
@@ -2839,7 +3082,7 @@ export default function AdminPage() {
                       <i className="fa-solid fa-envelope" style={{color:'var(--orange)',marginRight:'7px'}}></i>
                       Email {selectedEnrollIds.size} enrolment{selectedEnrollIds.size!==1?'s':''}
                     </div>
-                    <button onClick={()=>{setShowEnrollEmail(false);setEnrollEmailSubject('');setEnrollEmailContent('');}}
+                    <button onClick={()=>{setShowEnrollEmail(false);setEnrollEmailSubject('');setEnrollEmailContent('');setEnrollEmailAttachment(null);}}
                       style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'18px'}}>✕</button>
                   </div>
                   <div style={{fontSize:'12px',color:'var(--text-muted)',background:'var(--blue-pale)',padding:'7px 12px',borderRadius:'6px',marginBottom:'12px'}}>
@@ -2856,6 +3099,17 @@ export default function AdminPage() {
                       placeholder={'Dear {name},\n\nYour message here...\n\nWarm regards,\nFIP Team'}
                       value={enrollEmailContent} onChange={e=>setEnrollEmailContent(e.target.value)}/>
                   </div>
+                  <div className="form-group">
+                    <label className="form-label">Attachment <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional, max 4MB)</span></label>
+                    <input className="form-input" type="file"
+                      onChange={e=>readFileAsAttachment(e.target.files[0], setEnrollEmailAttachment)}/>
+                    {enrollEmailAttachment && (
+                      <div style={{fontSize:'12px',color:'var(--blue)',marginTop:'6px',display:'flex',alignItems:'center',gap:'8px'}}>
+                        <i className="fa-solid fa-paperclip"></i> {enrollEmailAttachment.filename}
+                        <button onClick={()=>setEnrollEmailAttachment(null)} style={{background:'none',border:'none',color:'#DC2626',cursor:'pointer',fontSize:'11px'}}>Remove</button>
+                      </div>
+                    )}
+                  </div>
                   <div style={{display:'flex',gap:'10px'}}>
                     <button disabled={!enrollEmailSubject.trim()||!enrollEmailContent.trim()||enrollEmailSending}
                       style={{background:'var(--blue)',color:'#fff',border:'none',borderRadius:'8px',padding:'10px 22px',fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',gap:'7px',opacity:(!enrollEmailSubject.trim()||!enrollEmailContent.trim()||enrollEmailSending)?.55:1}}
@@ -2865,18 +3119,18 @@ export default function AdminPage() {
                         const recipients = selected.map(e => ({ name: e.full_name||'Participant', email: e.email })).filter(e=>e.email);
                         try {
                           const res = await fetch('/api/send-bulk-email', { method:'POST', headers:{'Content-Type':'application/json'},
-                            body: JSON.stringify({ userId:profile?.id, subject:enrollEmailSubject, content:enrollEmailContent, recipients }) });
+                            body: JSON.stringify({ userId:profile?.id, subject:enrollEmailSubject, content:enrollEmailContent, recipients, attachments: enrollEmailAttachment ? [enrollEmailAttachment] : undefined }) });
                           const d = await res.json();
                           if (res.ok) {
                             showToast(`Email sent to ${d.sent} participant${d.sent!==1?'s':''}!`);
-                            setShowEnrollEmail(false); setSelectedEnrollIds(new Set()); setEnrollEmailSubject(''); setEnrollEmailContent('');
+                            setShowEnrollEmail(false); setSelectedEnrollIds(new Set()); setEnrollEmailSubject(''); setEnrollEmailContent(''); setEnrollEmailAttachment(null);
                           } else showToast('Error: '+(d.error||'Send failed'), true);
                         } catch(e) { showToast('Network error: '+e.message, true); }
                         setEnrollEmailSending(false);
                       }}>
                       {enrollEmailSending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</> : <><i className="fa-solid fa-paper-plane"></i> Send Now</>}
                     </button>
-                    <button onClick={()=>{setShowEnrollEmail(false);setEnrollEmailSubject('');setEnrollEmailContent('');}}
+                    <button onClick={()=>{setShowEnrollEmail(false);setEnrollEmailSubject('');setEnrollEmailContent('');setEnrollEmailAttachment(null);}}
                       style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',borderRadius:'8px',padding:'10px 16px',cursor:'pointer',fontWeight:600}}>
                       Cancel
                     </button>
@@ -3163,6 +3417,85 @@ export default function AdminPage() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ═══ GALLERY ═══ */}
+          {tab === 'gallery' && (
+            <div className="admin-form-card">
+              <div className="admin-form-title" style={{marginBottom:'4px'}}>Event Gallery</div>
+              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}}>
+                Upload photos from events — shown publicly on the Gallery page.
+                Tagging a photo with an event is optional.
+              </p>
+
+              {/* Upload form */}
+              <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'18px',marginBottom:'24px'}}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Event <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
+                    <select className="form-select" value={galleryEventId} onChange={e=>setGalleryEventId(e.target.value)}>
+                      <option value="">No specific event</option>
+                      {galleryEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Caption <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
+                    <input className="form-input" type="text" placeholder="e.g. Keynote session"
+                      value={galleryCaption} onChange={e=>setGalleryCaption(e.target.value)}/>
+                  </div>
+                </div>
+                <div className="form-group" style={{marginBottom:0}}>
+                  <label className="form-label">Photo <span style={{fontWeight:400,color:'var(--text-light)'}}>— max 8MB</span></label>
+                  <input className="form-input" type="file" accept="image/*" disabled={galleryUploading}
+                    onChange={e => { uploadGalleryImage(e.target.files[0]); e.target.value = ''; }}/>
+                  {galleryUploading && (
+                    <div style={{fontSize:'12px',color:'var(--blue)',marginTop:'8px'}}>
+                      <i className="fa-solid fa-spinner fa-spin"></i> Uploading…
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {galleryLoading ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
+                </div>
+              ) : galleryImages.length === 0 ? (
+                <div style={{textAlign:'center',padding:'48px',color:'var(--text-light)'}}>
+                  <i className="fa-solid fa-images" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
+                  No photos uploaded yet.
+                </div>
+              ) : (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:'16px'}}>
+                  {galleryImages.map((img, idx) => (
+                    <div key={img.id} style={{border:'1px solid var(--border)',borderRadius:'var(--radius-md)',overflow:'hidden',background:'#fff'}}>
+                      <div style={{aspectRatio:'4/3',overflow:'hidden',background:'var(--off-white)'}}>
+                        <img src={img.image_url} alt={img.caption||''} style={{width:'100%',height:'100%',objectFit:'cover'}}
+                          onError={e=>e.target.style.opacity=0.3}/>
+                      </div>
+                      <div style={{padding:'10px 12px'}}>
+                        {img.caption && <div style={{fontSize:'12.5px',fontWeight:600,color:'var(--blue)',marginBottom:'2px'}}>{img.caption}</div>}
+                        {img.event_name && <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'8px'}}>{img.event_name}</div>}
+                        <div style={{display:'flex',gap:'6px'}}>
+                          <button onClick={() => moveGalleryImage(idx,-1)} disabled={idx===0}
+                            style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===0?'default':'pointer',opacity:idx===0?0.4:1}}>
+                            <i className="fa-solid fa-chevron-left" style={{fontSize:'10px'}}></i>
+                          </button>
+                          <button onClick={() => moveGalleryImage(idx,1)} disabled={idx===galleryImages.length-1}
+                            style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===galleryImages.length-1?'default':'pointer',opacity:idx===galleryImages.length-1?0.4:1}}>
+                            <i className="fa-solid fa-chevron-right" style={{fontSize:'10px'}}></i>
+                          </button>
+                          <button onClick={() => deleteGalleryImage(img)}
+                            style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:'pointer',color:'#DC2626',marginLeft:'auto'}}>
+                            <i className="fa-solid fa-trash" style={{fontSize:'10px'}}></i>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -4462,11 +4795,11 @@ export default function AdminPage() {
                         <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>For existing members renewing</div>
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Validity Period (months)</label>
-                        <input className="form-input" type="number" min="1" max="60" placeholder="12"
-                          value={memForm.validity_months}
-                          onChange={e=>setMemForm(f=>({...f,validity_months:Number(e.target.value)}))}/>
-                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>How long membership lasts after payment</div>
+                        <label className="form-label">Membership Duration</label>
+                        <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'8px',padding:'10px 14px',fontSize:'12.5px',color:'var(--blue)',lineHeight:1.6}}>
+                          <i className="fa-solid fa-circle-info" style={{marginRight:'6px'}}></i>
+                          Every membership automatically ends on 31 March (financial year end), regardless of purchase date — not a fixed number of months. This isn't editable here since it's a policy, not a per-purchase setting.
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -4516,10 +4849,6 @@ export default function AdminPage() {
                       <div>
                         <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>Renewal</div>
                         <div style={{fontSize:'28px',fontWeight:900,color:'#FFD09B'}}>₹{memForm.renewal_price}<span style={{fontSize:'14px',fontWeight:400,color:'rgba(255,255,255,0.45)'}}>/yr</span></div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>Validity</div>
-                        <div style={{fontSize:'28px',fontWeight:900,color:'#FFD09B'}}>{memForm.validity_months}<span style={{fontSize:'14px',fontWeight:400,color:'rgba(255,255,255,0.45)'}}> months</span></div>
                       </div>
                       {memForm.membership_start_date && memForm.membership_end_date && (
                         <div>

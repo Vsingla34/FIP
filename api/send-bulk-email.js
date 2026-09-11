@@ -19,10 +19,20 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { userId, subject, content, recipientIds, recipients: directRecipients } = req.body || {};
+  const { userId, subject, content, recipientIds, recipients: directRecipients, attachments } = req.body || {};
 
   if (!subject || !content || (!recipientIds?.length && !directRecipients?.length)) {
     return res.status(400).json({ error: 'subject, content and recipients are required' });
+  }
+
+  // Vercel's request body limit is ~4.5MB — a base64-encoded attachment runs
+  // about 1.37x its original size, so this catches an oversized file before
+  // wasting time on a request that would fail anyway.
+  if (attachments?.length) {
+    const totalBytes = attachments.reduce((sum, a) => sum + (a.content?.length || 0) * 0.75, 0);
+    if (totalBytes > 4 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Attachment(s) too large — please keep total size under 4MB.' });
+    }
   }
 
   // Verify caller is admin
@@ -74,6 +84,14 @@ export default async function handler(req, res) {
               </p>
             </div>
           </div>`,
+        ...(attachments?.length ? {
+          attachments: attachments.map(a => ({
+            filename: a.filename,
+            content: a.content,
+            encoding: 'base64',
+            contentType: a.mimeType || undefined,
+          })),
+        } : {}),
       });
       results.sent++;
     } catch (e) {

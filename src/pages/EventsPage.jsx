@@ -569,6 +569,11 @@ export default function EventsPage() {
                             onClick={() => {
                               if (isReg || isFull) return;
                               if (blockedNonMember) { navigate('/membership'); return; }
+                              if (!user) {
+                                showToast('Please log in to register for this event.', true);
+                                openModal('login');
+                                return;
+                              }
                               openRsvp(ev);
                             }}>
                             {isReg

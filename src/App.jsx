@@ -27,6 +27,7 @@ import CoursesPage        from './pages/CoursesPage.jsx';
 import MembershipPage     from './pages/MembershipPage.jsx';
 import EventsPage         from './pages/EventsPage.jsx';
 import EventFeedbackPage  from './pages/EventFeedbackPage.jsx';
+import GalleryPage        from './pages/GalleryPage.jsx';
 import BlogPage           from './pages/BlogPage.jsx';
 import BlogArticlePage    from './pages/BlogArticlePage.jsx';
 import TeamPage           from './pages/TeamPage.jsx';
@@ -64,6 +65,7 @@ function AppContent() {
         <Route path="/membership"   element={<MembershipPage />} />
         <Route path="/events"       element={<EventsPage />} />
         <Route path="/feedback"     element={<EventFeedbackPage />} />
+        <Route path="/gallery"      element={<GalleryPage />} />
         <Route path="/blog"         element={<BlogPage />} />
         <Route path="/blog/:slug"   element={<BlogArticlePage />} />
         <Route path="/team"         element={<TeamPage />} />

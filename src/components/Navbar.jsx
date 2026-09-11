@@ -24,6 +24,7 @@ export default function Navbar() {
     { to:'/courses',    label:'Courses' },
     { to:'/membership', label:'Membership' },
     { to:'/events',     label:'Events' },
+    { to:'/feedback',   label:'Feedback' },
     { to:'/blog',       label:'Blog' },
     { to:'/team',       label:'Team' },
     { to:'/contact',    label:'Contact' },

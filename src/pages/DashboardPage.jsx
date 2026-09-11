@@ -581,6 +581,7 @@ export default function DashboardPage() {
     } finally { setCcSaving(false); }
   };
   const [payments,    setPayments]    = useState([]);
+  const [certCount,   setCertCount]   = useState(0);
   const [dataLoading, setDataLoading] = useState(false);
 
   /* redirect if not logged in */
@@ -623,6 +624,17 @@ export default function DashboardPage() {
       setPayments(p    || []);
     }).catch(console.error)
       .finally(() => setDataLoading(false));
+  }, [user]);
+
+  /* certificate count for the overview stat box — CertificatesTab loads its
+     own full certificate list independently (a separate component, separate
+     state), so this is a lightweight, separately-scoped fetch just for the
+     count shown here. */
+  useEffect(() => {
+    if (!user?.email) return;
+    supabase.from('certificates').select('id', { count: 'exact', head: true })
+      .contains('recipient_email', [user.email])
+      .then(({ count }) => setCertCount(count || 0));
   }, [user]);
 
   /* save settings */
@@ -760,11 +772,13 @@ export default function DashboardPage() {
             )}
 
             <div className="dash-card">
-              <div className="dash-card-title">
-                Welcome back, {displayName.split(' ')[0]} 👋
-                <span style={{fontSize:'12px',color:'var(--text-light)'}}>
-                  Member since {memberSince}
-                </span>
+              <div className="dash-welcome-banner">
+                <div className="dash-card-title">
+                  Welcome back, {displayName.split(' ')[0]} 👋
+                  <span style={{fontSize:'12px',color:'var(--text-light)'}}>
+                    Member since {memberSince}
+                  </span>
+                </div>
               </div>
               {dataLoading ? (
                 <div style={{textAlign:'center',padding:'24px',color:'var(--text-muted)'}}>
@@ -773,14 +787,18 @@ export default function DashboardPage() {
               ) : (
                 <>
                   <div className="dash-metrics">
-                    <div className="dash-metric">
-
+                    <div className="dash-metric-colorful dash-metric-gold">
+                      <div className="dash-metric-icon"><i className="fa-solid fa-certificate"></i></div>
+                      <div className="dash-mval">{certCount}</div>
+                      <div className="dash-mlbl">Certificates</div>
                     </div>
-                    <div className="dash-metric">
+                    <div className="dash-metric-colorful dash-metric-sky">
+                      <div className="dash-metric-icon"><i className="fa-solid fa-book-open"></i></div>
                       <div className="dash-mval">{enrollments.length}</div>
                       <div className="dash-mlbl">Courses</div>
                     </div>
-                    <div className="dash-metric">
+                    <div className="dash-metric-colorful dash-metric-mint">
+                      <div className="dash-metric-icon"><i className="fa-solid fa-calendar-check"></i></div>
                       <div className="dash-mval">{rsvps.length}</div>
                       <div className="dash-mlbl">Events RSVPd</div>
                     </div>
@@ -807,7 +825,7 @@ export default function DashboardPage() {
                     <div>
                       <div className="up-title">{r.event_name}</div>
                       <div className="up-time">
-                        {r.event_date || 'Date TBD'} &nbsp;·&nbsp;
+                        {r.events?.event_date ? new Date(r.events.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : 'Date TBD'} &nbsp;·&nbsp;
                         <span className="status-pill sp-active" style={{fontSize:'10px',padding:'1px 6px'}}>{r.status}</span>
                       </div>
                     </div>
@@ -845,7 +863,7 @@ export default function DashboardPage() {
                 <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
                   <div>
                     <div style={{fontSize:'14px',fontWeight:700,color:'var(--blue)'}}>{r.event_name}</div>
-                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}}>{r.event_date || 'Date TBD'}</div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}}>{r.events?.event_date ? new Date(r.events.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : 'Date TBD'}</div>
                   </div>
                   <span className="status-pill sp-active">{r.status}</span>
                 </div>

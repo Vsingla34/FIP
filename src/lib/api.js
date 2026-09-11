@@ -103,6 +103,7 @@ export async function getPayments(userId) {
     .from('payments')
     .select('*')
     .eq('user_id', userId)
+    .eq('status', 'paid')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data;
