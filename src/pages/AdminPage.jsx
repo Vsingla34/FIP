@@ -12,6 +12,14 @@ import AdminBlogTab from './admin/AdminBlogTab.jsx';
 import AdminJobApplicationsTab from './admin/AdminJobApplicationsTab.jsx';
 import AdminPopupsTab from './admin/AdminPopupsTab.jsx';
 import AdminJobsListTab from './admin/AdminJobsListTab.jsx';
+import AdminCoursesListTab from './admin/AdminCoursesListTab.jsx';
+import AdminGalleryTab from './admin/AdminGalleryTab.jsx';
+import AdminMembershipSettingsTab from './admin/AdminMembershipSettingsTab.jsx';
+import AdminContactsTab from './admin/AdminContactsTab.jsx';
+import AdminDashboardTab from './admin/AdminDashboardTab.jsx';
+import AdminCommitteesTab from './admin/AdminCommitteesTab.jsx';
+import AdminSlidesTab from './admin/AdminSlidesTab.jsx';
+import AdminFeedbackTab from './admin/AdminFeedbackTab.jsx';
 
 const ROLE_OPTIONS   = ['President','Vice President','Chairman','Co-Chairman','Co-Chairperson','Secretary','Treasurer','Member'];
 const CATEGORY_ICONS = {
@@ -704,7 +712,9 @@ export default function AdminPage() {
     title:'', description:'', event_type:'Physical', location:'', venue:'',
     city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, members_only_registration:false,
     status:'upcoming', tags:'', image_url:'', zoom_link:'',
+    venue_lat:'', venue_lng:'', checkin_radius_meters:300,
   });
+  const [geocodingVenue, setGeocodingVenue] = useState(false);
 
   useEffect(() => {
     if (tab !== 'events') return;
@@ -816,14 +826,7 @@ export default function AdminPage() {
   const [feedbackResponses,    setFeedbackResponses]    = useState([]);
   const [feedbackRespLoading,  setFeedbackRespLoading]  = useState(false);
 
-  const FEEDBACK_QUESTION_TYPES = [
-    { value:'short_text',     label:'Short Answer' },
-    { value:'paragraph',      label:'Paragraph' },
-    { value:'rating',         label:'Star Rating (1–5)' },
-    { value:'multiple_choice',label:'Multiple Choice (pick one)' },
-    { value:'checkboxes',     label:'Checkboxes (pick multiple)' },
-    { value:'yes_no',         label:'Yes / No' },
-  ];
+
 
   useEffect(() => {
     if (tab !== 'feedback') return;
@@ -975,9 +978,9 @@ export default function AdminPage() {
 
   const openEventModal = (ev) => {
     if (ev === 'new') {
-      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, members_only_registration:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true });
+      setEventForm({ title:'', description:'', event_type:'Physical', location:'', venue:'', city:'Delhi', event_date:'', event_end_date:'', event_time:'', capacity:'', is_free:true, price:0, price_member:0, price_non_member:0, status:'upcoming', tags:'', image_url:'', zoom_link:'', allowed_professions:[], is_private:false, members_only_registration:false, whatsapp_group_link:'', flyer_template_url:'', enable_flyer:true, venue_lat:'', venue_lng:'', checkin_radius_meters:300 });
     } else {
-      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', event_end_date:ev.event_end_date||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, price_member:ev.price_member||0, price_non_member:ev.price_non_member||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false, members_only_registration:ev.members_only_registration||false, whatsapp_group_link:ev.whatsapp_group_link||'', flyer_template_url:ev.flyer_template_url||'', enable_flyer:ev.enable_flyer!==false });
+      setEventForm({ title:ev.title, description:ev.description||'', event_type:ev.event_type||'Physical', location:ev.location||'', venue:ev.venue||'', city:ev.city||'Delhi', event_date:ev.event_date||'', event_time:ev.event_time||'', event_end_date:ev.event_end_date||'', capacity:ev.capacity||'', is_free:ev.is_free!==false, price:ev.price||0, price_member:ev.price_member||0, price_non_member:ev.price_non_member||0, status:ev.status||'upcoming', tags:(ev.tags||[]).join(', '), image_url:ev.image_url||'', zoom_link:ev.zoom_link||'', allowed_professions:ev.allowed_professions||[], is_private:ev.is_private||false, members_only_registration:ev.members_only_registration||false, whatsapp_group_link:ev.whatsapp_group_link||'', flyer_template_url:ev.flyer_template_url||'', enable_flyer:ev.enable_flyer!==false, venue_lat:ev.venue_lat||'', venue_lng:ev.venue_lng||'', checkin_radius_meters:ev.checkin_radius_meters||300 });
     }
     setShowEventModal(ev);
   };
@@ -2028,152 +2031,11 @@ export default function AdminPage() {
 
           {/* ═══ DASHBOARD ═══ */}
           {tab === 'dashboard' && (
-            <>
-              <h2 className="admin-page-title">Dashboard Overview {dashLoading && <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'14px',color:'var(--text-light)',marginLeft:'8px'}}></i>}</h2>
-
-              {/* Stat cards row — matches reference exactly */}
-              <div className="dboard-stats-row">
-                <div className="dboard-stat-card">
-                  <div className="dboard-stat-icon dsi-blue"><i className="fa-solid fa-users"></i></div>
-                  <div className="dboard-stat-val">{dashStats.totalMembers ?? fipMembers.length}</div>
-                  <div className="dboard-stat-lbl">FIP Members</div>
-                  <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> {dashStats.activeMembers ?? 0} active
-                    {dashStats.guestUsers > 0 && <span style={{color:'var(--text-muted)',fontWeight:400,marginLeft:'6px'}}>· {dashStats.guestUsers} guests</span>}
-                  </div>
-                </div>
-
-                <div className="dboard-stat-card">
-                  <div className="dboard-stat-icon dsi-orange"><i className="fa-solid fa-indian-rupee-sign"></i></div>
-                  <div className="dboard-stat-val">{dashStats.revenue >= 100000 ? `₹${(dashStats.revenue/100000).toFixed(1)}L` : `₹${(dashStats.revenue||0).toLocaleString('en-IN')}`}</div>
-                  <div className="dboard-stat-lbl">Revenue This Year</div>
-                  <div className="dboard-stat-trend trend-up" style={{flexDirection:'column',alignItems:'flex-start',gap:'3px',lineHeight:1.5}}>
-                    {dashStats.membershipRev > 0 && <span>🎫 Membership ₹{dashStats.membershipRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.courseRev     > 0 && <span>📚 Courses ₹{dashStats.courseRev.toLocaleString('en-IN')}</span>}
-                    {dashStats.eventRev      > 0 && <span>📅 Events ₹{dashStats.eventRev.toLocaleString('en-IN')}</span>}
-                  </div>
-                </div>
-
-                <div className="dboard-stat-card">
-                  <div className="dboard-stat-icon dsi-green"><i className="fa-solid fa-calendar-check"></i></div>
-                  <div className="dboard-stat-val">{dashStats.events}</div>
-                  <div className="dboard-stat-lbl">Active Events</div>
-                  <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> Upcoming & ongoing
-                  </div>
-                </div>
-
-                <div className="dboard-stat-card">
-                  <div className="dboard-stat-icon dsi-purple"><i className="fa-solid fa-graduation-cap"></i></div>
-                  <div className="dboard-stat-val">{dashStats.enrollments}</div>
-                  <div className="dboard-stat-lbl">Course Registrations</div>
-                  <div className="dboard-stat-trend trend-up">
-                    <i className="fa-solid fa-arrow-up"></i> All time
-                  </div>
-                </div>
-              </div>
-
-              {/* Recent activity — two column layout matching reference */}
-              <div className="dboard-activity-grid">
-
-                {/* Recent Member Registrations */}
-                <div className="dboard-activity-card">
-                  <div className="dboard-activity-title">Recent Member Registrations</div>
-                  <div className="dboard-table-wrap">
-                    <table className="dboard-table">
-                      <thead>
-                        <tr><th>Name</th><th>Profession</th><th>Date</th><th>Status</th></tr>
-                      </thead>
-                      <tbody>
-                        {recentRegistrations.length === 0 ? (
-                          <tr><td colSpan={4} style={{textAlign:'center',padding:'24px',color:'var(--text-light)'}}>No registrations yet</td></tr>
-                        ) : recentRegistrations.map((m,i) => (
-                          <tr key={i}>
-                            <td>
-                              <div className="dboard-table-name">{m.full_name || '—'}</div>
-                              <div className="dboard-table-sub">{m.city || ''}</div>
-                            </td>
-                            <td className="dboard-table-muted" style={{fontSize:'12px'}}>{m.profession || '—'}</td>
-                            <td className="dboard-table-muted">{formatRelativeDate(m.created_at)}</td>
-                            <td>
-                              <span className={`dboard-pill ${m.membership_status==='Active'?'pill-green':'pill-orange'}`}>
-                                {m.membership_status === 'Active' ? 'Active' : 'Pending'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Recent Payments */}
-                <div className="dboard-activity-card">
-                  <div className="dboard-activity-title">Recent Payments</div>
-                  <div className="dboard-table-wrap">
-                    <table className="dboard-table">
-                      <thead>
-                        <tr><th>Member</th><th>Plan</th><th>Amount</th><th>Status</th></tr>
-                      </thead>
-                      <tbody>
-                        {dashLoading ? (
-                          <tr><td colSpan={4} style={{textAlign:'center',padding:'24px',color:'var(--text-light)'}}><i className="fa-solid fa-spinner fa-spin"></i></td></tr>
-                        ) : recentPayments.length === 0 ? (
-                          <tr><td colSpan={4} style={{textAlign:'center',padding:'24px',color:'var(--text-light)'}}>No payments yet</td></tr>
-                        ) : recentPayments.map((p,i) => (
-                          <tr key={i}>
-                            <td>
-                              <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
-                            </td>
-                            <td className="dboard-table-muted" style={{fontSize:'11px',maxWidth:'100px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.item_name}</td>
-                            <td>
-                              <span style={{color:'var(--orange)',fontWeight:700}}>₹{p.total_amount}</span>
-                            </td>
-                            <td>
-                              <span className={`dboard-pill ${p.status==='Paid'?'pill-green':'pill-orange'}`}>
-                                {p.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ═══ DASHBOARD-OLD-PERMISSIONS (kept, renamed) ═══ */}
-          {false && (
-            <>
-              <div className="admin-form-card" style={{marginTop:'24px'}}>
-                <div className="admin-form-title">Role Permissions Matrix</div>
-                <table className="admin-table">
-                  <thead><tr><th>Permission</th><th style={{textAlign:'center'}}>Member</th><th style={{textAlign:'center'}}>Admin</th></tr></thead>
-                  <tbody>
-                    {[
-                      ['View own dashboard',        true,  true ],
-                      ['Enroll in courses',          true,  true ],
-                      ['RSVP to events',             true,  true ],
-                      ['Upload profile picture',     true,  true ],
-                      ['View member directory',      true,  true ],
-                      ['Access admin panel',         false, true ],
-                      ['Manage committee members',   false, true ],
-                      ['Add / remove committees',    false, true ],
-                      ['Change member roles',        false, true ],
-                      ['Activate membership',        false, true ],
-                    ].map(([p,m,a],i) => (
-                      <tr key={i}>
-                        <td style={{fontSize:'13px'}}>{p}</td>
-                        <td style={{textAlign:'center'}}>{m ? <i className="fa-solid fa-check" style={{color:'var(--green)'}}></i> : <i className="fa-solid fa-xmark" style={{color:'#C0392B'}}></i>}</td>
-                        <td style={{textAlign:'center'}}>{a ? <i className="fa-solid fa-check" style={{color:'var(--green)'}}></i> : <i className="fa-solid fa-xmark" style={{color:'#C0392B'}}></i>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+            <AdminDashboardTab
+              dashLoading={dashLoading} dashStats={dashStats} fipMembers={fipMembers}
+              recentRegistrations={recentRegistrations} formatRelativeDate={formatRelativeDate}
+              recentPayments={recentPayments}
+            />
           )}
 
           {/* ═══ MEMBERS ═══ */}
@@ -2979,64 +2841,13 @@ export default function AdminPage() {
 
           {/* ═══ COURSES — LMS ADMIN ═══ */}
           {tab === 'courses' && !adminCourseView && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
-                <span>Courses <span style={{fontSize:'12px',color:'var(--text-muted)',fontWeight:400}}>({adminCourses.length})</span></span>
-                <button className="btn btn-primary btn-sm" onClick={() => openCourseModal('new')}>
-                  <i className="fa-solid fa-plus"></i> Add Course
-                </button>
-              </div>
-              <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-                <div className="search-wrap" style={{flex:1,minWidth:'200px',marginBottom:0}}>
-                  <i className="fa-solid fa-magnifying-glass"></i>
-                  <input type="search" placeholder="Search by title, category, instructor…"
-                    value={courseSearch} onChange={e=>setCourseSearch(e.target.value)}/>
-                </div>
-                <select className="form-select" style={{width:'140px'}} value={courseStatusFilter} onChange={e=>setCourseStatusFilter(e.target.value)}>
-                  <option value="All">All Status</option>
-                  <option value="published">Published</option><option value="draft">Draft</option>
-                </select>
-              </div>
-              {adminCoursesLoading ? (
-                <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading courses…
-                </div>
-              ) : adminCourses.length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-book-open" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-                  <p>No courses yet.</p>
-                  <button className="btn btn-primary btn-sm" style={{marginTop:'16px'}} onClick={() => openCourseModal('new')}><i className="fa-solid fa-plus"></i> Create First Course</button>
-                </div>
-              ) : (
-                <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
-                  {adminCourses.map(c => (
-                    <div key={c.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap'}}>
-                      <div style={{flex:1,minWidth:'200px'}}>
-                        <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
-                          <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{c.title}</span>
-                          <span className={`status-pill ${c.status==='published'?'sp-active':'sp-pending'}`}>{c.status}</span>
-                        </div>
-                        <div style={{fontSize:'12px',color:'var(--text-muted)'}}>
-                          {c.category} · {c.level}
-                          {c.price > 0 ? ` · ₹${c.price}` : ' · Free'}
-                        </div>
-                      </div>
-                      <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                        <button className="admin-btn admin-btn-orange" onClick={() => { setAdminCourseView(c); loadCourseEnrollments(c); }}>
-                          <i className="fa-solid fa-users"></i> Enrollments
-                        </button>
-                        <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => openCourseModal(c)}>
-                          <i className="fa-solid fa-pen"></i> Edit
-                        </button>
-                        <button className="admin-btn admin-btn-danger" onClick={() => deleteAdminCourse(c.id)}>
-                          <i className="fa-solid fa-trash"></i>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AdminCoursesListTab
+              adminCourses={adminCourses} openCourseModal={openCourseModal}
+              courseSearch={courseSearch} setCourseSearch={setCourseSearch}
+              courseStatusFilter={courseStatusFilter} setCourseStatusFilter={setCourseStatusFilter}
+              adminCoursesLoading={adminCoursesLoading} setAdminCourseView={setAdminCourseView}
+              loadCourseEnrollments={loadCourseEnrollments} deleteAdminCourse={deleteAdminCourse}
+            />
           )}
 
           {/* ═══ COURSE ENROLLMENTS + CERTIFICATE ISSUER ═══ */}
@@ -3192,311 +3003,24 @@ export default function AdminPage() {
 
           {/* ═══ HERO SLIDES ═══ */}
           {tab === 'slides' && (
-            <div>
-              <h2 className="admin-page-title">Hero Slides</h2>
-              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>
-                Slide 1 (the main FIP hero) is fixed. Add image slides below — they appear after it in the carousel.
-              </p>
-
-              {/* ── Add / Edit Slide Form ── */}
-              <div className="admin-form-card" style={{marginBottom:'28px'}}>
-                <div className="admin-form-title" style={{marginBottom:'16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <span>
-                    <i className={`fa-solid ${editingSlideId ? 'fa-pen' : 'fa-plus-circle'}`} style={{color:'var(--orange)',marginRight:'8px'}}></i>
-                    {editingSlideId ? 'Edit Slide' : 'Add New Slide'}
-                  </span>
-                  {editingSlideId && (
-                    <button onClick={() => { setEditingSlideId(null); setSlideForm(emptySlide); }}
-                      style={{fontSize:'12px',color:'var(--text-muted)',background:'none',border:'none',cursor:'pointer'}}>
-                      ✕ Cancel Edit
-                    </button>
-                  )}
-                </div>
-
-                {/* Image URL + preview */}
-                <div className="form-group" style={{marginBottom:'12px'}}>
-                  <label className="form-label">Image URL <span style={{color:'var(--orange)'}}>*</span></label>
-                  <input className="form-input" placeholder="https://… or /image.jpg"
-                    value={slideForm.image_url}
-                    onChange={e => setSlideForm(f => ({...f, image_url: e.target.value}))}/>
-                  {slideForm.image_url && (
-                    <div style={{marginTop:'10px',borderRadius:'10px',overflow:'hidden',height:'140px',background:'#000'}}>
-                      <img src={slideForm.image_url} alt="preview" onError={e => e.target.style.display='none'}
-                        style={{width:'100%',height:'100%',objectFit:'cover',opacity:.85}}/>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'12px'}}>
-                  <div className="form-group">
-                    <label className="form-label">Badge text <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(top label)</span></label>
-                    <input className="form-input" placeholder="e.g. Community Events"
-                      value={slideForm.badge}
-                      onChange={e => setSlideForm(f => ({...f, badge: e.target.value}))}/>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Tag <span style={{fontSize:'11px',color:'var(--text-muted)'}}>(small pill)</span></label>
-                    <input className="form-input" placeholder="e.g. Coming Soon"
-                      value={slideForm.tag}
-                      onChange={e => setSlideForm(f => ({...f, tag: e.target.value}))}/>
-                  </div>
-                </div>
-
-                <div className="form-group" style={{marginBottom:'12px'}}>
-                  <label className="form-label">Title <span style={{color:'var(--orange)'}}>*</span></label>
-                  <input className="form-input" placeholder="Main headline for this slide"
-                    value={slideForm.title}
-                    onChange={e => setSlideForm(f => ({...f, title: e.target.value}))}/>
-                </div>
-
-                <div className="form-group" style={{marginBottom:'12px'}}>
-                  <label className="form-label">Subtitle</label>
-                  <input className="form-input" placeholder="Sub-headline line"
-                    value={slideForm.subtitle}
-                    onChange={e => setSlideForm(f => ({...f, subtitle: e.target.value}))}/>
-                </div>
-
-                <div className="form-group" style={{marginBottom:'12px'}}>
-                  <label className="form-label">Description</label>
-                  <textarea className="form-textarea" rows={3} placeholder="Short description shown on the slide"
-                    value={slideForm.description}
-                    onChange={e => setSlideForm(f => ({...f, description: e.target.value}))}
-                    style={{minHeight:'70px'}}/>
-                </div>
-
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 80px',gap:'12px',marginBottom:'20px'}}>
-                  <div className="form-group">
-                    <label className="form-label">Button Label</label>
-                    <input className="form-input" placeholder="e.g. Join FIP"
-                      value={slideForm.btn_label}
-                      onChange={e => setSlideForm(f => ({...f, btn_label: e.target.value}))}/>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Button Action</label>
-                    <select className="form-select" value={slideForm.btn_action}
-                      onChange={e => setSlideForm(f => ({...f, btn_action: e.target.value}))}>
-                      {SLIDE_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Order</label>
-                    <input className="form-input" type="number" min="0" placeholder="0"
-                      value={slideForm.sort_order}
-                      onChange={e => setSlideForm(f => ({...f, sort_order: Number(e.target.value)}))}/>
-                  </div>
-                </div>
-
-                <div style={{display:'flex',alignItems:'center',gap:'16px',flexWrap:'wrap'}}>
-                  <button className="btn btn-primary"
-                    disabled={slideSaving || !slideForm.image_url.trim() || !slideForm.title.trim()}
-                    onClick={async () => {
-                      setSlideSaving(true);
-                      const payload = {
-                        image_url: slideForm.image_url.trim(), badge: slideForm.badge.trim()||null,
-                        title: slideForm.title.trim(), subtitle: slideForm.subtitle.trim()||null,
-                        description: slideForm.description.trim()||null, btn_label: slideForm.btn_label.trim()||null,
-                        btn_action: slideForm.btn_action, tag: slideForm.tag.trim()||null,
-                        sort_order: slideForm.sort_order,
-                      };
-                      if (editingSlideId) {
-                        const { data, error } = await supabase.from('slides').update(payload).eq('id', editingSlideId).select();
-                        setSlideSaving(false);
-                        if (error) { showToast('Error: '+error.message, true); return; }
-                        setSlides(prev => prev.map(s => s.id===editingSlideId ? data[0] : s).sort((a,b)=>a.sort_order-b.sort_order));
-                        setEditingSlideId(null); setSlideForm(emptySlide); showToast('Slide updated!');
-                      } else {
-                        const { data, error } = await supabase.from('slides').insert([{...payload, is_active:true}]).select();
-                        setSlideSaving(false);
-                        if (error) { showToast('Error: '+error.message, true); return; }
-                        setSlides(prev => [...prev, data[0]].sort((a,b)=>a.sort_order-b.sort_order));
-                        setSlideForm(emptySlide); showToast('Slide added!');
-                      }
-                    }}>
-                    {slideSaving
-                      ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</>
-                      : editingSlideId
-                      ? <><i className="fa-solid fa-check"></i> Update Slide</>
-                      : <><i className="fa-solid fa-plus"></i> Add Slide</>}
-                  </button>
-                  <label style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'var(--text-muted)',cursor:'pointer'}}>
-                    <input type="checkbox" checked={slideForm.is_active}
-                      onChange={e => setSlideForm(f => ({...f, is_active: e.target.checked}))}/>
-                    Active (visible on homepage)
-                  </label>
-                </div>
-              </div>
-
-              {/* ── Existing Slides List ── */}
-              <div className="admin-form-card">
-                <div className="admin-form-title" style={{marginBottom:'16px'}}>
-                  Current Slides
-                  <span style={{fontSize:'12px',fontWeight:400,color:'var(--text-muted)',marginLeft:'8px'}}>
-                    ({slides.length} slides + 1 fixed hero)
-                  </span>
-                </div>
-
-                {slidesLoading ? (
-                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
-                    <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'22px',display:'block',marginBottom:'8px'}}></i>
-                    Loading slides…
-                  </div>
-                ) : slides.length === 0 ? (
-                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
-                    <i className="fa-solid fa-image" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-                    No slides added yet. Add one above.
-                  </div>
-                ) : (
-                  <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
-                    {slides.map((s, idx) => (
-                      <div key={s.id} style={{display:'flex',gap:'16px',alignItems:'center',background:'var(--off-white)',borderRadius:'10px',padding:'12px 14px',border:'1px solid var(--border)'}}>
-
-                        {/* Thumbnail */}
-                        <div style={{width:'90px',height:'56px',borderRadius:'8px',overflow:'hidden',flexShrink:0,background:'#111'}}>
-                          <img src={s.image_url} alt={s.title}
-                            onError={e => { e.target.style.display='none'; }}
-                            style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                        </div>
-
-                        {/* Info */}
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:700,fontSize:'14px',color:'var(--blue)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                            {idx + 2}. {s.title}
-                          </div>
-                          <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'3px',display:'flex',gap:'10px',flexWrap:'wrap'}}>
-                            {s.badge && <span><i className="fa-solid fa-tag" style={{marginRight:'3px'}}></i>{s.badge}</span>}
-                            {s.btn_action && <span><i className="fa-solid fa-arrow-pointer" style={{marginRight:'3px'}}></i>{s.btn_action}</span>}
-                            <span>Order: {s.sort_order}</span>
-                          </div>
-                        </div>
-
-                        {/* Active toggle */}
-                        <label style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'12px',color:'var(--text-muted)',cursor:'pointer',flexShrink:0}}>
-                          <input type="checkbox" checked={s.is_active}
-                            onChange={async (e) => {
-                              const checked = e.target.checked;
-                              await supabase.from('slides').update({ is_active: checked }).eq('id', s.id);
-                              setSlides(prev => prev.map(x => x.id===s.id ? {...x, is_active: checked} : x));
-                            }}/>
-                          {s.is_active ? 'Active' : 'Hidden'}
-                        </label>
-
-                        {/* Edit */}
-                        <button
-                          onClick={() => {
-                            setEditingSlideId(s.id);
-                            setSlideForm({
-                              image_url:   s.image_url || '',
-                              badge:       s.badge || '',
-                              title:       s.title || '',
-                              subtitle:    s.subtitle || '',
-                              description: s.description || '',
-                              btn_label:   s.btn_label || '',
-                              btn_action:  s.btn_action || 'join',
-                              tag:         s.tag || '',
-                              sort_order:  s.sort_order || 0,
-                              is_active:   s.is_active,
-                            });
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
-                          style={{background:'var(--blue-pale)',color:'var(--blue)',border:'1px solid #C0CDE8',borderRadius:'8px',padding:'6px 10px',cursor:'pointer',flexShrink:0,fontSize:'13px'}}>
-                          <i className="fa-solid fa-pen"></i>
-                        </button>
-
-                        {/* Delete */}
-                        <button
-                          onClick={async () => {
-                            if (!window.confirm(`Delete slide "${s.title}"?`)) return;
-                            await supabase.from('slides').delete().eq('id', s.id);
-                            setSlides(prev => prev.filter(x => x.id !== s.id));
-                          }}
-                          style={{background:'#FEE2E2',color:'#C0392B',border:'1px solid #F5BDBA',borderRadius:'8px',padding:'6px 10px',cursor:'pointer',flexShrink:0,fontSize:'13px'}}>
-                          <i className="fa-solid fa-trash"></i>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <AdminSlidesTab
+              editingSlideId={editingSlideId} setEditingSlideId={setEditingSlideId}
+              slideForm={slideForm} setSlideForm={setSlideForm}
+              slideSaving={slideSaving} setSlideSaving={setSlideSaving}
+              supabase={supabase} showToast={showToast} setSlides={setSlides}
+              slides={slides} slidesLoading={slidesLoading}
+            />
           )}
 
           {/* ═══ GALLERY ═══ */}
           {tab === 'gallery' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{marginBottom:'4px'}}>Event Gallery</div>
-              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}}>
-                Upload photos from events — shown publicly on the Gallery page.
-                Tagging a photo with an event is optional.
-              </p>
-
-              {/* Upload form */}
-              <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'18px',marginBottom:'24px'}}>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Event <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
-                    <select className="form-select" value={galleryEventId} onChange={e=>setGalleryEventId(e.target.value)}>
-                      <option value="">No specific event</option>
-                      {galleryEvents.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Caption <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
-                    <input className="form-input" type="text" placeholder="e.g. Keynote session"
-                      value={galleryCaption} onChange={e=>setGalleryCaption(e.target.value)}/>
-                  </div>
-                </div>
-                <div className="form-group" style={{marginBottom:0}}>
-                  <label className="form-label">Photo <span style={{fontWeight:400,color:'var(--text-light)'}}>— max 8MB</span></label>
-                  <input className="form-input" type="file" accept="image/*" disabled={galleryUploading}
-                    onChange={e => { uploadGalleryImage(e.target.files[0]); e.target.value = ''; }}/>
-                  {galleryUploading && (
-                    <div style={{fontSize:'12px',color:'var(--blue)',marginTop:'8px'}}>
-                      <i className="fa-solid fa-spinner fa-spin"></i> Uploading…
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {galleryLoading ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
-                </div>
-              ) : galleryImages.length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-light)'}}>
-                  <i className="fa-solid fa-images" style={{fontSize:'32px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-                  No photos uploaded yet.
-                </div>
-              ) : (
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:'16px'}}>
-                  {galleryImages.map((img, idx) => (
-                    <div key={img.id} style={{border:'1px solid var(--border)',borderRadius:'var(--radius-md)',overflow:'hidden',background:'#fff'}}>
-                      <div style={{aspectRatio:'4/3',overflow:'hidden',background:'var(--off-white)'}}>
-                        <img src={img.image_url} alt={img.caption||''} style={{width:'100%',height:'100%',objectFit:'cover'}}
-                          onError={e=>e.target.style.opacity=0.3}/>
-                      </div>
-                      <div style={{padding:'10px 12px'}}>
-                        {img.caption && <div style={{fontSize:'12.5px',fontWeight:600,color:'var(--blue)',marginBottom:'2px'}}>{img.caption}</div>}
-                        {img.event_name && <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'8px'}}>{img.event_name}</div>}
-                        <div style={{display:'flex',gap:'6px'}}>
-                          <button onClick={() => moveGalleryImage(idx,-1)} disabled={idx===0}
-                            style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===0?'default':'pointer',opacity:idx===0?0.4:1}}>
-                            <i className="fa-solid fa-chevron-left" style={{fontSize:'10px'}}></i>
-                          </button>
-                          <button onClick={() => moveGalleryImage(idx,1)} disabled={idx===galleryImages.length-1}
-                            style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===galleryImages.length-1?'default':'pointer',opacity:idx===galleryImages.length-1?0.4:1}}>
-                            <i className="fa-solid fa-chevron-right" style={{fontSize:'10px'}}></i>
-                          </button>
-                          <button onClick={() => deleteGalleryImage(img)}
-                            style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:'pointer',color:'#DC2626',marginLeft:'auto'}}>
-                            <i className="fa-solid fa-trash" style={{fontSize:'10px'}}></i>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AdminGalleryTab
+              galleryEventId={galleryEventId} setGalleryEventId={setGalleryEventId} galleryEvents={galleryEvents}
+              galleryCaption={galleryCaption} setGalleryCaption={setGalleryCaption}
+              galleryUploading={galleryUploading} uploadGalleryImage={uploadGalleryImage}
+              galleryLoading={galleryLoading} galleryImages={galleryImages}
+              moveGalleryImage={moveGalleryImage} deleteGalleryImage={deleteGalleryImage}
+            />
           )}
 
           {/* ═══ PAYMENTS ═══ */}
@@ -3870,394 +3394,33 @@ export default function AdminPage() {
 
           {/* ═══ COMMITTEES ═══ */}
           {tab === 'committees' && (
-            <>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'24px',flexWrap:'wrap',gap:'12px'}}>
-                <div>
-                  <h2 style={{fontSize:'20px',fontWeight:700,color:'var(--blue)',marginBottom:'4px'}}>Committee Management</h2>
-                  <p style={{fontSize:'13px',color:'var(--text-muted)'}}>Add, edit, or remove committees and manage their members.</p>
-                </div>
-                <button className="btn btn-primary btn-sm" onClick={openAddCommittee}>
-                  <i className="fa-solid fa-plus"></i> Add Committee
-                </button>
-              </div>
-
-              {committeesLoading ? (
-                <div style={{textAlign:'center',padding:'60px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'10px'}}></i>
-                  Loading committees…
-                </div>
-              ) : committees.length === 0 ? (
-                <div style={{textAlign:'center',padding:'60px',background:'var(--surface)',borderRadius:'var(--radius-lg)',border:'1px solid var(--border)',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-people-group" style={{fontSize:'36px',display:'block',marginBottom:'12px',opacity:.3}}></i>
-                  <p style={{marginBottom:'16px'}}>No committees yet.</p>
-                  <button className="btn btn-primary btn-sm" onClick={openAddCommittee}><i className="fa-solid fa-plus"></i> Add First Committee</button>
-                </div>
-              ) : (
-                <div style={{display:'flex',flexDirection:'column',gap:'20px'}}>
-                  {committees.map(c => (
-                    <div key={c.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',overflow:'hidden'}}>
-
-                      {/* Committee header */}
-                      <div style={{background:'linear-gradient(135deg,var(--blue),var(--blue-mid))',padding:'18px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px'}}>
-                        <div style={{display:'flex',alignItems:'center',gap:'14px'}}>
-                          <div style={{width:'42px',height:'42px',background:'rgba(255,255,255,0.12)',borderRadius:'var(--radius-md)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'18px',color:'#FFD09B'}}>
-                            <i className={c.icon}></i>
-                          </div>
-                          <div>
-                            <div style={{fontSize:'15px',fontWeight:700,color:'#fff'}}>{c.name}</div>
-                            <div style={{fontSize:'10px',color:'rgba(255,255,255,0.45)',fontWeight:700,textTransform:'uppercase',letterSpacing:'1px',marginTop:'2px'}}>{c.abbr} · {c.category}</div>
-                          </div>
-                        </div>
-                        <div style={{display:'flex',gap:'8px'}}>
-                          <button
-                            onClick={() => openEditCommittee(c)}
-                            style={{padding:'6px 14px',background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:'6px',fontSize:'12px',fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
-                            <i className="fa-solid fa-pen"></i> Edit
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete({ type:'committee', committeeId: c.id })}
-                            style={{padding:'6px 14px',background:'rgba(220,53,69,0.25)',border:'1px solid rgba(220,53,69,0.4)',color:'#FFB3B3',borderRadius:'6px',fontSize:'12px',fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
-                            <i className="fa-solid fa-trash"></i> Delete
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Description */}
-                      {c.desc && (
-                        <div style={{padding:'12px 20px',background:'var(--blue-pale)',borderBottom:'1px solid var(--border)',fontSize:'13px',color:'var(--text-muted)'}}>
-                          {c.desc}
-                        </div>
-                      )}
-
-                      {/* Members list */}
-                      <div style={{padding:'16px 20px'}}>
-                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'14px'}}>
-                          <span style={{fontSize:'12px',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.8px'}}>
-                            Members ({c.members.length})
-                          </span>
-                          <button
-                            onClick={() => openAddMember(c.id)}
-                            style={{padding:'5px 12px',background:'var(--blue)',color:'#fff',border:'none',borderRadius:'6px',fontSize:'12px',fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
-                            <i className="fa-solid fa-plus"></i> Add Member
-                          </button>
-                        </div>
-
-                        {c.members.length === 0 ? (
-                          <div style={{textAlign:'center',padding:'24px',color:'var(--text-light)',fontSize:'13px',background:'var(--off-white)',borderRadius:'var(--radius-md)'}}>
-                            No members yet. Click "Add Member" to get started.
-                          </div>
-                        ) : (
-                          <div style={{display:'flex',flexDirection:'column',gap:'2px'}}>
-                            {c.members.map((m, idx) => {
-                              const rs = getRoleStyle(m.role);
-                              return (
-                                <div key={idx} style={{display:'flex',alignItems:'center',gap:'12px',padding:'10px 12px',borderRadius:'var(--radius-md)',background: idx%2===0?'var(--off-white)':'transparent',transition:'background 0.15s'}}>
-                                  {/* Avatar */}
-                                  <div style={{
-                                    width:'36px',height:'36px',borderRadius:'50%',flexShrink:0,
-                                    display:'flex',alignItems:'center',justifyContent:'center',
-                                    fontSize:'12px',fontWeight:700, overflow:'hidden',
-                                    background: (m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()]) ? 'transparent' :
-                                                m.role.toLowerCase().includes('president')||m.role.toLowerCase().includes('chairman')||m.role.toLowerCase().includes('chairperson') ? 'var(--orange)' :
-                                                m.role.toLowerCase().includes('vice')||m.role.toLowerCase().includes('co-')||m.role.toLowerCase().includes('secretary')||m.role.toLowerCase().includes('treasurer') ? 'var(--blue-mid)' : 'var(--blue-pale)',
-                                    color: m.role.toLowerCase().includes('president')||m.role.toLowerCase().includes('chairman')||m.role.toLowerCase().includes('chairperson') ? '#fff' :
-                                           m.role.toLowerCase().includes('vice')||m.role.toLowerCase().includes('co-')||m.role.toLowerCase().includes('secretary')||m.role.toLowerCase().includes('treasurer') ? '#fff' : 'var(--blue)',
-                                    border: '1.5px solid var(--border)',
-                                  }}>
-                                    {(m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()])
-                                      ? <img src={m.photo_url || committeeAvatarMap[m.name.toLowerCase().trim()]} alt={m.name} style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%'}}/>
-                                      : getInitials(m.name)}
-                                  </div>
-
-                                  {/* Name & Role */}
-                                  <div style={{flex:1,minWidth:0}}>
-                                    <div style={{fontSize:'13px',fontWeight:600,color:'var(--blue)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}</div>
-                                    <div style={{display:'inline-flex',alignItems:'center',padding:'1px 8px',borderRadius:'4px',fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.5px',marginTop:'2px',...rs}}>
-                                      {m.role}
-                                    </div>
-                                  </div>
-
-                                  {/* Actions */}
-                                  <div style={{display:'flex',gap:'4px',flexShrink:0}}>
-                                    {/* Move up */}
-                                    <button
-                                      disabled={idx===0}
-                                      onClick={() => moveMember(c.id, idx, -1)}
-                                      title="Move up"
-                                      style={{width:'28px',height:'28px',borderRadius:'6px',background:'var(--blue-pale)',border:'1px solid var(--border)',color: idx===0?'var(--border-dark)':'var(--blue)',cursor:idx===0?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'11px'}}>
-                                      <i className="fa-solid fa-chevron-up"></i>
-                                    </button>
-                                    {/* Move down */}
-                                    <button
-                                      disabled={idx===c.members.length-1}
-                                      onClick={() => moveMember(c.id, idx, 1)}
-                                      title="Move down"
-                                      style={{width:'28px',height:'28px',borderRadius:'6px',background:'var(--blue-pale)',border:'1px solid var(--border)',color:idx===c.members.length-1?'var(--border-dark)':'var(--blue)',cursor:idx===c.members.length-1?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'11px'}}>
-                                      <i className="fa-solid fa-chevron-down"></i>
-                                    </button>
-                                    {/* Edit */}
-                                    <button
-                                      onClick={() => openEditMember(c.id, idx, m)}
-                                      title="Edit member"
-                                      style={{width:'28px',height:'28px',borderRadius:'6px',background:'var(--blue-pale)',border:'1px solid var(--border)',color:'var(--blue)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'11px'}}>
-                                      <i className="fa-solid fa-pen"></i>
-                                    </button>
-                                    {/* Delete */}
-                                    <button
-                                      onClick={() => setConfirmDelete({ type:'member', committeeId: c.id, memberIdx: idx, memberName: m.name })}
-                                      title="Remove member"
-                                      style={{width:'28px',height:'28px',borderRadius:'6px',background:'#FFF0EE',border:'1px solid #F5BDBA',color:'#C0392B',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'11px'}}>
-                                      <i className="fa-solid fa-trash"></i>
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
+            <AdminCommitteesTab
+              openAddCommittee={openAddCommittee} committeesLoading={committeesLoading}
+              committees={committees} openEditCommittee={openEditCommittee}
+              setConfirmDelete={setConfirmDelete} openAddMember={openAddMember}
+              getRoleStyle={getRoleStyle} committeeAvatarMap={committeeAvatarMap}
+              getInitials={getInitials} moveMember={moveMember} openEditMember={openEditMember}
+            />
           )}
 
 
           {/* ═══ FEEDBACK FORMS ═══ */}
-          {tab === 'feedback' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{marginBottom:'4px'}}>Feedback Forms</div>
-              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'20px'}}>
-                Turn on feedback for any event, then build a custom set of questions for it.
-                Attendees see only the events you've enabled here.
-              </p>
-
-              {feedbackLoading ? (
-                <div style={{textAlign:'center',padding:'60px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'10px'}}></i>
-                  Loading events…
-                </div>
-              ) : feedbackEvents.length === 0 ? (
-                <div style={{textAlign:'center',padding:'60px',color:'var(--text-light)'}}>No events found.</div>
-              ) : (
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
-                    <thead>
-                      <tr><th>Event</th><th>Date</th><th>Feedback</th><th>Questions</th><th>Responses</th><th>Actions</th></tr>
-                    </thead>
-                    <tbody>
-                      {feedbackEvents.map(ev => {
-                        const form = feedbackForms[ev.id];
-                        const enabled = form?.enabled === true;
-                        const qCount = form?.questions?.length || 0;
-                        return (
-                          <tr key={ev.id}>
-                            <td style={{fontWeight:600,color:'var(--blue)'}}>{ev.title}</td>
-                            <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
-                              {ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '—'}
-                            </td>
-                            <td>
-                              <div onClick={() => toggleFeedbackEnabled(ev)}
-                                style={{width:'42px',height:'22px',borderRadius:'11px',background:enabled?'var(--green)':'var(--border-dark)',position:'relative',cursor:'pointer',transition:'background .2s'}}>
-                                <div style={{position:'absolute',top:'2px',left:enabled?'22px':'2px',width:'18px',height:'18px',borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
-                              </div>
-                            </td>
-                            <td style={{fontSize:'12px',color:'var(--text-muted)'}}>
-                              {qCount} question{qCount !== 1 ? 's' : ''}
-                            </td>
-                            <td>
-                              <button className="btn btn-sm" style={{background:'transparent',border:'1px solid var(--border)',fontSize:'11px',padding:'5px 10px'}}
-                                onClick={() => openFeedbackResponses(ev)}>
-                                <i className="fa-solid fa-inbox"></i> View
-                              </button>
-                            </td>
-                            <td>
-                              <button className="btn btn-sm" style={{background:'var(--blue)',color:'#fff',border:'none',fontSize:'11px',padding:'5px 10px'}}
-                                onClick={() => openFeedbackEditor(ev)}>
-                                <i className="fa-solid fa-pen"></i> Manage Questions
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Question builder modal ── */}
-          {feedbackEditingEvent && (
-            <div className="modal-overlay" onClick={() => !feedbackQSaving && setFeedbackEditingEvent(null)}>
-              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'620px'}}>
-                {!feedbackQSaving && (
-                  <button className="modal-close" onClick={() => setFeedbackEditingEvent(null)}>&#x2715;</button>
-                )}
-                <div className="modal-title" style={{marginBottom:'4px'}}>Feedback Questions</div>
-                <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'18px'}}>
-                  For <strong>{feedbackEditingEvent.title}</strong>
-                </p>
-
-                {feedbackQuestions.length === 0 ? (
-                  <div style={{textAlign:'center',padding:'32px',color:'var(--text-light)',background:'var(--off-white)',borderRadius:'10px',marginBottom:'16px'}}>
-                    No questions yet. Add your first one below.
-                  </div>
-                ) : (
-                  <div style={{marginBottom:'16px'}}>
-                    {feedbackQuestions.map((q, idx) => (
-                      <div key={q.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',background:'var(--off-white)',borderRadius:'8px',marginBottom:'8px'}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:'13px',fontWeight:600,color:'var(--blue)'}}>
-                            {q.label} {q.required && <span style={{color:'var(--orange)'}}>*</span>}
-                          </div>
-                          <div style={{fontSize:'11px',color:'var(--text-muted)'}}>
-                            {FEEDBACK_QUESTION_TYPES.find(t=>t.value===q.type)?.label || q.type}
-                            {q.options ? ` · ${q.options.length} options` : ''}
-                          </div>
-                        </div>
-                        <button onClick={() => moveQuestion(idx,-1)} disabled={idx===0}
-                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===0?'default':'pointer',opacity:idx===0?0.4:1}}>
-                          <i className="fa-solid fa-chevron-up" style={{fontSize:'10px'}}></i>
-                        </button>
-                        <button onClick={() => moveQuestion(idx,1)} disabled={idx===feedbackQuestions.length-1}
-                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:idx===feedbackQuestions.length-1?'default':'pointer',opacity:idx===feedbackQuestions.length-1?0.4:1}}>
-                          <i className="fa-solid fa-chevron-down" style={{fontSize:'10px'}}></i>
-                        </button>
-                        <button onClick={() => openEditQuestion(idx)}
-                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:'pointer',color:'var(--blue)'}}>
-                          <i className="fa-solid fa-pen" style={{fontSize:'10px'}}></i>
-                        </button>
-                        <button onClick={() => deleteQuestion(idx)}
-                          style={{background:'none',border:'1px solid var(--border)',borderRadius:'6px',width:'26px',height:'26px',cursor:'pointer',color:'#DC2626'}}>
-                          <i className="fa-solid fa-trash" style={{fontSize:'10px'}}></i>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <button className="btn btn-sm" style={{background:'transparent',border:'1px dashed var(--border-dark)',width:'100%',justifyContent:'center',marginBottom:'20px'}}
-                  onClick={openAddQuestion}>
-                  <i className="fa-solid fa-plus"></i> Add Question
-                </button>
-
-                <div style={{display:'flex',gap:'10px'}}>
-                  <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}}
-                    disabled={feedbackQSaving} onClick={saveFeedbackQuestions}>
-                    {feedbackQSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-check"></i> Save Questions</>}
-                  </button>
-                  <button className="btn" style={{background:'transparent',border:'1px solid var(--border)'}}
-                    disabled={feedbackQSaving} onClick={() => setFeedbackEditingEvent(null)}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── Add/edit single question modal ── */}
-          {feedbackQModal && (
-            <div className="modal-overlay" onClick={() => setFeedbackQModal(null)}>
-              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'440px'}}>
-                <button className="modal-close" onClick={() => setFeedbackQModal(null)}>&#x2715;</button>
-                <div className="modal-title" style={{marginBottom:'16px'}}>
-                  {feedbackQModal.idx === null ? 'Add Question' : 'Edit Question'}
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Question *</label>
-                  <input className="form-input" type="text" placeholder="e.g. How would you rate this event?"
-                    value={feedbackQDraft.label} onChange={e=>setFeedbackQDraft(f=>({...f,label:e.target.value}))}/>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Answer Type</label>
-                  <select className="form-select" value={feedbackQDraft.type}
-                    onChange={e=>setFeedbackQDraft(f=>({...f,type:e.target.value}))}>
-                    {FEEDBACK_QUESTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                </div>
-
-                {(feedbackQDraft.type === 'multiple_choice' || feedbackQDraft.type === 'checkboxes') && (
-                  <div className="form-group">
-                    <label className="form-label">Options <span style={{fontWeight:400,color:'var(--text-light)'}}>— comma separated, at least 2</span></label>
-                    <input className="form-input" type="text" placeholder="Excellent, Good, Average, Poor"
-                      value={feedbackQDraft.options} onChange={e=>setFeedbackQDraft(f=>({...f,options:e.target.value}))}/>
-                  </div>
-                )}
-
-                <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',marginBottom:'20px',fontSize:'13px',color:'var(--text-muted)'}}>
-                  <input type="checkbox" checked={feedbackQDraft.required}
-                    onChange={e=>setFeedbackQDraft(f=>({...f,required:e.target.checked}))}/>
-                  Required — attendee must answer this to submit
-                </label>
-
-                <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}}
-                  disabled={!feedbackQDraft.label.trim()} onClick={saveQuestionDraft}>
-                  <i className="fa-solid fa-check"></i> {feedbackQModal.idx === null ? 'Add Question' : 'Save Changes'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── Responses viewer ── */}
-          {feedbackViewingEvent && (
-            <div className="modal-overlay" onClick={() => setFeedbackViewingEvent(null)}>
-              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'720px',maxHeight:'82vh',overflowY:'auto'}}>
-                <button className="modal-close" onClick={() => setFeedbackViewingEvent(null)}>&#x2715;</button>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',paddingRight:'30px'}}>
-                  <div className="modal-title" style={{marginBottom:0}}>Feedback Responses</div>
-                  {feedbackResponses.length > 0 && (
-                    <button className="btn btn-sm" style={{background:'#15803D',color:'#fff',border:'none',fontSize:'11px'}}
-                      onClick={downloadFeedbackExcel}>
-                      <i className="fa-solid fa-file-excel"></i> Download Excel
-                    </button>
-                  )}
-                </div>
-                <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'18px'}}>
-                  For <strong>{feedbackViewingEvent.title}</strong> · {feedbackResponses.length} response{feedbackResponses.length !== 1 ? 's' : ''}
-                </p>
-
-                {feedbackRespLoading ? (
-                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>
-                    <i className="fa-solid fa-spinner fa-spin"></i> Loading…
-                  </div>
-                ) : feedbackResponses.length === 0 ? (
-                  <div style={{textAlign:'center',padding:'40px',color:'var(--text-light)'}}>No responses yet.</div>
-                ) : (
-                  feedbackResponses.map(r => {
-                    const form = feedbackForms[feedbackViewingEvent.id];
-                    const questions = form?.questions || [];
-                    return (
-                      <div key={r.id} style={{border:'1px solid var(--border)',borderRadius:'10px',padding:'14px 16px',marginBottom:'12px'}}>
-                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}>
-                          <div>
-                            <div style={{fontWeight:700,fontSize:'13px',color:'var(--blue)'}}>{r.full_name || 'Anonymous'}</div>
-                            <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{r.email}</div>
-                          </div>
-                          <div style={{fontSize:'11px',color:'var(--text-light)'}}>
-                            {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : ''}
-                          </div>
-                        </div>
-                        {questions.map(q => {
-                          const a = r.answers?.[q.id];
-                          if (a === undefined || a === null || a === '') return null;
-                          return (
-                            <div key={q.id} style={{fontSize:'12.5px',marginBottom:'4px'}}>
-                              <span style={{color:'var(--text-muted)'}}>{q.label}: </span>
-                              <span style={{fontWeight:600,color:'var(--blue)'}}>{Array.isArray(a) ? a.join(', ') : String(a)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
+          <AdminFeedbackTab
+            tab={tab} feedbackLoading={feedbackLoading} feedbackEvents={feedbackEvents}
+            feedbackForms={feedbackForms} toggleFeedbackEnabled={toggleFeedbackEnabled}
+            openFeedbackResponses={openFeedbackResponses} openFeedbackEditor={openFeedbackEditor}
+            feedbackEditingEvent={feedbackEditingEvent} setFeedbackEditingEvent={setFeedbackEditingEvent}
+            feedbackQSaving={feedbackQSaving} feedbackQuestions={feedbackQuestions}
+            moveQuestion={moveQuestion} openEditQuestion={openEditQuestion}
+            deleteQuestion={deleteQuestion} openAddQuestion={openAddQuestion}
+            saveFeedbackQuestions={saveFeedbackQuestions}
+            feedbackQModal={feedbackQModal} setFeedbackQModal={setFeedbackQModal}
+            feedbackQDraft={feedbackQDraft} setFeedbackQDraft={setFeedbackQDraft}
+            saveQuestionDraft={saveQuestionDraft}
+            feedbackViewingEvent={feedbackViewingEvent} setFeedbackViewingEvent={setFeedbackViewingEvent}
+            feedbackResponses={feedbackResponses} downloadFeedbackExcel={downloadFeedbackExcel}
+            feedbackRespLoading={feedbackRespLoading}
+          />
 
 
           {/* ═══ TESTIMONIALS ═══ */}
@@ -4301,156 +3464,15 @@ export default function AdminPage() {
 
           {/* ═══ CONTACT MESSAGES ═══ */}
           {tab === 'contacts' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'12px'}}>
-                <span>Contact Messages</span>
-                <div style={{display:'flex',gap:'6px'}}>
-                  {['unread','read','replied'].map(f => (
-                    <button key={f} onClick={() => setContactFilter(f)}
-                      style={{padding:'5px 14px',borderRadius:'20px',fontSize:'12px',fontWeight:600,cursor:'pointer',border:'1.5px solid',
-                        background: contactFilter===f ? (f==='unread'?'var(--blue)':f==='replied'?'var(--green)':'var(--text-muted)') : 'transparent',
-                        color: contactFilter===f ? '#fff' : 'var(--text-muted)',
-                        borderColor: contactFilter===f ? (f==='unread'?'var(--blue)':f==='replied'?'var(--green)':'var(--text-muted)') : 'var(--border)',
-                      }}>
-                      {f.charAt(0).toUpperCase()+f.slice(1)}
-                      <span style={{marginLeft:'5px',background:'rgba(0,0,0,0.1)',padding:'1px 6px',borderRadius:'10px'}}>
-                        {contacts.filter(c=>c.status===f).length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {contactsLoading ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',display:'block',marginBottom:'8px'}}></i>Loading…
-                </div>
-              ) : contacts.filter(c=>c.status===contactFilter).length === 0 ? (
-                <div style={{textAlign:'center',padding:'48px',color:'var(--text-muted)'}}>
-                  <i className="fa-solid fa-envelope" style={{fontSize:'32px',display:'block',marginBottom:'8px',opacity:.3}}></i>
-                  No {contactFilter} messages.
-                </div>
-              ) : contacts.filter(c=>c.status===contactFilter).map(msg => (
-                <div key={msg.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'20px',marginBottom:'14px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'12px',flexWrap:'wrap'}}>
-                    <div>
-                      <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
-                        <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{msg.name}</span>
-                        <span style={{fontSize:'11px',padding:'2px 8px',borderRadius:'10px',fontWeight:600,
-                          background:msg.status==='unread'?'rgba(26,60,110,0.1)':msg.status==='replied'?'var(--green-pale)':'var(--off-white)',
-                          color:msg.status==='unread'?'var(--blue)':msg.status==='replied'?'var(--green)':'var(--text-muted)',
-                          border:`1px solid ${msg.status==='unread'?'#C0CDE8':msg.status==='replied'?'#9ADDC3':'var(--border)'}`,
-                        }}>
-                          {msg.status.charAt(0).toUpperCase()+msg.status.slice(1)}
-                        </span>
-                      </div>
-                      <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
-                        <a href={`mailto:${msg.email}`} style={{color:'var(--orange)',fontWeight:600,textDecoration:'none'}}>{msg.email}</a>
-                        {msg.phone && <span><i className="fa-solid fa-phone" style={{marginRight:'3px'}}></i>{msg.phone}</span>}
-                        <span>{new Date(msg.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
-                      </div>
-                      {msg.subject && <div style={{marginTop:'4px',fontSize:'12px',fontWeight:600,color:'var(--blue-mid)'}}>{msg.subject}</div>}
-                    </div>
-                    <div style={{display:'flex',gap:'8px',flexShrink:0,flexWrap:'wrap'}}>
-                      {/* Inline reply form */}
-                      {replyingToId === msg.id ? (
-                        <div style={{marginTop:'12px',background:'#fff',border:'1px solid var(--border)',borderRadius:'10px',padding:'14px'}}>
-                          <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',marginBottom:'8px'}}>
-                            <i className="fa-solid fa-reply" style={{marginRight:'6px',color:'var(--orange)'}}></i>
-                            Replying to {msg.name}
-                          </div>
-                          <textarea
-                            className="form-input"
-                            rows={4}
-                            placeholder="Type your reply here…"
-                            value={replyText}
-                            onChange={e => setReplyText(e.target.value)}
-                            style={{resize:'vertical',marginBottom:'10px'}}
-                            autoFocus
-                          />
-                          <div style={{display:'flex',gap:'8px'}}>
-                            <button className="btn btn-primary btn-sm" disabled={!replyText.trim() || replySending}
-                              onClick={async () => {
-                                if (!replyText.trim()) return;
-                                setReplySending(true);
-                                // Save reply to contact_messages
-                                await supabase.from('contact_messages').update({
-                                  reply_text:  replyText.trim(),
-                                  replied_at:  new Date().toISOString(),
-                                  replied_by:  profile?.id,
-                                  status:      'replied',
-                                }).eq('id', msg.id);
-                                // Create notification for the user (if they have an account)
-                                if (msg.user_id) {
-                                  await supabase.from('notifications').insert({
-                                    user_id:  msg.user_id,
-                                    type:     'contact_reply',
-                                    title:    'FIP replied to your message',
-                                    message:  replyText.trim(),
-                                    link:     '/dashboard?tab=messages',
-                                    meta:     { contact_message_id: msg.id, subject: msg.subject, original: msg.message },
-                                  });
-                                }
-                                // Send reply email
-                                try {
-                                  const emailRes = await fetch('/api/send-contact-email', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      type:     'reply',
-                                      to:       msg.email || '',
-                                      name:     msg.name  || 'Member',
-                                      subject:  `Re: ${msg.subject || 'Your FIP Enquiry'}`,
-                                      message:  replyText.trim(),
-                                      original: msg.message || '',
-                                    }),
-                                  });
-                                  if (!emailRes.ok) {
-                                    const err = await emailRes.json().catch(() => ({}));
-                                    console.warn('Reply email failed:', err);
-                                  }
-                                } catch (e) { console.warn('Reply email error:', e.message); }
-                                setContacts(prev => prev.map(c => c.id === msg.id ? { ...c, status:'replied', reply_text: replyText.trim() } : c));
-                                setReplyingToId(null); setReplyText(''); setReplySending(false);
-                                showToast('Reply sent!');
-                              }}>
-                              {replySending ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending…</> : <><i className="fa-solid fa-paper-plane"></i> Send Reply</>}
-                            </button>
-                            <button className="btn btn-outline-blue btn-sm" onClick={() => { setReplyingToId(null); setReplyText(''); }}>Cancel</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'12px'}}>
-                          <button className="admin-btn" style={{background:'var(--blue)',color:'#fff',border:'none'}}
-                            onClick={() => { setReplyingToId(msg.id); setReplyText(''); }}>
-                            <i className="fa-solid fa-reply"></i> {msg.reply_text ? 'Edit Reply' : 'Reply'}
-                          </button>
-                          {msg.status === 'unread' && (
-                            <button className="admin-btn" style={{background:'var(--off-white)',color:'var(--text-muted)',border:'1px solid var(--border)'}}
-                              onClick={() => markContactStatus(msg.id,'read')}>
-                              <i className="fa-solid fa-check"></i> Mark Read
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {/* Show existing reply */}
-                      {msg.reply_text && replyingToId !== msg.id && (
-                        <div style={{marginTop:'10px',background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'8px',padding:'12px 14px'}}>
-                          <div style={{fontSize:'11px',fontWeight:700,color:'var(--green)',marginBottom:'4px'}}>
-                            <i className="fa-solid fa-check-circle" style={{marginRight:'5px'}}></i>
-                            Reply sent {msg.replied_at ? new Date(msg.replied_at).toLocaleDateString('en-IN') : ''}
-                          </div>
-                          <div style={{fontSize:'13px',color:'#166534',whiteSpace:'pre-wrap'}}>{msg.reply_text}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'14px 16px',fontSize:'14px',color:'var(--text-muted)',lineHeight:1.7,whiteSpace:'pre-wrap'}}>
-                    {msg.message}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <AdminContactsTab
+              contactFilter={contactFilter} setContactFilter={setContactFilter}
+              contacts={contacts} setContacts={setContacts} contactsLoading={contactsLoading}
+              replyingToId={replyingToId} setReplyingToId={setReplyingToId}
+              replyText={replyText} setReplyText={setReplyText}
+              replySending={replySending} setReplySending={setReplySending}
+              profile={profile} supabase={supabase} showToast={showToast}
+              markContactStatus={markContactStatus}
+            />
           )}
 
           {/* ═══ CERTIFICATES ═══ */}
@@ -4764,116 +3786,10 @@ export default function AdminPage() {
 
           {/* ═══ MEMBERSHIP SETTINGS ═══ */}
           {tab === 'membership_settings' && (
-            <div className="admin-form-card">
-              <div className="admin-form-title">Membership Plan Settings</div>
-              <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'24px'}}>
-                Configure membership pricing, validity period and membership dates. These values are used across the site.
-              </p>
-
-              {memSettingsLoading ? (
-                <div style={{textAlign:'center',padding:'40px'}}><i className="fa-solid fa-spinner fa-spin" style={{fontSize:'24px',color:'var(--orange)'}}></i></div>
-              ) : (
-                <>
-                  {/* Pricing section */}
-                  <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'var(--radius-md)',padding:'16px 20px',marginBottom:'20px'}}>
-                    <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'6px'}}>
-                      <i className="fa-solid fa-indian-rupee-sign"></i> Pricing
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label className="form-label">Standard Membership Price (₹) *</label>
-                        <input className="form-input" type="number" min="0" placeholder="500"
-                          value={memForm.standard_price}
-                          onChange={e=>setMemForm(f=>({...f,standard_price:Number(e.target.value)}))}/>
-                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>For new members joining FIP</div>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Renewal Membership Price (₹) *</label>
-                        <input className="form-input" type="number" min="0" placeholder="200"
-                          value={memForm.renewal_price}
-                          onChange={e=>setMemForm(f=>({...f,renewal_price:Number(e.target.value)}))}/>
-                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>For existing members renewing</div>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Membership Duration</label>
-                        <div style={{background:'var(--blue-pale)',border:'1px solid #C0CDE8',borderRadius:'8px',padding:'10px 14px',fontSize:'12.5px',color:'var(--blue)',lineHeight:1.6}}>
-                          <i className="fa-solid fa-circle-info" style={{marginRight:'6px'}}></i>
-                          Every membership automatically ends on 31 March (financial year end), regardless of purchase date — not a fixed number of months. This isn't editable here since it's a policy, not a per-purchase setting.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Membership period */}
-                  <div style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-md)',padding:'16px 20px',marginBottom:'20px'}}>
-                    <div style={{fontSize:'12px',fontWeight:700,color:'var(--blue)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'6px'}}>
-                      <i className="fa-solid fa-calendar"></i> Membership Year
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label className="form-label">Membership Period Start</label>
-                        <input className="form-input" type="date"
-                          value={memForm.membership_start_date}
-                          onChange={e=>setMemForm(f=>({...f,membership_start_date:e.target.value}))}/>
-                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>e.g. 01-04-2025 (financial year start)</div>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">Membership Period End</label>
-                        <input className="form-input" type="date"
-                          value={memForm.membership_end_date}
-                          onChange={e=>setMemForm(f=>({...f,membership_end_date:e.target.value}))}/>
-                        <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>e.g. 31-03-2026 (financial year end)</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Description */}
-                  <div style={{marginBottom:'20px'}}>
-                    <label className="form-label">Membership Description</label>
-                    <textarea className="form-textarea"
-                      placeholder="Describe what members get with their FIP membership…"
-                      value={memForm.description}
-                      onChange={e=>setMemForm(f=>({...f,description:e.target.value}))}
-                      style={{minHeight:'120px'}}/>
-                    <div style={{fontSize:'11px',color:'var(--text-light)',marginTop:'4px'}}>This can be shown on the membership page</div>
-                  </div>
-
-                  {/* Preview */}
-                  <div style={{background:'linear-gradient(135deg,#1A3C6E,#1B4A9E)',borderRadius:'var(--radius-lg)',padding:'20px 24px',marginBottom:'20px',color:'#fff'}}>
-                    <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'1px',marginBottom:'10px'}}>Preview</div>
-                    <div style={{display:'flex',gap:'24px',flexWrap:'wrap'}}>
-                      <div>
-                        <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>New Member</div>
-                        <div style={{fontSize:'28px',fontWeight:900,color:'#FFD09B'}}>₹{memForm.standard_price}<span style={{fontSize:'14px',fontWeight:400,color:'rgba(255,255,255,0.45)'}}>/yr</span></div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>Renewal</div>
-                        <div style={{fontSize:'28px',fontWeight:900,color:'#FFD09B'}}>₹{memForm.renewal_price}<span style={{fontSize:'14px',fontWeight:400,color:'rgba(255,255,255,0.45)'}}>/yr</span></div>
-                      </div>
-                      {memForm.membership_start_date && memForm.membership_end_date && (
-                        <div>
-                          <div style={{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'3px'}}>Period</div>
-                          <div style={{fontSize:'14px',fontWeight:700,color:'#fff'}}>
-                            {new Date(memForm.membership_start_date).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit',year:'numeric'})}
-                            {' – '}
-                            {new Date(memForm.membership_end_date).toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit',year:'numeric'})}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
-                    <button className="btn btn-primary" onClick={saveMembershipSettings} disabled={memSaving}>
-                      {memSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-check"></i> Save Settings</>}
-                    </button>
-
-                  </div>
-
-
-                </>
-              )}
-            </div>
+            <AdminMembershipSettingsTab
+              memSettingsLoading={memSettingsLoading} memForm={memForm} setMemForm={setMemForm}
+              saveMembershipSettings={saveMembershipSettings} memSaving={memSaving}
+            />
           )}
 
           {/* ═══ POPUPS ═══ */}
@@ -5058,6 +3974,59 @@ export default function AdminPage() {
                 <label className="form-label">City</label>
                 <input className="form-input" type="text" placeholder="Delhi" value={eventForm.city} onChange={e=>setEventForm(f=>({...f,city:e.target.value}))}/>
               </div>
+            </div>
+
+            {/* Venue coordinates — needed for GPS-verified attendance check-in.
+                Geocoded automatically from venue+city+location via Nominatim
+                (OpenStreetMap's free geocoding service, no API key needed),
+                but admin can also enter/correct coordinates manually — geocoding
+                isn't always accurate for a specific building entrance. */}
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Venue Latitude <span style={{fontWeight:400,color:'var(--text-light)'}}>(for attendance check-in)</span></label>
+                <input className="form-input" type="number" step="any" placeholder="e.g. 28.6139"
+                  value={eventForm.venue_lat} onChange={e=>setEventForm(f=>({...f,venue_lat:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Venue Longitude</label>
+                <input className="form-input" type="number" step="any" placeholder="e.g. 77.2090"
+                  value={eventForm.venue_lng} onChange={e=>setEventForm(f=>({...f,venue_lng:e.target.value}))}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Check-in Radius (m)</label>
+                <input className="form-input" type="number" min="50" step="50" placeholder="300"
+                  value={eventForm.checkin_radius_meters} onChange={e=>setEventForm(f=>({...f,checkin_radius_meters:Number(e.target.value)}))}/>
+              </div>
+            </div>
+            <div style={{marginBottom:'20px'}}>
+              <button type="button" className="btn btn-sm" disabled={geocodingVenue || !eventForm.venue.trim()}
+                style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}}
+                onClick={async () => {
+                  setGeocodingVenue(true);
+                  try {
+                    const q = [eventForm.venue, eventForm.city, 'India'].filter(Boolean).join(', ');
+                    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+                    const results = await res.json();
+                    if (results?.[0]) {
+                      setEventForm(f => ({ ...f, venue_lat: results[0].lat, venue_lng: results[0].lon }));
+                      showToast('Coordinates found — please double-check they match the actual venue.');
+                    } else {
+                      showToast('Could not find coordinates for this address — please enter them manually.', true);
+                    }
+                  } catch (e) {
+                    showToast('Geocoding failed: ' + e.message, true);
+                  }
+                  setGeocodingVenue(false);
+                }}>
+                {geocodingVenue ? <><i className="fa-solid fa-spinner fa-spin"></i> Looking up…</> : <><i className="fa-solid fa-location-crosshairs"></i> Get Coordinates from Venue</>}
+              </button>
+              {eventForm.venue_lat && eventForm.venue_lng && (
+                <a href={`https://www.openstreetmap.org/?mlat=${eventForm.venue_lat}&mlon=${eventForm.venue_lng}&zoom=17`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{marginLeft:'10px',fontSize:'12px',color:'var(--orange)',fontWeight:600}}>
+                  <i className="fa-solid fa-map"></i> View on map to verify →
+                </a>
+              )}
             </div>
             <div className="form-row">
               <div className="form-group">

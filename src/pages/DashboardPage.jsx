@@ -527,12 +527,24 @@ function CommitteeMembersPanel({ committeeName, currentUserId }) {
   );
 }
 
+// Haversine formula — distance in meters between two lat/lng points.
+// Standard, well-established math, no API needed for this part at all.
+function distanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000; // Earth's radius in meters
+  const toRad = (deg) => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
 export default function DashboardPage() {
   const [tab, setTab]             = useState(() => {
     // Support ?tab=messages from notification links
     const urlTab = new URLSearchParams(window.location.search).get('tab');
     return urlTab || 'overview';
   });
+
   const [notifications,    setNotifications]    = useState([]);
   const [unreadCount,      setUnreadCount]      = useState(0);
   const [contactMessages,  setContactMessages]  = useState([]);
@@ -638,6 +650,73 @@ export default function DashboardPage() {
   }, [user]);
 
   /* save settings */
+  /* Check in to an event — two-stage flow. Opening the modal immediately
+     requests location and shows a map + distance for the user to see for
+     themselves; the actual "Confirm Check-In" button only unlocks once
+     they're verified within the venue's radius. Uses the browser's
+     built-in Geolocation API — no external service or API key needed for
+     getting the user's own position. */
+  const [checkinModalRsvp, setCheckinModalRsvp] = useState(null); // the rsvp currently being verified
+  const [checkinStatus,    setCheckinStatus]    = useState('locating'); // 'locating' | 'ok' | 'too_far' | 'error'
+  const [checkinResult,    setCheckinResult]    = useState(null); // { lat, lng, distance, radius }
+  const [checkinErrorMsg,  setCheckinErrorMsg]  = useState('');
+  const [confirmingCheckin, setConfirmingCheckin] = useState(false);
+
+  const openCheckinModal = (rsvp) => {
+    const ev = rsvp.events;
+    if (!ev?.venue_lat || !ev?.venue_lng) {
+      showToast('This event does not have check-in enabled yet.', true);
+      return;
+    }
+    setCheckinModalRsvp(rsvp);
+    verifyLocation(rsvp);
+  };
+
+  const verifyLocation = (rsvp) => {
+    const ev = rsvp.events;
+    setCheckinStatus('locating');
+    setCheckinResult(null);
+    if (!navigator.geolocation) {
+      setCheckinStatus('error');
+      setCheckinErrorMsg('Your browser does not support location services.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const dist = distanceMeters(latitude, longitude, Number(ev.venue_lat), Number(ev.venue_lng));
+        const radius = ev.checkin_radius_meters || 300;
+        setCheckinResult({ lat: latitude, lng: longitude, distance: dist, radius });
+        setCheckinStatus(dist <= radius ? 'ok' : 'too_far');
+      },
+      (err) => {
+        setCheckinStatus('error');
+        setCheckinErrorMsg(err.code === 1
+          ? 'Location permission denied — please allow location access to verify you\'re at the venue.'
+          : 'Could not get your location: ' + err.message);
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
+
+  const confirmCheckIn = async () => {
+    if (!checkinModalRsvp || !checkinResult || checkinStatus !== 'ok') return;
+    setConfirmingCheckin(true);
+    const { error } = await supabase.from('event_rsvps').update({
+      attended: true,
+      checked_in_at: new Date().toISOString(),
+      checkin_lat: checkinResult.lat,
+      checkin_lng: checkinResult.lng,
+      checkin_distance_meters: Math.round(checkinResult.distance),
+    }).eq('id', checkinModalRsvp.id);
+
+    setConfirmingCheckin(false);
+    if (error) { showToast('Check-in failed: ' + error.message, true); return; }
+    setRsvps(prev => prev.map(r => r.id === checkinModalRsvp.id ? { ...r, attended: true, checked_in_at: new Date().toISOString() } : r));
+    showToast(`Checked in! You're ${Math.round(checkinResult.distance)}m from the venue. 🎉`);
+    setCheckinModalRsvp(null);
+  };
+
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -860,12 +939,24 @@ export default function DashboardPage() {
                   <button className="btn btn-secondary btn-sm" style={{marginTop:'12px'}} onClick={() => navigate('/events')}>Browse Events</button>
                 </div>
               ) : rsvps.map((r,i) => (
-                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:'1px solid var(--border)',gap:'12px',flexWrap:'wrap'}}>
                   <div>
                     <div style={{fontSize:'14px',fontWeight:700,color:'var(--blue)'}}>{r.event_name}</div>
                     <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'2px'}}>{r.events?.event_date ? new Date(r.events.event_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : 'Date TBD'}</div>
                   </div>
-                  <span className="status-pill sp-active">{r.status}</span>
+                  <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                    {r.attended ? (
+                      <span style={{display:'flex',alignItems:'center',gap:'5px',fontSize:'11px',fontWeight:700,color:'var(--green)',background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'20px',padding:'4px 12px'}}>
+                        <i className="fa-solid fa-circle-check"></i> Checked In
+                      </span>
+                    ) : r.events?.venue_lat && r.events?.venue_lng ? (
+                      <button onClick={() => openCheckinModal(r)}
+                        style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'11px',fontWeight:700,color:'#fff',background:'var(--orange)',border:'none',borderRadius:'20px',padding:'6px 14px',cursor:'pointer'}}>
+                        <i className="fa-solid fa-location-dot"></i> Check In
+                      </button>
+                    ) : null}
+                    <span className="status-pill sp-active">{r.status}</span>
+                  </div>
                 </div>
               ))
             }
@@ -1245,6 +1336,88 @@ export default function DashboardPage() {
         )}
 
       </div>
+
+      {/* ── Location verification modal ── */}
+      {checkinModalRsvp && (
+        <div className="modal-overlay" onClick={() => !confirmingCheckin && setCheckinModalRsvp(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'480px'}}>
+            {!confirmingCheckin && (
+              <button className="modal-close" onClick={() => setCheckinModalRsvp(null)}>&#x2715;</button>
+            )}
+            <div className="modal-title" style={{marginBottom:'4px'}}>
+              <i className="fa-solid fa-location-dot" style={{color:'var(--orange)',marginRight:'8px'}}></i>
+              Verify Your Location
+            </div>
+            <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'18px'}}>
+              For <strong>{checkinModalRsvp.event_name}</strong>
+            </p>
+
+            {checkinStatus === 'locating' && (
+              <div style={{textAlign:'center',padding:'40px 20px',color:'var(--text-muted)'}}>
+                <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'26px',display:'block',marginBottom:'12px'}}></i>
+                Getting your location…
+              </div>
+            )}
+
+            {checkinStatus === 'error' && (
+              <div style={{textAlign:'center',padding:'30px 20px'}}>
+                <i className="fa-solid fa-triangle-exclamation" style={{fontSize:'26px',color:'#DC2626',display:'block',marginBottom:'12px'}}></i>
+                <p style={{fontSize:'13px',color:'var(--text-muted)',marginBottom:'18px'}}>{checkinErrorMsg}</p>
+                <button className="btn btn-secondary btn-sm" onClick={() => verifyLocation(checkinModalRsvp)}>
+                  <i className="fa-solid fa-rotate-right"></i> Try Again
+                </button>
+              </div>
+            )}
+
+            {(checkinStatus === 'ok' || checkinStatus === 'too_far') && checkinResult && (
+              <>
+                <div style={{borderRadius:'10px',overflow:'hidden',border:'1px solid var(--border)',marginBottom:'14px',height:'220px'}}>
+                  <iframe
+                    title="Your location"
+                    width="100%" height="100%" style={{border:0}}
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${checkinResult.lng-0.003}%2C${checkinResult.lat-0.003}%2C${checkinResult.lng+0.003}%2C${checkinResult.lat+0.003}&layer=mapnik&marker=${checkinResult.lat}%2C${checkinResult.lng}`}
+                  />
+                </div>
+
+                {checkinStatus === 'ok' ? (
+                  <div style={{background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'10px',padding:'14px 16px',marginBottom:'16px',display:'flex',alignItems:'center',gap:'10px'}}>
+                    <i className="fa-solid fa-circle-check" style={{color:'var(--green)',fontSize:'18px'}}></i>
+                    <div>
+                      <div style={{fontSize:'13px',fontWeight:700,color:'#166534'}}>You're at the venue!</div>
+                      <div style={{fontSize:'11.5px',color:'#166534'}}>{Math.round(checkinResult.distance)}m from the venue — within range.</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{background:'#FEF3E2',border:'1px solid #F5C98E',borderRadius:'10px',padding:'14px 16px',marginBottom:'16px',display:'flex',alignItems:'center',gap:'10px'}}>
+                    <i className="fa-solid fa-triangle-exclamation" style={{color:'var(--orange)',fontSize:'18px'}}></i>
+                    <div>
+                      <div style={{fontSize:'13px',fontWeight:700,color:'#92400E'}}>Too far from the venue</div>
+                      <div style={{fontSize:'11.5px',color:'#92400E'}}>You're about {Math.round(checkinResult.distance)}m away — need to be within {checkinResult.radius}m to check in.</div>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{display:'flex',gap:'10px'}}>
+                  {checkinStatus === 'ok' ? (
+                    <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}}
+                      disabled={confirmingCheckin} onClick={confirmCheckIn}>
+                      {confirmingCheckin ? <><i className="fa-solid fa-spinner fa-spin"></i> Checking in…</> : <><i className="fa-solid fa-check"></i> Confirm Check-In</>}
+                    </button>
+                  ) : (
+                    <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}} onClick={() => verifyLocation(checkinModalRsvp)}>
+                      <i className="fa-solid fa-rotate-right"></i> Refresh Location
+                    </button>
+                  )}
+                  <button className="btn" style={{background:'transparent',border:'1px solid var(--border)'}}
+                    disabled={confirmingCheckin} onClick={() => setCheckinModalRsvp(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
