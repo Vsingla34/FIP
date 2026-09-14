@@ -117,6 +117,20 @@ export default function AdminPage() {
       .finally(() => setLoadingMembers(false));
   }, [tab]);
 
+  // Real absence counts, computed server-side — a separate call from the
+  // main members load so a failure here (e.g. RPC not yet deployed) doesn't
+  // block the members list itself from showing.
+  const [absenceCounts, setAbsenceCounts] = useState({}); // { [user_id]: count }
+  useEffect(() => {
+    if (tab !== 'members') return;
+    supabase.rpc('admin_get_absence_counts').then(({ data, error }) => {
+      if (error) { console.warn('Absence counts unavailable:', error.message); return; }
+      const map = {};
+      (data || []).forEach(row => { map[row.user_id] = Number(row.absence_count); });
+      setAbsenceCounts(map);
+    });
+  }, [tab]);
+
   const handleSignOut = async () => { await signOut(); navigate('/'); };
 
   /* ── role / status changes ── */
@@ -671,6 +685,7 @@ export default function AdminPage() {
   const [eventRsvps,       setEventRsvps]       = useState([]);
   const [cancelledRsvps,   setCancelledRsvps]   = useState([]);
   const [rsvpSubTab,       setRsvpSubTab]       = useState('all'); // 'all' | 'registered' | 'cancelled'
+  const [viewingAttendanceOf, setViewingAttendanceOf] = useState(null); // rsvp row whose check-in map is open
   const [rsvpEventView,    setRsvpEventView]    = useState(null);
   const [rsvpLoading,      setRsvpLoading]      = useState(false);
   const [selectedRsvpIds,  setSelectedRsvpIds]  = useState(new Set());
@@ -1877,15 +1892,61 @@ export default function AdminPage() {
   const studentUsers = members.filter(m => ['guest_user','student'].includes((m.account_type||'').toLowerCase()) && matchesSearch(m));
   const paidMembers  = members.filter(m => ((m.account_type||'').toLowerCase() === 'fip_member' || m.membership_status === 'Active') && !['guest_user','student'].includes((m.account_type||'').toLowerCase()) && matchesSearch(m));
 
+  // "Frequently absent" = manually flagged by admin, OR real absence count
+  // meets the threshold. 2+ genuine no-shows felt like a reasonable bar for
+  // "frequently" rather than a single missed event.
+  const FREQUENTLY_ABSENT_THRESHOLD = 2;
+  const frequentlyAbsentUsers = members.filter(m =>
+    (m.flagged_frequently_absent === true || (absenceCounts[m.id] || 0) >= FREQUENTLY_ABSENT_THRESHOLD) && matchesSearch(m)
+  );
+
   const filteredMembers = memberSubTab === 'students' ? studentUsers
     : memberSubTab === 'members' ? paidMembers
+    : memberSubTab === 'frequently_absent' ? frequentlyAbsentUsers
     : allUsers;
 
+  // "Live" means today falls within the event's date range — this is what
+  // decides whether the live tracking banner and auto-polling should even
+  // be shown at all. A past event showing "LIVE — 0% attendance" made no
+  // sense; that number is just historical at that point, not something
+  // happening right now.
+  const isEventLive = (() => {
+    if (!rsvpEventView?.event_date) return false;
+    const now = new Date();
+    const start = new Date(rsvpEventView.event_date);
+    start.setHours(0,0,0,0);
+    const end = new Date(rsvpEventView.event_end_date || rsvpEventView.event_date);
+    end.setHours(23,59,59,999);
+    return now >= start && now <= end;
+  })();
+  const isEventPast = (() => {
+    if (!rsvpEventView?.event_date) return false;
+    const end = new Date(rsvpEventView.event_end_date || rsvpEventView.event_date);
+    end.setHours(23,59,59,999);
+    return new Date() > end;
+  })();
+
+  // "Absent" isn't a stored status — it's derived: registered, not
+  // cancelled, the event has already ended, and they never checked in.
+  // This is what makes someone automatically show up here the moment an
+  // event passes, with no admin action required to put them there.
+  const absentRsvps = isEventPast ? eventRsvps.filter(r => !r.attended) : [];
+
   const filteredEventRsvps = rsvpSubTab === 'cancelled' ? cancelledRsvps
+    : rsvpSubTab === 'present' ? eventRsvps.filter(r => r.attended)
+    : rsvpSubTab === 'absent' ? absentRsvps
     : rsvpSubTab === 'registered' ? eventRsvps
     : [...eventRsvps, ...cancelledRsvps];
 
   useEffect(() => { setRsvpSubTab('all'); setSelectedRsvpIds(new Set()); }, [rsvpEventView?.id]);
+
+  // Live attendance polling — only while the event is actually live. A past
+  // or future event has no reason to keep hitting the database every 25s.
+  useEffect(() => {
+    if (!rsvpEventView || !isEventLive) return;
+    const interval = setInterval(() => loadRsvps(rsvpEventView), 25000);
+    return () => clearInterval(interval);
+  }, [rsvpEventView?.id, isEventLive]);
 
   // Pagination — filteredMembers can be hundreds of rows; rendering them all
   // as <tr> elements at once is what was making this page sluggish. Slicing
@@ -2056,6 +2117,7 @@ export default function AdminPage() {
                   { id:'all',      label:'All Users',  count: allUsers.length },
                   { id:'students', label:'Guest Users', count: studentUsers.length },
                   { id:'members',  label:'FIP Members', count: paidMembers.length },
+                  { id:'frequently_absent', label:'Frequently Absent', count: frequentlyAbsentUsers.length },
                 ].map(t => (
                   <button key={t.id} onClick={() => setMemberSubTab(t.id)}
                     style={{
@@ -2103,6 +2165,31 @@ export default function AdminPage() {
                     <button onClick={() => setShowEmailCompose(true)} style={{background:'var(--orange)',color:'#fff',border:'none',borderRadius:'6px',padding:'7px 16px',fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
                       <i className="fa-solid fa-envelope"></i> Compose & Send Email
                     </button>
+                    {memberSubTab !== 'frequently_absent' ? (
+                      <button onClick={async () => {
+                          const { data: updated, error } = await supabase.from('profiles')
+                            .update({ flagged_frequently_absent: true }).in('id', [...selectedMemberIds]).select('id');
+                          if (error) { showToast('Error: ' + error.message, true); return; }
+                          showToast(`${updated?.length || 0} member(s) flagged as Frequently Absent.`);
+                          setMembers(prev => prev.map(m => selectedMemberIds.has(m.id) ? { ...m, flagged_frequently_absent: true } : m));
+                          setSelectedMemberIds(new Set());
+                        }}
+                        style={{background:'#DC2626',color:'#fff',border:'none',borderRadius:'6px',padding:'7px 16px',fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
+                        <i className="fa-solid fa-user-clock"></i> Flag as Frequently Absent
+                      </button>
+                    ) : (
+                      <button onClick={async () => {
+                          const { data: updated, error } = await supabase.from('profiles')
+                            .update({ flagged_frequently_absent: false }).in('id', [...selectedMemberIds]).select('id');
+                          if (error) { showToast('Error: ' + error.message, true); return; }
+                          showToast(`${updated?.length || 0} member(s) unflagged.`);
+                          setMembers(prev => prev.map(m => selectedMemberIds.has(m.id) ? { ...m, flagged_frequently_absent: false } : m));
+                          setSelectedMemberIds(new Set());
+                        }}
+                        style={{background:'var(--green)',color:'#fff',border:'none',borderRadius:'6px',padding:'7px 16px',fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
+                        <i className="fa-solid fa-user-check"></i> Remove Flag
+                      </button>
+                    )}
                     <button onClick={() => setSelectedMemberIds(new Set())} style={{background:'rgba(255,255,255,0.15)',color:'#fff',border:'none',borderRadius:'6px',padding:'7px 12px',cursor:'pointer'}}>
                       Deselect All
                     </button>
@@ -2197,6 +2284,12 @@ export default function AdminPage() {
                                   {m.fip_member_no && (
                                     <span style={{marginLeft:'8px',fontSize:'10px',fontWeight:700,color:'var(--orange)',fontFamily:'monospace',background:'rgba(242,101,34,0.1)',padding:'1px 6px',borderRadius:'4px'}}>
                                       {m.fip_member_no}
+                                    </span>
+                                  )}
+                                  {(m.flagged_frequently_absent || (absenceCounts[m.id]||0) >= FREQUENTLY_ABSENT_THRESHOLD) && (
+                                    <span title={`${absenceCounts[m.id]||0} recorded absence(s)`}
+                                      style={{marginLeft:'8px',fontSize:'10px',fontWeight:700,color:'#DC2626',background:'#FEE2E2',padding:'1px 6px',borderRadius:'4px'}}>
+                                      <i className="fa-solid fa-user-clock" style={{marginRight:'3px'}}></i>Frequently Absent
                                     </span>
                                   )}
                                 </div>
@@ -2622,12 +2715,74 @@ export default function AdminPage() {
                 })()}
               </div>
 
+              {/* Live attendance summary — only shown while the event is
+                  actually happening. eventRsvps.length excludes cancelled,
+                  matching what "registered" means for attendance purposes. */}
+              {!rsvpLoading && isEventLive && eventRsvps.length > 0 && (
+                <div style={{
+                  display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'12px',
+                  background:'linear-gradient(135deg,#0F4C2E,#15803D)', borderRadius:'var(--radius-lg)',
+                  padding:'18px 22px', marginBottom:'18px', color:'#fff',
+                }}>
+                  <div style={{display:'flex',alignItems:'center',gap:'16px',flexWrap:'wrap'}}>
+                    <div>
+                      <div style={{fontSize:'11px',color:'rgba(255,255,255,0.65)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'2px'}}>Present Right Now</div>
+                      <div style={{fontSize:'30px',fontWeight:900,lineHeight:1,fontFamily:"'Playfair Display',serif"}}>
+                        {eventRsvps.filter(r=>r.attended).length}
+                        <span style={{fontSize:'16px',fontWeight:600,color:'rgba(255,255,255,0.6)'}}> / {eventRsvps.length}</span>
+                      </div>
+                    </div>
+                    <div style={{width:'1px',height:'34px',background:'rgba(255,255,255,0.2)'}}/>
+                    <div>
+                      <div style={{fontSize:'11px',color:'rgba(255,255,255,0.65)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'2px'}}>Attendance Rate</div>
+                      <div style={{fontSize:'22px',fontWeight:800}}>
+                        {eventRsvps.length > 0 ? Math.round((eventRsvps.filter(r=>r.attended).length / eventRsvps.length) * 100) : 0}%
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:'6px',background:'rgba(255,255,255,0.12)',padding:'4px 10px',borderRadius:'20px'}}>
+                      <span style={{width:'7px',height:'7px',borderRadius:'50%',background:'#4ADE80',animation:'pulse 1.6s infinite'}}/>
+                      <span style={{fontSize:'10px',fontWeight:700,letterSpacing:'0.5px'}}>LIVE</span>
+                    </div>
+                    <button onClick={() => loadRsvps(rsvpEventView)}
+                      style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.25)',color:'#fff',borderRadius:'8px',padding:'8px 16px',fontSize:'12px',fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:'7px'}}>
+                      <i className="fa-solid fa-rotate"></i> Refresh
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Past event — a plain final summary, no "live" framing since
+                  the event is over and this number is just history now. */}
+              {!rsvpLoading && isEventPast && eventRsvps.length > 0 && (
+                <div style={{
+                  display:'flex', alignItems:'center', gap:'24px', flexWrap:'wrap',
+                  background:'var(--off-white)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)',
+                  padding:'16px 22px', marginBottom:'18px',
+                }}>
+                  <div>
+                    <div style={{fontSize:'11px',color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'2px'}}>Final Attendance</div>
+                    <div style={{fontSize:'24px',fontWeight:900,color:'var(--blue)',lineHeight:1,fontFamily:"'Playfair Display',serif"}}>
+                      {eventRsvps.filter(r=>r.attended).length}
+                      <span style={{fontSize:'14px',fontWeight:600,color:'var(--text-muted)'}}> / {eventRsvps.length} attended</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'11px',color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:'2px'}}>No-Shows</div>
+                    <div style={{fontSize:'18px',fontWeight:800,color:'#DC2626'}}>{absentRsvps.length}</div>
+                  </div>
+                </div>
+              )}
+
               {/* Sub-tabs — Registered vs Cancelled, same pattern as Members */}
               {!rsvpLoading && (eventRsvps.length > 0 || cancelledRsvps.length > 0) && (
                 <div style={{display:'flex',gap:'8px',marginBottom:'18px',flexWrap:'wrap'}}>
                   {[
                     { id:'all',        label:'All',       count: eventRsvps.length + cancelledRsvps.length },
                     { id:'registered', label:'Registered', count: eventRsvps.length },
+                    { id:'present',    label:'Present',   count: eventRsvps.filter(r=>r.attended).length },
+                    ...(isEventPast ? [{ id:'absent', label:'Absent Users', count: absentRsvps.length }] : []),
                     { id:'cancelled',  label:'Cancelled Users', count: cancelledRsvps.length },
                   ].map(t => (
                     <button key={t.id} onClick={() => { setRsvpSubTab(t.id); setSelectedRsvpIds(new Set()); }}
@@ -2693,6 +2848,45 @@ export default function AdminPage() {
                             }}
                             style={{background:'#DC2626',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
                             <i className="fa-solid fa-ban"></i> Move to Cancelled
+                          </button>
+                        )}
+                        {rsvpSubTab !== 'cancelled' && (
+                          <button onClick={async () => {
+                              if (!window.confirm(`Mark ${selectedRsvpIds.size} registrant(s) as Present?`)) return;
+                              const { data: updated, error } = await supabase.from('event_rsvps')
+                                .update({ attended: true, checked_in_at: new Date().toISOString() }).in('id', [...selectedRsvpIds]).select('id');
+                              if (error) { showToast('Error: ' + error.message, true); return; }
+                              if (!updated || updated.length === 0) {
+                                showToast('Update matched 0 rows — see console for details.', true);
+                                console.error('Mark Present: 0 rows updated. Attempted IDs:', [...selectedRsvpIds]);
+                                return;
+                              }
+                              showToast(`${updated.length} registrant(s) marked Present.`);
+                              setSelectedRsvpIds(new Set());
+                              loadRsvps(rsvpEventView);
+                            }}
+                            style={{background:'var(--green)',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
+                            <i className="fa-solid fa-circle-check"></i> Mark Present
+                          </button>
+                        )}
+                        {rsvpSubTab !== 'cancelled' && (
+                          <button onClick={async () => {
+                              if (!window.confirm(`Mark ${selectedRsvpIds.size} registrant(s) as Absent? This clears any existing check-in.`)) return;
+                              const { data: updated, error } = await supabase.from('event_rsvps')
+                                .update({ attended: false, checked_in_at: null, checkin_lat: null, checkin_lng: null, checkin_distance_meters: null })
+                                .in('id', [...selectedRsvpIds]).select('id');
+                              if (error) { showToast('Error: ' + error.message, true); return; }
+                              if (!updated || updated.length === 0) {
+                                showToast('Update matched 0 rows — see console for details.', true);
+                                console.error('Mark Absent: 0 rows updated. Attempted IDs:', [...selectedRsvpIds]);
+                                return;
+                              }
+                              showToast(`${updated.length} registrant(s) marked Absent.`);
+                              setSelectedRsvpIds(new Set());
+                              loadRsvps(rsvpEventView);
+                            }}
+                            style={{background:'#DC2626',color:'#fff',border:'none',borderRadius:'6px',padding:'5px 14px',fontWeight:700,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px'}}>
+                            <i className="fa-solid fa-user-xmark"></i> Mark Absent
                           </button>
                         )}
                         {rsvpSubTab === 'cancelled' && (
@@ -2798,7 +2992,7 @@ export default function AdminPage() {
                             checked={filteredEventRsvps.length>0 && filteredEventRsvps.every(r=>selectedRsvpIds.has(r.id))}
                             onChange={e => setSelectedRsvpIds(e.target.checked ? new Set(filteredEventRsvps.map(r=>r.id)) : new Set())}/>
                         </th>
-                        <th>Name</th><th>Contact</th><th>Profession</th><th>ICAI No.</th><th>City</th><th>Vol.</th><th>Registered</th>
+                        <th>Name</th><th>Contact</th><th>Profession</th><th>ICAI No.</th><th>City</th><th>Vol.</th><th>Attendance</th><th>Registered</th>
                       </tr></thead>
                       <tbody>
                         {filteredEventRsvps.map((r,i) => (
@@ -2827,6 +3021,19 @@ export default function AdminPage() {
                             <td style={{fontSize:'12px',fontFamily:'monospace',color:'var(--blue)',fontWeight:600}}>{r.icai_membership_no||'—'}</td>
                             <td className="dboard-table-muted" style={{fontSize:'12px'}}>{r.city||'—'}</td>
                             <td style={{textAlign:'center'}}>{r.is_volunteer?<span title="Volunteer">🙋</span>:<span style={{color:'var(--text-light)'}}>—</span>}</td>
+                            <td>
+                              {r.attended ? (
+                                <button onClick={() => setViewingAttendanceOf(r)}
+                                  style={{display:'flex',alignItems:'center',gap:'5px',fontSize:'11px',fontWeight:700,color:'var(--green)',background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'20px',padding:'4px 10px',cursor:'pointer'}}>
+                                  <i className="fa-solid fa-circle-check"></i> Present
+                                  <i className="fa-solid fa-map-location-dot" style={{marginLeft:'2px',opacity:.7}}></i>
+                                </button>
+                              ) : (
+                                <span style={{fontSize:'11px',color:'var(--text-light)',fontWeight:600}}>
+                                  <i className="fa-solid fa-circle-xmark" style={{marginRight:'4px'}}></i>Not checked in
+                                </span>
+                              )}
+                            </td>
                             <td className="dboard-table-muted" style={{fontSize:'12px'}}>{new Date(r.created_at).toLocaleDateString('en-IN')}</td>
                           </tr>
                         ))}
@@ -2836,6 +3043,49 @@ export default function AdminPage() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+
+          {/* ── Attendance map verification modal ── */}
+          {viewingAttendanceOf && (
+            <div className="modal-overlay" onClick={() => setViewingAttendanceOf(null)}>
+              <div className="modal-box" onClick={e => e.stopPropagation()} style={{maxWidth:'520px'}}>
+                <button className="modal-close" onClick={() => setViewingAttendanceOf(null)}>&#x2715;</button>
+                <div className="modal-title" style={{marginBottom:'4px'}}>
+                  <i className="fa-solid fa-location-dot" style={{color:'var(--green)',marginRight:'8px'}}></i>
+                  Attendance Verification
+                </div>
+                <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'16px'}}>
+                  {viewingAttendanceOf.full_name} checked in {viewingAttendanceOf.checked_in_at ? new Date(viewingAttendanceOf.checked_in_at).toLocaleString('en-IN') : ''}
+                </p>
+
+                {viewingAttendanceOf.checkin_lat && viewingAttendanceOf.checkin_lng ? (
+                  <>
+                    <div style={{borderRadius:'10px',overflow:'hidden',border:'1px solid var(--border)',marginBottom:'14px',height:'260px'}}>
+                      <iframe
+                        title="Check-in location"
+                        width="100%" height="100%" style={{border:0}}
+                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(viewingAttendanceOf.checkin_lng)-0.003}%2C${Number(viewingAttendanceOf.checkin_lat)-0.003}%2C${Number(viewingAttendanceOf.checkin_lng)+0.003}%2C${Number(viewingAttendanceOf.checkin_lat)+0.003}&layer=mapnik&marker=${viewingAttendanceOf.checkin_lat}%2C${viewingAttendanceOf.checkin_lng}`}
+                      />
+                    </div>
+                    <div style={{background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'10px',padding:'12px 16px',marginBottom:'12px'}}>
+                      <div style={{fontSize:'12.5px',color:'#166534',display:'flex',justifyContent:'space-between'}}>
+                        <span>Distance from venue at check-in</span>
+                        <strong>{viewingAttendanceOf.checkin_distance_meters != null ? `${Math.round(viewingAttendanceOf.checkin_distance_meters)}m` : '—'}</strong>
+                      </div>
+                    </div>
+                    <a href={`https://www.openstreetmap.org/?mlat=${viewingAttendanceOf.checkin_lat}&mlon=${viewingAttendanceOf.checkin_lng}&zoom=17`}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{fontSize:'12px',color:'var(--orange)',fontWeight:600}}>
+                      <i className="fa-solid fa-up-right-from-square"></i> Open full map in new tab
+                    </a>
+                  </>
+                ) : (
+                  <div style={{textAlign:'center',padding:'30px',color:'var(--text-light)'}}>
+                    Marked present, but no location data was recorded for this check-in.
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
