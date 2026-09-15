@@ -111,8 +111,21 @@ export default function EventsPage() {
       });
   }, [user]);
 
+  useEffect(() => {
+    if (!window.location.hash) return;
+    // Wait a tick for content (and the loading state) to settle before
+    // scrolling, otherwise the target section may not exist yet or its
+    // position may shift once the event cards render in above it.
+    const t = setTimeout(() => {
+      const el = document.getElementById(window.location.hash.slice(1));
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   // Pre-fill form from profile when opening RSVP
   const openRsvp = (event) => {
+
     // Autofill GST from whatever's saved on the profile — from any past
     // event, course, or membership purchase. Still fully editable; if they
     // change it here, the new values become the saved default going forward.
@@ -416,7 +429,7 @@ export default function EventsPage() {
       </div>
 
       {/* ── UPCOMING EVENTS ── */}
-      <section className="section">
+      <section className="section" id="upcoming-events">
         <div className="container">
           <div className="shflex" style={{marginBottom:'32px'}}>
             <div>

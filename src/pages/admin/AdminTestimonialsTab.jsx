@@ -58,9 +58,17 @@ export default function AdminTestimonialsTab({
           <div key={t.id} style={{background:'var(--off-white)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:'20px',marginBottom:'16px'}}>
             {/* Header */}
             <div style={{display:'flex',alignItems:'flex-start',gap:'14px',marginBottom:'14px'}}>
-              <div style={{width:'44px',height:'44px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'14px',flexShrink:0}}>
-                {initials}
-              </div>
+              {(t.image_url || t.avatar_url) ? (
+                <div style={{width:'44px',height:'44px',borderRadius:'50%',flexShrink:0,overflow:'hidden',border:'1.5px solid var(--border)'}}>
+                  <img src={t.image_url || t.avatar_url} alt={t.name}
+                    style={{width:'100%',height:'100%',objectFit:'cover'}}
+                    onError={e => { e.target.style.display='none'; e.target.parentElement.style.background='var(--blue)'; e.target.parentElement.style.display='flex'; e.target.parentElement.style.alignItems='center'; e.target.parentElement.style.justifyContent='center'; e.target.parentElement.innerHTML=`<span style="color:#FFD09B;font-weight:700;font-size:14px;">${initials}</span>`; }}/>
+                </div>
+              ) : (
+                <div style={{width:'44px',height:'44px',borderRadius:'50%',background:'var(--blue)',display:'flex',alignItems:'center',justifyContent:'center',color:'#FFD09B',fontWeight:700,fontSize:'14px',flexShrink:0}}>
+                  {initials}
+                </div>
+              )}
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:700,color:'var(--blue)',fontSize:'14px'}}>{t.name}</div>
                 <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'1px'}}>{t.designation}</div>

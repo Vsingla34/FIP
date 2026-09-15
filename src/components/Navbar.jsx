@@ -23,12 +23,16 @@ export default function Navbar() {
     { to:'/about',      label:'About' },
     { to:'/courses',    label:'Courses' },
     { to:'/membership', label:'Membership' },
-    { to:'/events',     label:'Events' },
-    { to:'/feedback',   label:'Feedback' },
+    { to:'/events',     label:'Events', children: [
+      { to:'/events#upcoming-events', label:'Upcoming Events' },
+      { to:'/feedback', label:'Event Feedback' },
+      { to:'/gallery',  label:'Gallery' },
+    ]},
     { to:'/blog',       label:'Blog' },
     { to:'/team',       label:'Team' },
     { to:'/contact',    label:'Contact' },
   ];
+  const [openDropdown, setOpenDropdown] = useState(null);
 
   return (
     <nav id="navbar">
@@ -49,7 +53,35 @@ export default function Navbar() {
         </Link>
 
         <div className="nav-links">
-          {links.map(l => (
+          {links.map(l => l.children ? (
+            <div key={l.to} className="nav-link-dropdown-wrap"
+              onMouseEnter={() => setOpenDropdown(l.to)}
+              onMouseLeave={() => setOpenDropdown(null)}
+              style={{position:'relative'}}>
+              <Link to={l.to}
+                    className={`nav-link${location.pathname===l.to?' active':''}`}
+                    style={{display:'flex',alignItems:'center',gap:'5px'}}>
+                {l.label}
+                <i className="fa-solid fa-chevron-down" style={{fontSize:'9px',opacity:.7}}></i>
+              </Link>
+              {openDropdown === l.to && (
+                <div style={{
+                  position:'absolute', top:'100%', left:0, minWidth:'190px',
+                  background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)',
+                  boxShadow:'var(--shadow-md)', padding:'6px', zIndex:200,
+                }}>
+                  {l.children.map(c => (
+                    <Link key={c.to} to={c.to}
+                      style={{display:'block',padding:'9px 14px',fontSize:'13px',fontWeight:600,color:'var(--text-muted)',borderRadius:'6px',textDecoration:'none'}}
+                      onMouseEnter={e=>{e.target.style.background='var(--blue-pale)';e.target.style.color='var(--blue)';}}
+                      onMouseLeave={e=>{e.target.style.background='transparent';e.target.style.color='var(--text-muted)';}}>
+                      {c.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
             <Link key={l.to} to={l.to}
                   className={`nav-link${location.pathname===l.to?' active':''}`}>
               {l.label}
@@ -120,7 +152,16 @@ export default function Navbar() {
                style={{height:'44px',margin:'0 auto'}} onError={e=>e.target.style.display='none'}/>
         </div>
         {links.map(l => (
-          <Link key={l.to} to={l.to} className="nav-mobile-link">{l.label}</Link>
+          <div key={l.to}>
+            <Link to={l.to} className="nav-mobile-link">{l.label}</Link>
+            {l.children && l.children.map(c => (
+              <Link key={c.to} to={c.to} className="nav-mobile-link"
+                style={{paddingLeft:'34px',fontSize:'13.5px',color:'var(--text-muted)'}}>
+                <i className="fa-solid fa-angle-right" style={{fontSize:'10px',marginRight:'6px',opacity:.6}}></i>
+                {c.label}
+              </Link>
+            ))}
+          </div>
         ))}
         {user ? (
           <>
@@ -152,4 +193,4 @@ export default function Navbar() {
       </div>
     </nav>
   );
-}
+} 

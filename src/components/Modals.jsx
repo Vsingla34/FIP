@@ -13,6 +13,8 @@ export default function Modals() {
   const navigate = useNavigate();
 
   const [loading,  setLoading]  = useState(false);
+  const [testiImageFile, setTestiImageFile] = useState(null);   // { filename, blob } picked but not yet uploaded
+  const [testiImagePreview, setTestiImagePreview] = useState(''); // local preview URL
   const [error,    setError]    = useState('');
   const [regType,  setRegType]  = useState('student');
   const [forgotStep,    setForgotStep]    = useState(false); // false|1|2|3
@@ -379,15 +381,24 @@ export default function Modals() {
     e.preventDefault(); setLoading(true); setError('');
     const f = e.target;
     try {
+      let imageUrl = null;
+      if (testiImageFile) {
+        const fileName = `${Date.now()}_${testiImageFile.filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { error: upErr } = await supabase.storage.from('testimonials').upload(fileName, testiImageFile.blob);
+        if (upErr) throw new Error('Photo upload failed: ' + upErr.message);
+        const { data: urlData } = supabase.storage.from('testimonials').getPublicUrl(fileName);
+        imageUrl = urlData.publicUrl;
+      }
       const { error: dbError } = await supabase.from('testimonials').insert({
         user_id: user?.id || null, name: f.name.value.trim(),
         designation: f.designation.value.trim(), profession: f.profession?.value?.trim() || null,
         content: f.content.value.trim(), rating: parseInt(f.rating.value) || 5,
-        status: 'pending', approved: false,
+        status: 'pending', approved: false, image_url: imageUrl,
       });
       if (dbError) throw dbError;
       closeModal(); showToast('Thank you! Your testimonial has been submitted for review.');
-    } catch (err) { setError('Failed to submit. Please try again.'); }
+      setTestiImageFile(null); setTestiImagePreview('');
+    } catch (err) { setError(err.message || 'Failed to submit. Please try again.'); }
     finally { setLoading(false); }
   };
 
@@ -1102,6 +1113,29 @@ export default function Modals() {
               <div className="form-group"><label className="form-label">Your Testimonial *</label>
                 <textarea className="form-textarea" name="content" placeholder="How has FIP helped your professional journey?" required style={{minHeight:'110px'}}></textarea>
               </div>
+              <div className="form-group">
+                <label className="form-label">Your Photo <span style={{fontWeight:400,color:'var(--text-light)'}}>(optional)</span></label>
+                <p style={{fontSize:'11.5px',color:'var(--text-light)',marginBottom:'6px'}}>
+                  {user
+                    ? "We'll use your FIP profile photo by default — upload a different one here if you'd prefer."
+                    : "Since you're not signed in with an FIP account, we can't pull a profile photo automatically — feel free to add one here."}
+                </p>
+                  <input className="form-input" type="file" accept="image/*"
+                    onChange={e => {
+                      const file = e.target.files[0];
+                      if (!file) { setTestiImageFile(null); setTestiImagePreview(''); return; }
+                      if (file.size > 4 * 1024 * 1024) { showToast('Photo too large — please keep under 4MB.', true); return; }
+                      setTestiImageFile({ filename: file.name, blob: file });
+                      setTestiImagePreview(URL.createObjectURL(file));
+                    }}/>
+                  {testiImagePreview && (
+                    <div style={{marginTop:'10px',display:'flex',alignItems:'center',gap:'10px'}}>
+                      <img src={testiImagePreview} alt="preview" style={{width:'48px',height:'48px',borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)'}}/>
+                      <button type="button" onClick={() => { setTestiImageFile(null); setTestiImagePreview(''); }}
+                        style={{fontSize:'12px',color:'#DC2626',background:'none',border:'none',cursor:'pointer'}}>Remove</button>
+                    </div>
+                  )}
+                </div>
               <div className="form-group"><label className="form-label">Rating</label>
                 <select className="form-select" name="rating" defaultValue="5">
                   <option value="5">★★★★★ — Excellent</option>

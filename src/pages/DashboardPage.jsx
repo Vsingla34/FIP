@@ -538,6 +538,19 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+// Check-in should only be possible on the actual event day(s) — not for an
+// event that's still weeks away. Same date-range logic used on the admin
+// side for the live attendance banner.
+function isEventHappeningToday(ev) {
+  if (!ev?.event_date) return false;
+  const now = new Date();
+  const start = new Date(ev.event_date);
+  start.setHours(0,0,0,0);
+  const end = new Date(ev.event_end_date || ev.event_date);
+  end.setHours(23,59,59,999);
+  return now >= start && now <= end;
+}
+
 export default function DashboardPage() {
   const [tab, setTab]             = useState(() => {
     // Support ?tab=messages from notification links
@@ -949,11 +962,15 @@ export default function DashboardPage() {
                       <span style={{display:'flex',alignItems:'center',gap:'5px',fontSize:'11px',fontWeight:700,color:'var(--green)',background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'20px',padding:'4px 12px'}}>
                         <i className="fa-solid fa-circle-check"></i> Checked In
                       </span>
-                    ) : r.events?.venue_lat && r.events?.venue_lng ? (
+                    ) : r.events?.venue_lat && r.events?.venue_lng && isEventHappeningToday(r.events) ? (
                       <button onClick={() => openCheckinModal(r)}
                         style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'11px',fontWeight:700,color:'#fff',background:'var(--orange)',border:'none',borderRadius:'20px',padding:'6px 14px',cursor:'pointer'}}>
                         <i className="fa-solid fa-location-dot"></i> Check In
                       </button>
+                    ) : r.events?.venue_lat && r.events?.venue_lng && r.events?.event_date && new Date(r.events.event_end_date || r.events.event_date) < new Date() ? (
+                      <span style={{fontSize:'11px',color:'var(--text-light)',fontStyle:'italic'}}>Check-in window closed</span>
+                    ) : r.events?.venue_lat && r.events?.venue_lng ? (
+                      <span style={{fontSize:'11px',color:'var(--text-light)',fontStyle:'italic'}}>Check-in opens on event day</span>
                     ) : null}
                     <span className="status-pill sp-active">{r.status}</span>
                   </div>

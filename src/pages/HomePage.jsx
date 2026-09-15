@@ -160,10 +160,26 @@ export default function HomePage() {
   useEffect(() => {
     supabase
       .from('testimonials')
-      .select('id, name, designation, profession, content, rating')
+      .select('id, name, designation, profession, content, rating, user_id, image_url')
       .eq('status', 'approved')
       .order('reviewed_at', { ascending: false })
-      .then(({ data }) => { if (data && data.length > 0) setTestimonials(data); });
+      .then(async ({ data, error }) => {
+        if (error) { console.warn('Testimonials fetch failed:', error.message); return; }
+        if (!data || data.length === 0) return;
+
+        // Fetch avatars separately, rather than an embedded join — a join
+        // to profiles can silently drop the entire testimonial row when
+        // RLS can't resolve someone else's profile, not just leave the
+        // avatar blank. This keeps every approved testimonial visible
+        // regardless of whether its avatar can be fetched.
+        const userIds = [...new Set(data.map(t => t.user_id).filter(Boolean))];
+        let avatarMap = {};
+        if (userIds.length > 0) {
+          const { data: profs } = await supabase.from('profiles').select('id, avatar_url').in('id', userIds);
+          (profs || []).forEach(p => { avatarMap[p.id] = p.avatar_url; });
+        }
+        setTestimonials(data.map(t => ({ ...t, avatar_url: avatarMap[t.user_id] || null })));
+      });
   }, []);
 
   useEffect(() => {
@@ -701,7 +717,15 @@ export default function HomePage() {
                           <div className="testi-stars">{stars}</div>
                           <p className="testi-text">{t.content}</p>
                           <div className="testi-author">
-                            <div className="testi-av">{initials}</div>
+                            {(t.image_url || t.avatar_url) ? (
+                              <div className="testi-av" style={{overflow:'hidden',padding:0}}>
+                                <img src={t.image_url || t.avatar_url} alt={t.name}
+                                  style={{width:'100%',height:'100%',objectFit:'cover',objectPosition:'center 15%'}}
+                                  onError={e => { e.target.style.display='none'; e.target.parentElement.textContent=initials; }}/>
+                              </div>
+                            ) : (
+                              <div className="testi-av">{initials}</div>
+                            )}
                             <div>
                               <div className="testi-name">{t.name}</div>
                               <div className="testi-role">

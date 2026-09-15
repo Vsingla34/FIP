@@ -1932,11 +1932,19 @@ export default function AdminPage() {
   // event passes, with no admin action required to put them there.
   const absentRsvps = isEventPast ? eventRsvps.filter(r => !r.attended) : [];
 
-  const filteredEventRsvps = rsvpSubTab === 'cancelled' ? cancelledRsvps
+  const sortByRecentCheckin = (list) => [...list].sort((a, b) => {
+    const aTime = a.checked_in_at ? new Date(a.checked_in_at).getTime() : -1;
+    const bTime = b.checked_in_at ? new Date(b.checked_in_at).getTime() : -1;
+    return bTime - aTime; // newest check-in first, never-checked-in (-1) sinks to the bottom
+  });
+
+  const filteredEventRsvps = sortByRecentCheckin(
+    rsvpSubTab === 'cancelled' ? cancelledRsvps
     : rsvpSubTab === 'present' ? eventRsvps.filter(r => r.attended)
     : rsvpSubTab === 'absent' ? absentRsvps
     : rsvpSubTab === 'registered' ? eventRsvps
-    : [...eventRsvps, ...cancelledRsvps];
+    : [...eventRsvps, ...cancelledRsvps]
+  );
 
   useEffect(() => { setRsvpSubTab('all'); setSelectedRsvpIds(new Set()); }, [rsvpEventView?.id]);
 
@@ -3026,6 +3034,11 @@ export default function AdminPage() {
                                 <button onClick={() => setViewingAttendanceOf(r)}
                                   style={{display:'flex',alignItems:'center',gap:'5px',fontSize:'11px',fontWeight:700,color:'var(--green)',background:'var(--green-pale)',border:'1px solid #9ADDC3',borderRadius:'20px',padding:'4px 10px',cursor:'pointer'}}>
                                   <i className="fa-solid fa-circle-check"></i> Present
+                                  {r.checked_in_at && (
+                                    <span style={{fontWeight:600,opacity:.85}}>
+                                      · {new Date(r.checked_in_at).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'})}
+                                    </span>
+                                  )}
                                   <i className="fa-solid fa-map-location-dot" style={{marginLeft:'2px',opacity:.7}}></i>
                                 </button>
                               ) : (
