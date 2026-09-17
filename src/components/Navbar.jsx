@@ -154,13 +154,17 @@ export default function Navbar() {
         {links.map(l => (
           <div key={l.to}>
             <Link to={l.to} className="nav-mobile-link">{l.label}</Link>
-            {l.children && l.children.map(c => (
-              <Link key={c.to} to={c.to} className="nav-mobile-link"
-                style={{paddingLeft:'34px',fontSize:'13.5px',color:'var(--text-muted)'}}>
-                <i className="fa-solid fa-angle-right" style={{fontSize:'10px',marginRight:'6px',opacity:.6}}></i>
-                {c.label}
-              </Link>
-            ))}
+            {l.children && (
+              <div style={{background:'var(--blue-pale)',borderRadius:'10px',margin:'4px 0 8px',padding:'4px'}}>
+                {l.children.map(c => (
+                  <Link key={c.to} to={c.to}
+                    style={{display:'flex',alignItems:'center',gap:'9px',padding:'11px 14px',fontSize:'13.5px',fontWeight:600,color:'var(--blue)'}}>
+                    <i className="fa-solid fa-angle-right" style={{width:'12px',fontSize:'10px',opacity:.55}}></i>
+                    {c.label}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {user ? (
@@ -193,4 +197,4 @@ export default function Navbar() {
       </div>
     </nav>
   );
-} 
+}
