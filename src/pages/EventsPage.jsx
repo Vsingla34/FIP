@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApp } from '../context/AppContext.jsx';
 import { useRazorpay } from '../hooks/useRazorpay.js';
@@ -55,6 +55,7 @@ export default function EventsPage() {
   const { showToast, openModal } = useApp();
   const { pay } = useRazorpay();
   const navigate = useNavigate();
+  const location = useLocation();
   const isFipMember = profile?.membership_status === 'Active';
 
   const [events,  setEvents]  = useState([]);
@@ -112,16 +113,16 @@ export default function EventsPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!window.location.hash) return;
+    if (!location.hash) return;
     // Wait a tick for content (and the loading state) to settle before
     // scrolling, otherwise the target section may not exist yet or its
     // position may shift once the event cards render in above it.
     const t = setTimeout(() => {
-      const el = document.getElementById(window.location.hash.slice(1));
+      const el = document.getElementById(location.hash.slice(1));
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 300);
     return () => clearTimeout(t);
-  }, [loading]);
+  }, [loading, location.hash]);
 
   // Pre-fill form from profile when opening RSVP
   const openRsvp = (event) => {

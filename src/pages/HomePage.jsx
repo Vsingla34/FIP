@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { supabase } from '../lib/supabase.js';
@@ -75,7 +75,21 @@ const FALLBACK = [
 export default function HomePage() {
   const { openModal } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
   const [testimonials, setTestimonials] = useState(FALLBACK);
+
+  useEffect(() => {
+    if (!location.hash) return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(location.hash.slice(1));
+      if (el) {
+        const navHeight = document.getElementById('navbar')?.offsetHeight || 80;
+        const y = el.getBoundingClientRect().top + window.scrollY - navHeight - 16; // 16px breathing room below the navbar
+        window.scrollTo({ top: y, behavior: 'smooth' });
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [location.hash]);
 
   // Executive Committee — same data source as the Team page (committees
   // table + real-account photo matching), kept independent since this is
@@ -684,10 +698,10 @@ export default function HomePage() {
 
       {/* FEATURES */}
       {/* ── TESTIMONIALS — live from Supabase ── */}
-      <section className="section section-alt">
+      <section className="section section-alt" id="testimonials">
         <div className="container">
           <div className="section-header">
-            <span className="eyebrow">Member Voices</span>
+            <span className="eyebrow">Testimonials</span>
             <h2 className="section-heading">Hear How FIP is <span>Making a Difference</span></h2>
             <p className="section-sub">Real experiences from FIP professionals across India.</p>
           </div>

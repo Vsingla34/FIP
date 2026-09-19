@@ -69,6 +69,9 @@ export default function AdminPage() {
   const [memberSearch,   setMemberSearch]   = useState('');
   const [memberSubTab,   setMemberSubTab]   = useState('all');   // 'all' | 'students' | 'members'
   const [openActionMenu, setOpenActionMenu] = useState(null);    // member id whose ⋮ menu is open
+  const [editingNameOf, setEditingNameOf] = useState(null);      // member object currently being renamed, or null
+  const [editNameValue, setEditNameValue] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   /* committees state */
   const [committees,    setCommittees]    = useState([]);
@@ -2359,6 +2362,10 @@ export default function AdminPage() {
                                   style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'var(--blue)',fontWeight:600}}>
                                   <i className="fa-solid fa-eye" style={{width:'14px',color:'var(--blue)'}}></i> View Details
                                 </button>
+                                <button onClick={() => { setEditingNameOf(m); setEditNameValue(m.full_name || ''); setOpenActionMenu(null); }}
+                                  style={{width:'100%',padding:'10px 16px',background:'none',border:'none',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:'10px',fontSize:'13px',color:'var(--blue)',fontWeight:600}}>
+                                  <i className="fa-solid fa-pen" style={{width:'14px',color:'var(--blue)'}}></i> Edit Name
+                                </button>
                                 <div style={{height:'1px',background:'var(--border)',margin:'0 10px'}}/>
 
                                 {/* Role toggle */}
@@ -4639,6 +4646,56 @@ export default function AdminPage() {
               )}
               <button style={{marginLeft:'auto',background:'none',border:'1px solid var(--border)',padding:'7px 14px',borderRadius:'7px',fontSize:'12px',color:'var(--text-muted)',cursor:'pointer'}}
                 onClick={() => { setMemberDetail(null); setMemberActivity(null); }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Member Name Modal ── */}
+      {editingNameOf && (
+        <div className="modal-overlay" onClick={() => !savingName && setEditingNameOf(null)}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'400px'}}>
+            {!savingName && (
+              <button className="modal-close" onClick={() => setEditingNameOf(null)}>&#x2715;</button>
+            )}
+            <div className="modal-title" style={{marginBottom:'16px'}}>
+              <i className="fa-solid fa-pen" style={{color:'var(--orange)',marginRight:'8px'}}></i>
+              Edit Member Name
+            </div>
+            <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'16px'}}>
+              {editingNameOf.email}
+            </p>
+            <div className="form-group" style={{marginBottom:'20px'}}>
+              <label className="form-label">Full Name</label>
+              <input className="form-input" type="text" autoFocus
+                value={editNameValue} onChange={e => setEditNameValue(e.target.value)}/>
+            </div>
+            <div style={{display:'flex',gap:'10px'}}>
+              <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}}
+                disabled={savingName || !editNameValue.trim()}
+                onClick={async () => {
+                  const newName = editNameValue.trim();
+                  setSavingName(true);
+                  const { data: updated, error } = await supabase.rpc('admin_update_profile', {
+                    target_id: editingNameOf.id, new_name: newName,
+                  });
+                  setSavingName(false);
+                  if (error) { showToast('Error: ' + error.message, true); return; }
+                  if (!updated) {
+                    showToast('Update returned no result — see console for details.', true);
+                    console.error('Edit Name: RPC returned nothing. Attempted id:', editingNameOf.id);
+                    return;
+                  }
+                  setMembers(prev => prev.map(m => m.id === editingNameOf.id ? { ...m, full_name: newName } : m));
+                  showToast('Name updated.');
+                  setEditingNameOf(null);
+                }}>
+                {savingName ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving…</> : <><i className="fa-solid fa-check"></i> Save</>}
+              </button>
+              <button className="btn" style={{background:'transparent',border:'1px solid var(--border)'}}
+                disabled={savingName} onClick={() => setEditingNameOf(null)}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
