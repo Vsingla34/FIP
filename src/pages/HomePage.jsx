@@ -80,15 +80,20 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!location.hash) return;
-    const t = setTimeout(() => {
-      const el = document.getElementById(location.hash.slice(1));
-      if (el) {
-        const navHeight = document.getElementById('navbar')?.offsetHeight || 80;
-        const y = el.getBoundingClientRect().top + window.scrollY - navHeight - 16; // 16px breathing room below the navbar
-        window.scrollTo({ top: y, behavior: 'smooth' });
-      }
-    }, 300);
-    return () => clearTimeout(t);
+    const targetId = location.hash.slice(1);
+    const scrollToTarget = () => {
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      const navHeight = document.getElementById('navbar')?.offsetHeight || 80;
+      const y = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    };
+    // Fire more than once — content above the target (like the Executive
+    // Committee section, which loads its photos via a separate async
+    // fetch) can still be growing taller after the first attempt, which
+    // would otherwise leave the final scroll position short.
+    const timers = [300, 1200, 2200].map(delay => setTimeout(scrollToTarget, delay));
+    return () => timers.forEach(clearTimeout);
   }, [location.hash]);
 
   // Executive Committee — same data source as the Team page (committees

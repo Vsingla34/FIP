@@ -114,14 +114,19 @@ export default function EventsPage() {
 
   useEffect(() => {
     if (!location.hash) return;
-    // Wait a tick for content (and the loading state) to settle before
-    // scrolling, otherwise the target section may not exist yet or its
-    // position may shift once the event cards render in above it.
-    const t = setTimeout(() => {
-      const el = document.getElementById(location.hash.slice(1));
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 300);
-    return () => clearTimeout(t);
+    const targetId = location.hash.slice(1);
+    const scrollToTarget = () => {
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      const navHeight = document.getElementById('navbar')?.offsetHeight || 80;
+      const y = el.getBoundingClientRect().top + window.scrollY - navHeight - 16;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    };
+    // Fire more than once — content above the target can still be
+    // loading/growing taller after the first attempt, which would
+    // otherwise leave the final scroll position short.
+    const timers = [300, 1200, 2200].map(delay => setTimeout(scrollToTarget, delay));
+    return () => timers.forEach(clearTimeout);
   }, [loading, location.hash]);
 
   // Pre-fill form from profile when opening RSVP
@@ -803,4 +808,4 @@ export default function EventsPage() {
       )}
     </>
   );
-}
+} 
