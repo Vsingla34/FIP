@@ -12,6 +12,7 @@ import Footer      from './components/Footer.jsx';
 import Toast       from './components/Toast.jsx';
 import Modals      from './components/Modals.jsx';
 import PromoPopup  from './components/PromoPopup.jsx';
+import CheckInReminder from './components/CheckInReminder.jsx';
 
 const MemoAnnounceBar = memo(AnnounceBar);
 const MemoNavbar      = memo(Navbar);
@@ -19,6 +20,7 @@ const MemoFooter      = memo(Footer);
 const MemoToast       = memo(Toast);
 const MemoModals      = memo(Modals);
 const MemoPromoPopup  = memo(PromoPopup);
+const MemoCheckInReminder = memo(CheckInReminder);
 
 /* ── Page components (imported eagerly — lazy loading optional later) ── */
 import HomePage           from './pages/HomePage.jsx';
@@ -55,6 +57,7 @@ function AppContent() {
       {!isAdmin && <MemoAnnounceBar />}
       {!isAdmin && <MemoNavbar />}
       <MemoPromoPopup />
+      <MemoCheckInReminder />
 
       <Routes>
         {/* ── Public ── */}
