@@ -2475,7 +2475,9 @@ export default function AdminPage() {
                   <div style={{flex:1,minWidth:'200px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px',flexWrap:'wrap'}}>
                       <span style={{fontSize:'15px',fontWeight:700,color:'var(--blue)'}}>{ev.title}</span>
-                      <span className={`status-pill ${ev.status==='upcoming'?'sp-active':ev.status==='ongoing'?'sp-pending':'sp-rejected'}`}>{ev.status}</span>
+                      <span className={`status-pill ${ev.status==='upcoming'?'sp-active':ev.status==='ongoing'?'sp-pending':ev.status==='paused'?'sp-rejected':'sp-rejected'}`}>
+                        {ev.status === 'paused' ? 'Registration Paused' : ev.status}
+                      </span>
                     </div>
                     <div style={{fontSize:'12px',color:'var(--text-muted)',display:'flex',gap:'10px',flexWrap:'wrap'}}>
                       {ev.event_date && (
@@ -4326,6 +4328,7 @@ export default function AdminPage() {
                 <select className="form-select" value={eventForm.status} onChange={e=>setEventForm(f=>({...f,status:e.target.value}))}>
                   <option value="upcoming">Upcoming</option>
                   <option value="ongoing">Ongoing</option>
+                  <option value="paused">Paused (Registration Closed)</option>
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>

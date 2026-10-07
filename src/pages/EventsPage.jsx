@@ -82,7 +82,7 @@ export default function EventsPage() {
     // status can no longer surface a past event here.
     const todayStr = new Date().toISOString().split('T')[0];
     supabase.from('events').select('*')
-      .in('status', ['upcoming','ongoing'])
+      .in('status', ['upcoming','ongoing','paused'])
       .or(`event_date.gte.${todayStr},event_end_date.gte.${todayStr},event_date.is.null`)
       .order('event_date', { ascending: true, nullsFirst: false })
       .then(async ({ data }) => {
@@ -576,17 +576,18 @@ export default function EventsPage() {
                         // page — keeps this button and the real enforcement
                         // in agreement.
                         const blockedNonMember = ev.members_only_registration && !isActiveMemberForGate && !isAdminUser;
+                        const isPaused = ev.status === 'paused';
                         return (
                           <button
                             className="ev-card-cta"
                             style={{
-                              background: isReg ? 'var(--green)' : (isFull || blockedNonMember) ? '#6B7280' : evPrice>0 ? 'var(--orange)' : 'var(--blue)',
+                              background: isReg ? 'var(--green)' : (isFull || blockedNonMember || isPaused) ? '#6B7280' : evPrice>0 ? 'var(--orange)' : 'var(--blue)',
                               color:'#fff',
-                              cursor: (isReg || isFull || blockedNonMember) ? (blockedNonMember ? 'pointer' : 'default') : 'pointer',
-                              opacity: (isFull || blockedNonMember) && !isReg ? 0.85 : 1,
+                              cursor: (isReg || isFull || blockedNonMember || isPaused) ? (blockedNonMember ? 'pointer' : 'default') : 'pointer',
+                              opacity: (isFull || blockedNonMember || isPaused) && !isReg ? 0.85 : 1,
                             }}
                             onClick={() => {
-                              if (isReg || isFull) return;
+                              if (isReg || isFull || isPaused) return;
                               if (blockedNonMember) { navigate('/membership'); return; }
                               if (!user) {
                                 showToast('Please log in to register for this event.', true);
@@ -597,6 +598,8 @@ export default function EventsPage() {
                             }}>
                             {isReg
                               ? <><i className="fa-solid fa-circle-check"></i> Already Registered</>
+                              : isPaused
+                              ? <><i className="fa-solid fa-pause"></i> Registration Paused</>
                               : isFull
                               ? <><i className="fa-solid fa-ban"></i> Fully Booked</>
                               : blockedNonMember
