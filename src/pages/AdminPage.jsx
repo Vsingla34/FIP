@@ -1633,6 +1633,7 @@ export default function AdminPage() {
   const [paymentSearch,      setPaymentSearch]      = useState('');
   const [paymentStatusFilter,setPaymentStatusFilter]= useState('All');
   const [paymentTypeFilter,  setPaymentTypeFilter]  = useState('All');
+  const [paymentEventFilter, setPaymentEventFilter] = useState('All');
   const [payDateFrom,        setPayDateFrom]        = useState('');
   const [payDateTo,          setPayDateTo]          = useState('');
   /* Refund + reconcile */
@@ -3312,6 +3313,7 @@ export default function AdminPage() {
                       ? (p.status === 'refunded' || p.status === 'partially_refunded' || Number(p.amount_refunded) > 0)
                       : p.status === paymentStatusFilter))
               .filter(p => paymentTypeFilter === 'All' || p.purchase_type === paymentTypeFilter)
+              .filter(p => paymentEventFilter === 'All' || p.item_name === paymentEventFilter || paymentTypeFilter !== 'event')
               .filter(inRange)
               .filter(p => !q || [
                 p.profiles?.full_name, p.profiles?.email, p.profiles?.phone,
@@ -3321,8 +3323,20 @@ export default function AdminPage() {
             const sum   = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
             const gross = sum(filtPay.filter(p => p.status === 'paid' || Number(p.amount_refunded) > 0), p => p.total_amount);
             const refunded = sum(filtPay, p => p.amount_refunded);
-            const anyFilter = paymentStatusFilter !== 'All' || paymentTypeFilter !== 'All'
+            const anyFilter = paymentStatusFilter !== 'All' || paymentTypeFilter !== 'All' || paymentEventFilter !== 'All'
                               || payDateFrom || payDateTo || q;
+
+            const eventPaymentCounts = {};
+            const uniqueEventNames = new Set();
+            allPayments.forEach(p => {
+              if (p.purchase_type === 'event' && p.item_name) {
+                uniqueEventNames.add(p.item_name);
+                if (p.profiles?.email && ['paid', 'refunded', 'partially_refunded'].includes(p.status)) {
+                  const key = `${p.profiles.email}::${p.item_name}`;
+                  eventPaymentCounts[key] = (eventPaymentCounts[key] || 0) + 1;
+                }
+              }
+            });
 
             return (
             <div className="admin-form-card">
@@ -3390,19 +3404,28 @@ export default function AdminPage() {
                   <option value="partially_refunded">Partially refunded</option>
                 </select>
                 <select className="form-select" style={{width:'140px'}} value={paymentTypeFilter}
-                  onChange={e=>setPaymentTypeFilter(e.target.value)}>
+                  onChange={e=> { setPaymentTypeFilter(e.target.value); if(e.target.value !== 'event') setPaymentEventFilter('All'); }}>
                   <option value="All">All Types</option>
                   <option value="membership">Membership</option>
                   <option value="course">Course</option>
                   <option value="event">Event</option>
                 </select>
+                {paymentTypeFilter === 'event' && (
+                  <select className="form-select" style={{maxWidth:'350px'}} value={paymentEventFilter}
+                    onChange={e=>setPaymentEventFilter(e.target.value)}>
+                    <option value="All">All Events</option>
+                    {Array.from(uniqueEventNames).sort().map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                )}
                 <input type="date" className="form-input" style={{width:'150px'}} value={payDateFrom}
                   title="From date" onChange={e=>setPayDateFrom(e.target.value)}/>
                 <input type="date" className="form-input" style={{width:'150px'}} value={payDateTo}
                   title="To date" onChange={e=>setPayDateTo(e.target.value)}/>
                 {anyFilter && (
                   <button className="btn btn-sm" style={{background:'var(--border)',border:'none',fontWeight:600}}
-                    onClick={()=>{setPaymentSearch('');setPaymentStatusFilter('All');setPaymentTypeFilter('All');setPayDateFrom('');setPayDateTo('');}}>
+                    onClick={()=>{setPaymentSearch('');setPaymentStatusFilter('All');setPaymentTypeFilter('All');setPaymentEventFilter('All');setPayDateFrom('');setPayDateTo('');}}>
                     <i className="fa-solid fa-xmark"></i> Clear
                   </button>
                 )}
@@ -3507,12 +3530,21 @@ export default function AdminPage() {
                                   : p.status === 'paid'   ? {bg:'#DCFCE7',fg:'#15803D',label:'Paid'}
                                   : p.status === 'failed' ? {bg:'#FEE2E2',fg:'#B91C1C',label:'Failed'}
                                   : {bg:'#FEF3C7',fg:'#B45309',label:p.status || '—'};
+                        const isDuplicateEventPayment = p.purchase_type === 'event' && p.profiles?.email && eventPaymentCounts[`${p.profiles.email}::${p.item_name}`] > 1;
                         return (
-                        <tr key={p.id || i} style={isFull ? {opacity:.72} : undefined}>
+                        <tr key={p.id || i} style={{
+                          opacity: isFull ? .72 : 1,
+                          backgroundColor: isDuplicateEventPayment ? '#FFF3CD' : undefined
+                        }} title={isDuplicateEventPayment ? 'Multiple successful payments for this event from this account' : ''}>
                           <td>
                             <div className="dboard-table-name">{p.profiles?.full_name || '—'}</div>
-
-                            <div style={{fontSize:'11px',color:'var(--text-muted)'}}>{p.profiles?.email || ''}</div>
+                            <div style={{
+                              fontSize:'11px',
+                              color: isDuplicateEventPayment ? '#856404' : 'var(--text-muted)',
+                              fontWeight: isDuplicateEventPayment ? 700 : 'normal'
+                            }}>
+                              {p.profiles?.email || ''}
+                            </div>
                           </td>
                           {/* Who this payment actually enrolled. For a guest
                               booking the payer and the attendee differ — this
