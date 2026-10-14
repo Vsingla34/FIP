@@ -1019,13 +1019,24 @@ export default function AdminPage() {
       created_by: profile?.id };
     if (showEventModal === 'new') {
       const { data, error } = await supabase.from('events').insert(payload).select().single();
-      if (!error && data) { setAdminEvents(prev => [data, ...prev]); setShowEventModal(null); showToast('Event created!'); }
+      if (!error && data) { setAdminEvents(prev => [data, ...prev]); setShowEventModal(null); showToast('Event created!'); notifyEventPush(data.id, true); }
       else showToast('Error: ' + (error?.message || 'Failed'), true);
     } else {
       const { data, error } = await supabase.from('events').update(payload).eq('id', showEventModal.id).select().single();
       if (!error && data) { setAdminEvents(prev => prev.map(e => e.id===data.id?data:e)); setShowEventModal(null); showToast('Event updated!'); }
       else showToast('Error: ' + (error?.message || 'Failed'), true);
     }
+  };
+
+  // Web Push to members who enabled notifications (auto on create, manual resend via bell)
+  const notifyEventPush = async (eventId, silent) => {
+    try {
+      const res = await fetch('/api/send-event-push', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ userId: profile?.id, eventId }) });
+      const d = await res.json();
+      if (res.ok) showToast(`Notification sent to ${d.sent} member device(s).`);
+      else if (!silent) showToast('Error: ' + (d.error || 'Failed'), true);
+    } catch (e) { if (!silent) showToast('Error: ' + e.message, true); }
   };
 
   const deleteEvent = async (id) => {
@@ -2500,6 +2511,7 @@ export default function AdminPage() {
                   </div>
                   <div style={{display:'flex',gap:'8px',flexWrap:'wrap',flexShrink:0}}>
                     <button className="admin-btn admin-btn-orange" onClick={() => loadRsvps(ev)}><i className="fa-solid fa-users"></i> Registrations</button>
+                    <button className="admin-btn" title="Send push notification to members" onClick={() => { if (window.confirm('Send push notification about this event to all members?')) notifyEventPush(ev.id); }}><i className="fa-solid fa-bell"></i> Notify</button>
                     <button className="admin-btn" style={{background:'var(--blue-tint)',color:'var(--blue)',border:'1px solid #C0CDE8'}} onClick={() => openEventModal(ev)}><i className="fa-solid fa-pen"></i> Edit</button>
                     <button className="admin-btn admin-btn-danger" onClick={() => deleteEvent(ev.id)}><i className="fa-solid fa-trash"></i></button>
                   </div>
