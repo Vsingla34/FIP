@@ -100,6 +100,7 @@ function AppContent() {
         } />
 
         {/* ── Admin ── */}
+
         <Route path="/admin" element={
           <ProtectedRoute requireAuth requireAdmin><AdminPage /></ProtectedRoute>
         } />
